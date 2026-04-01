@@ -12,6 +12,7 @@ The immediate goal is to create a maintainable base for the language implementat
 - shared Rust utilities in `crates/base`
 - a platform abstraction layer in `crates/pal`
 - repository tooling for checks, CI, and planning
+- a language spec under `docs/spec`
 
 That keeps the project ready for parser, compiler, runtime, or tooling crates without forcing those decisions too early.
 
