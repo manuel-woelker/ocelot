@@ -12,7 +12,7 @@ pub struct EngineOutput {
 
 /// Runs the current placeholder pipeline for a source file.
 pub fn run(source: &str) -> OcelotResult<EngineOutput> {
-    let program = ocelot_parser::parse(source)?;
+    let program = ocelot_parser::parse::parse(source)?;
     ocelot_resolver::resolve(&program)?;
     ocelot_interpreter::interpret(&program)?;
     Ok(EngineOutput { program })

@@ -1,11 +1,4 @@
 //! Parsing support for `ocelot`.
 
 pub mod lexer;
-
-use ocelot_ast::Program;
-use ocelot_base::result::OcelotResult;
-
-/// Parses source text into an AST.
-pub fn parse(_source: &str) -> OcelotResult<Program> {
-    Ok(Program)
-}
+pub mod parse;
