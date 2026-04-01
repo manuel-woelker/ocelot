@@ -24,6 +24,7 @@ pub struct PalMock {
 
 struct PalMockInner {
     effects_string: String,
+    printed_output: String,
     file_map: HashMap<FilePath, Vec<u8>>,
     directories: HashSet<FilePath>,
     process_executions: HashMap<ProcessCommand, (Vec<ProcessEvent>, ProcessResult, Duration)>,
@@ -38,6 +39,7 @@ impl PalMock {
         Self {
             inner: Arc::new(RwLock::new(PalMockInner {
                 effects_string: String::new(),
+                printed_output: String::new(),
                 file_map: HashMap::new(),
                 directories: HashSet::new(),
                 process_executions: HashMap::new(),
@@ -67,6 +69,11 @@ impl PalMock {
 
     pub fn clear_effects(&self) {
         self.inner.write().effects_string.clear();
+    }
+
+    pub fn take_printed_output(&self) -> String {
+        let mut inner = self.inner.write();
+        std::mem::take(&mut inner.printed_output)
     }
 
     pub fn set_file(&self, file_path: &str, content: impl Into<Vec<u8>>) {
@@ -219,6 +226,12 @@ impl Pal for PalMock {
             .entry(path.clone())
             .and_modify(|existing| existing.extend_from_slice(content))
             .or_insert_with(|| content.to_vec());
+        Ok(())
+    }
+
+    fn print(&self, text: &str) -> OcelotResult<()> {
+        self.log_effect(format!("PRINT: {text}"));
+        self.inner.write().printed_output.push_str(text);
         Ok(())
     }
 

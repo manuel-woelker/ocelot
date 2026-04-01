@@ -23,6 +23,7 @@ use std::fmt::Debug;
 use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::IsTerminal as _;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant, SystemTime};
@@ -328,6 +329,15 @@ impl Pal for PalReal {
             .with_context(|| format!("Unable to open file '{}' for append", path))?;
         std::io::Write::write_all(&mut file, content)
             .with_context(|| format!("Unable to append file '{}'", path))?;
+        Ok(())
+    }
+
+    fn print(&self, text: &str) -> OcelotResult<()> {
+        let mut stdout = std::io::stdout();
+        stdout
+            .write_all(text.as_bytes())
+            .context("Unable to write to stdout")?;
+        stdout.flush().context("Unable to flush stdout")?;
         Ok(())
     }
 

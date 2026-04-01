@@ -61,6 +61,9 @@ pub trait Pal: Debug + Sync + Send + 'static {
     /// Append bytes to a file, creating it if it does not exist.
     fn append_file(&self, path: &FilePath, content: &[u8]) -> OcelotResult<()>;
 
+    /// Writes text to standard output without adding a newline.
+    fn print(&self, text: &str) -> OcelotResult<()>;
+
     /// Returns whether normal process output targets an interactive terminal.
     fn is_interactive_terminal(&self) -> bool;
 
