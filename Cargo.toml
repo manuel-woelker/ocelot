@@ -1,8 +1,13 @@
 [workspace]
 members = [
+    "crates/ast",
     "crates/base",
     "crates/cli",
+    "crates/engine",
+    "crates/interpreter",
     "crates/pal",
+    "crates/parser",
+    "crates/resolver",
 ]
 resolver = "2"
 

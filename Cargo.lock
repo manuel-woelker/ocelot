@@ -362,6 +362,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ocelot-ast"
+version = "0.1.1"
+dependencies = [
+ "ocelot-base",
+]
+
+[[package]]
 name = "ocelot-base"
 version = "0.1.1"
 dependencies = [
@@ -376,6 +383,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ocelot-engine"
+version = "0.1.1"
+dependencies = [
+ "ocelot-ast",
+ "ocelot-base",
+ "ocelot-interpreter",
+ "ocelot-parser",
+ "ocelot-resolver",
+]
+
+[[package]]
+name = "ocelot-interpreter"
+version = "0.1.1"
+dependencies = [
+ "ocelot-ast",
+ "ocelot-base",
+]
+
+[[package]]
 name = "ocelot-pal"
 version = "0.1.1"
 dependencies = [
@@ -385,6 +411,22 @@ dependencies = [
  "ocelot-base",
  "relative-path",
  "tokio",
+]
+
+[[package]]
+name = "ocelot-parser"
+version = "0.1.1"
+dependencies = [
+ "ocelot-ast",
+ "ocelot-base",
+]
+
+[[package]]
+name = "ocelot-resolver"
+version = "0.1.1"
+dependencies = [
+ "ocelot-ast",
+ "ocelot-base",
 ]
 
 [[package]]
