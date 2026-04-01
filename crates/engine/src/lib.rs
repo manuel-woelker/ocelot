@@ -2,6 +2,7 @@
 
 use ocelot_ast::script::Script;
 use ocelot_base::result::OcelotResult;
+use ocelot_base::source_file::SourceFile;
 
 /// Result of running the current placeholder language pipeline.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -12,7 +13,8 @@ pub struct EngineOutput {
 
 /// Runs the current placeholder pipeline for a source file.
 pub fn run(source: &str) -> OcelotResult<EngineOutput> {
-    let script = ocelot_parser::parse::parse(source)?;
+    let source_file = SourceFile::new("<anonymous>", source);
+    let script = ocelot_parser::parse::parse_script(&source_file)?;
     ocelot_resolver::resolve(&script)?;
     ocelot_interpreter::interpret(&script)?;
     Ok(EngineOutput { script })
