@@ -6,5 +6,6 @@ pub enum TokenType {
     LeftParen,
     RightParen,
     Semicolon,
+    Unexpected,
     EndOfFile,
 }
