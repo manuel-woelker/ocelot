@@ -359,6 +359,8 @@ name = "ocelot"
 version = "0.1.1"
 dependencies = [
  "ocelot-base",
+ "ocelot-engine",
+ "ocelot-pal",
 ]
 
 [[package]]
