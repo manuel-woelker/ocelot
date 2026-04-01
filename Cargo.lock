@@ -355,6 +355,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ocelot"
+version = "0.1.0"
+dependencies = [
+ "ocelot-base",
+]
+
+[[package]]
 name = "ocelot-base"
 version = "0.1.0"
 dependencies = [
