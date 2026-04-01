@@ -1,0 +1,19 @@
+[package]
+name = "ocelot-base"
+version = "0.1.0"
+edition = "2024"
+description = "Shared base utilities for the ocelot project"
+license = "MIT"
+repository = "https://github.com/manuel-woelker/ocelot"
+
+[dev-dependencies]
+expect-test = { workspace = true }
+
+[dependencies]
+anstream = { workspace = true }
+ecow = { workspace = true }
+parking_lot = { workspace = true }
+serde = { workspace = true }
+tracing = { workspace = true }
+tracing-error = { workspace = true }
+tracing-subscriber = { workspace = true }
