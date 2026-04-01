@@ -1,5 +1,7 @@
 //! Parsing support for `ocelot`.
 
+pub mod lexer;
+
 use ocelot_ast::Program;
 use ocelot_base::result::OcelotResult;
 
