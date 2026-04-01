@@ -389,6 +389,7 @@ dependencies = [
  "ocelot-ast",
  "ocelot-base",
  "ocelot-interpreter",
+ "ocelot-pal",
  "ocelot-parser",
  "ocelot-resolver",
 ]
@@ -399,6 +400,7 @@ version = "0.1.1"
 dependencies = [
  "ocelot-ast",
  "ocelot-base",
+ "ocelot-pal",
 ]
 
 [[package]]
