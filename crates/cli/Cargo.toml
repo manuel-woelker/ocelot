@@ -1,10 +1,10 @@
 [package]
 name = "ocelot"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Command-line interface for the ocelot project"
 license = "MIT"
 repository = "https://github.com/manuel-woelker/ocelot"
 
 [dependencies]
-ocelot-base = { path = "../base", version = "0.1.0" }
+ocelot-base = { path = "../base", version = "0.1.1" }

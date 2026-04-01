@@ -1,13 +1,13 @@
 [package]
 name = "ocelot-pal"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Platform abstraction layer for the ocelot project"
 license = "MIT"
 repository = "https://github.com/manuel-woelker/ocelot"
 
 [dependencies]
-ocelot-base = { path = "../base", version = "0.1.0" }
+ocelot-base = { path = "../base", version = "0.1.1" }
 expect-test = { workspace = true }
 ignore = { workspace = true }
 notify-debouncer-full = { workspace = true }

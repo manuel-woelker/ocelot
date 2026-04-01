@@ -1,6 +1,6 @@
 [package]
 name = "ocelot-base"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Shared base utilities for the ocelot project"
 license = "MIT"

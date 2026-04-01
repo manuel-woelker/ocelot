@@ -356,14 +356,14 @@ dependencies = [
 
 [[package]]
 name = "ocelot"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ocelot-base",
 ]
 
 [[package]]
 name = "ocelot-base"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anstream",
  "ecow",
@@ -377,7 +377,7 @@ dependencies = [
 
 [[package]]
 name = "ocelot-pal"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "expect-test",
  "ignore",
