@@ -167,10 +167,10 @@ If a follow-up slice adds a Markdown-driven harness, that follow-up should add f
 
 # What concrete tasks should track this plan?
 
-- [ ] Create `docs/spec/`.
-- [ ] Add a spec index document that explains chapter numbering and links to chapters.
-- [ ] Add initial numbered chapter files that prove the naming convention.
-- [ ] Define the standard spec example shape using headings, `ocelot` fenced blocks, and explicit output blocks.
-- [ ] Ensure the initial chapters contain short prose plus short examples.
-- [ ] Update any higher-level repository documentation that should reference the spec location.
-- [ ] Run `nao check`.
+- [x] Create `docs/spec/`.
+- [x] Add a spec index document that explains chapter numbering and links to chapters.
+- [x] Add initial numbered chapter files that prove the naming convention.
+- [x] Define the standard spec example shape using headings, `ocelot` fenced blocks, and explicit output blocks.
+- [x] Ensure the initial chapters contain short prose plus short examples.
+- [x] Update any higher-level repository documentation that should reference the spec location.
+- [x] Run `nao check`.

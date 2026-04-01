@@ -40,13 +40,13 @@ Example:
 ## Example: integer addition
 
 ```ocelot
-fn main() -> i64 { 1i64 + 2i64; }
+println("hello");
 ```
 
 ### Output
 
 ```text
-3i64
+hello
 ```
 ~~~
 
@@ -54,6 +54,9 @@ This keeps the spec readable for humans and makes it realistic to extract exampl
 
 # What chapters exist today?
 
-No numbered spec chapters are checked in yet.
+The first numbered spec chapters are:
 
-The directory structure and example conventions are in place so real chapters can be added later without redesigning the format.
+- [08.01 Runtime behavior - Scripts](./08.01%20Runtime%20behavior%20-%20Scripts.md)
+- [09.01 Standard library - println](./09.01%20Standard%20library%20-%20println.md)
+
+Additional chapters can be added later without redesigning the format.
