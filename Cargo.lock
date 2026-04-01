@@ -386,12 +386,11 @@ dependencies = [
 name = "ocelot-engine"
 version = "0.1.1"
 dependencies = [
- "ocelot-ast",
+ "expect-test",
  "ocelot-base",
  "ocelot-interpreter",
  "ocelot-pal",
  "ocelot-parser",
- "ocelot-resolver",
 ]
 
 [[package]]
