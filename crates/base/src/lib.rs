@@ -8,6 +8,7 @@ pub mod result;
 pub mod shared_string;
 pub mod source_annotation;
 pub mod source_diagnostic;
+pub mod source_diagnostics;
 pub mod source_excerpt;
 pub mod source_file;
 pub mod span;

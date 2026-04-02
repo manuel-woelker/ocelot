@@ -7,9 +7,9 @@ use annotate_snippets::Annotation;
 use annotate_snippets::AnnotationKind;
 use annotate_snippets::Group;
 use annotate_snippets::Level;
-use annotate_snippets::renderer::DecorStyle;
 use annotate_snippets::Renderer;
 use annotate_snippets::Snippet;
+use annotate_snippets::renderer::DecorStyle;
 
 /// Renders source diagnostics into a displayable string.
 pub fn render_source_diagnostics(diagnostics: &[SourceDiagnostic]) -> SharedString {
@@ -69,8 +69,8 @@ mod tests {
     use crate::source_excerpt::SourceExcerpt;
     use crate::span::Span;
     use crate::unansi;
-    use annotate_snippets::renderer::DecorStyle;
     use annotate_snippets::Renderer;
+    use annotate_snippets::renderer::DecorStyle;
     use expect_test::expect;
 
     #[test]
@@ -85,12 +85,11 @@ mod tests {
                 .with_annotation(SourceAnnotation::new(Span::new(8, 13), "not found")),
         );
 
-        let rendered =
-            render_source_diagnostics_with_renderer(
-                &[diagnostic],
-                Renderer::plain().decor_style(DecorStyle::Unicode),
-            )
-            .to_string();
+        let rendered = render_source_diagnostics_with_renderer(
+            &[diagnostic],
+            Renderer::plain().decor_style(DecorStyle::Unicode),
+        )
+        .to_string();
 
         expect![[r#"
             error: unresolved identifier `value`
