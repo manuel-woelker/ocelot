@@ -8,7 +8,7 @@ use ocelot_base::file_path::FilePath;
 use ocelot_base::result::OcelotResult;
 use ocelot_base::shared_string::SharedString;
 
-/// How is a spec directory validated end to end?
+/// Validates a spec directory end to end.
 pub fn validate_spec_directory(
     pal: &CapturingPal,
     spec_root: &FilePath,

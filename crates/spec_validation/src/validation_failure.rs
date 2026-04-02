@@ -2,7 +2,7 @@ use crate::validation_failure_kind::ValidationFailureKind;
 use ocelot_base::file_path::FilePath;
 use ocelot_base::shared_string::SharedString;
 
-/// What single validation failure should be reported to the caller?
+/// Single validation failure reported to the caller.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationFailure {
     /// The chapter path that contains the failing example.

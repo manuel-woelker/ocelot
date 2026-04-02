@@ -1,6 +1,6 @@
 use crate::validation_failure::ValidationFailure;
 
-/// What overall result came back from validating the spec examples?
+/// Overall result produced by validating spec examples.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationReport {
     /// The number of numbered spec chapters scanned.
@@ -14,7 +14,7 @@ pub struct ValidationReport {
 }
 
 impl ValidationReport {
-    /// Returns whether validation completed without failures.
+    /// Returns `true` when validation completed without failures.
     pub fn is_success(&self) -> bool {
         self.failures.is_empty()
     }

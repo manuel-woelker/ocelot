@@ -2,7 +2,7 @@ use crate::spec_example::SpecExample;
 use crate::validation_failure::ValidationFailure;
 use ocelot_base::file_path::FilePath;
 
-/// What chapter data was loaded from one spec markdown file?
+/// Loaded data from one spec markdown chapter.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadedSpecChapter {
     /// The chapter path relative to the repository root.

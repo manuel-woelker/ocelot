@@ -1,4 +1,4 @@
-/// How should observed and expected output be normalized before comparison?
+/// Normalizes observed and expected output before comparison.
 pub fn normalize_validation_text(text: &str) -> String {
     text.replace("\r\n", "\n").trim_end_matches('\n').to_owned()
 }

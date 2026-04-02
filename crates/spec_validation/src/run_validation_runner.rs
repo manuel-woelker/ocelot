@@ -5,7 +5,7 @@ use ocelot_base::bail;
 use ocelot_base::file_path::FilePath;
 use ocelot_base::result::OcelotResult;
 
-/// How is the spec validation runner executed?
+/// Runs the spec validation runner.
 pub fn run_validation_runner(
     pal: &CapturingPal,
     spec_root: &FilePath,

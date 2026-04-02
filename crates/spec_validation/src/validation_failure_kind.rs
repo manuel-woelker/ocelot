@@ -1,4 +1,4 @@
-/// What kind of validation failure occurred?
+/// Kinds of validation failures reported by the spec validator.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationFailureKind {
     /// The markdown example shape did not satisfy the extraction contract.

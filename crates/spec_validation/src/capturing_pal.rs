@@ -9,7 +9,7 @@ use ocelot_pal::process_result::ProcessResult;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-/// What PAL implementation captures printed output while delegating everything else?
+/// PAL implementation that captures printed output while delegating other behavior.
 #[derive(Debug, Clone)]
 pub struct CapturingPal {
     inner: PalHandle,

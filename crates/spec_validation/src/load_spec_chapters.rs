@@ -8,7 +8,7 @@ use ocelot_base::result::OcelotResult;
 use ocelot_base::shared_string::SharedString;
 use ocelot_pal::pal::Pal;
 
-/// How are numbered spec chapters discovered and loaded from markdown files?
+/// Loads numbered spec chapters from markdown files in filename order.
 pub fn load_spec_chapters(
     pal: &dyn Pal,
     spec_root: &FilePath,

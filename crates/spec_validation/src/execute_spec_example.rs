@@ -7,7 +7,7 @@ use ocelot_base::result::OcelotResult;
 use ocelot_engine::engine::Engine;
 use ocelot_pal::pal::{Pal, PalHandle};
 
-/// How is one extracted spec example executed through the engine pipeline?
+/// Executes one extracted spec example through the engine pipeline.
 pub fn execute_spec_example(
     pal: &CapturingPal,
     execution_root: &std::path::Path,

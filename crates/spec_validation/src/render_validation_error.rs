@@ -1,6 +1,6 @@
 use ocelot_base::error::OcelotError;
 
-/// How should an engine error be rendered for stable spec comparison?
+/// Renders an engine error into stable text for spec comparison.
 pub fn render_validation_error(error: &OcelotError) -> String {
     let mut rendered = error.kind().to_string();
     let mut current = error.source();

@@ -2,7 +2,7 @@ use crate::validation_failure_kind::ValidationFailureKind;
 use crate::validation_report::ValidationReport;
 use std::fmt::Write as _;
 
-/// How should a validation report be rendered for humans?
+/// Renders a validation report for human-readable output.
 pub fn render_validation_report(report: &ValidationReport) -> String {
     let mut rendered = String::new();
     let _ = writeln!(

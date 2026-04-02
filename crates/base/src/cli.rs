@@ -3,7 +3,7 @@ use crate::result::OcelotResult;
 use std::fmt::Write as _;
 use std::process::ExitCode;
 
-/// What does `try_main` provide for CLI binaries?
+/// Runs a fallible CLI entrypoint and converts the result into a process exit code.
 ///
 /// It runs a fallible entrypoint, prints a readable error report on failure,
 /// and converts the outcome into a process exit code.
@@ -17,7 +17,7 @@ pub fn try_main(run: impl FnOnce() -> OcelotResult<()>) -> ExitCode {
     }
 }
 
-/// What does `try_main_with_headline` provide?
+/// Runs a fallible CLI entrypoint with a custom top-level error headline.
 ///
 /// It behaves like [`try_main`], but lets a binary choose a more specific
 /// headline for its top-level error report.
@@ -31,7 +31,7 @@ pub fn try_main_with_headline(headline: &str, run: impl FnOnce() -> OcelotResult
     }
 }
 
-/// What does `format_cli_error` return?
+/// Returns a stable, human-readable rendering of an [`OcelotError`] for CLI output.
 ///
 /// It returns a stable, human-readable rendering of a [`OcelotError`] that is
 /// suitable for printing from a command-line binary.
