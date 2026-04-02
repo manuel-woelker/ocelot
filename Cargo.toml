@@ -8,7 +8,9 @@ members = [
     "crates/pal",
     "crates/parser",
     "crates/resolver",
+    "crates/spec_validation",
 ]
+default-members = ["crates/cli"]
 resolver = "2"
 
 [workspace.dependencies]

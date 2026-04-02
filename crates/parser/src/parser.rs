@@ -55,6 +55,9 @@ impl<'a> Parser<'a> {
         }
 
         self.expect(TokenType::LeftParen, "expected `(` after `println`")?;
+        if self.at(TokenType::RightParen) {
+            ocelot_base::bail!("type error: `println` expects exactly one argument");
+        }
         let argument = self.parse_expression()?;
         self.expect(TokenType::RightParen, "expected `)` after argument")?;
         let semicolon = self.expect(TokenType::Semicolon, "expected `;` after statement")?;

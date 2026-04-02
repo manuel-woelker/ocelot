@@ -161,19 +161,19 @@ The real-spec test matters because otherwise the crate can pass while the reposi
 
 # What concrete tasks should track this plan?
 
-- [ ] Add `crates/spec_validation` to the workspace.
-- [ ] Add a validation runner binary for the spec validator crate.
-- [ ] Mark `crates/cli` as the workspace default member so `cargo run` keeps launching `ocelot`.
-- [ ] Define a small domain model for spec chapters, extracted examples, execution outcomes, and validation reports.
-- [ ] Implement Markdown chapter discovery in numeric filename order.
-- [ ] Implement strict extraction for `## Example`, fenced `ocelot`, and `### Output` `text` blocks.
-- [ ] Report malformed examples with source locations and actionable messages.
-- [ ] Execute extracted examples through `Engine::run_script`.
-- [ ] Use `PalMock` in tests to inject example files and capture output while still exercising the engine pipeline.
-- [ ] Normalize successful output and failure diagnostics into stable comparison text.
-- [ ] Implement report rendering for summary output and per-example mismatch details.
-- [ ] Add colocated data-driven tests for extraction, execution, and report rendering.
-- [ ] Add a test that validates the real `docs/spec` chapters.
-- [ ] Add a `validate` task to `.nao/nao.kdl` that runs the validation runner.
-- [ ] Decide whether `check` should depend on `validate` in the same slice or in follow-up work.
-- [ ] Run `nao check`.
+- [x] Add `crates/spec_validation` to the workspace.
+- [x] Add a validation runner binary for the spec validator crate.
+- [x] Mark `crates/cli` as the workspace default member so `cargo run` keeps launching `ocelot`.
+- [x] Define a small domain model for spec chapters, extracted examples, execution outcomes, and validation reports.
+- [x] Implement Markdown chapter discovery in numeric filename order.
+- [x] Implement strict extraction for `## Example`, fenced `ocelot`, and `### Output` `text` blocks.
+- [x] Report malformed examples with source locations and actionable messages.
+- [x] Execute extracted examples through `Engine::run_script`.
+- [x] Use `PalMock` in tests to inject example files and capture output while still exercising the engine pipeline.
+- [x] Normalize successful output and failure diagnostics into stable comparison text.
+- [x] Implement report rendering for summary output and per-example mismatch details.
+- [x] Add colocated data-driven tests for extraction, execution, and report rendering.
+- [x] Add a test that validates the real `docs/spec` chapters.
+- [x] Add a `validate` task to `.nao/nao.kdl` that runs the validation runner.
+- [x] Decide whether `check` should depend on `validate` in the same slice or in follow-up work.
+- [x] Run `nao check`.

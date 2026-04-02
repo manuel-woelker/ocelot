@@ -47,4 +47,16 @@ mod tests {
         assert_eq!(script.span.start(), 0);
         assert_eq!(script.span.end(), source_file.source().len());
     }
+
+    #[test]
+    fn reports_a_clear_error_for_zero_argument_println() {
+        let source_file = SourceFile::new("examples/invalid.ocelot", "println();");
+
+        let error = parse_script(&source_file).unwrap_err();
+
+        assert_eq!(
+            error.kind().to_string(),
+            "type error: `println` expects exactly one argument"
+        );
+    }
 }

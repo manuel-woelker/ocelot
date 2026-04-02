@@ -94,7 +94,8 @@ Below the first line include detail information about the changes made.
 Also include the agent model identifier used for the commit in a `Model:` section in the commit message body.
 Always run `git add` and `git commit` as separate commands.
 
-**Shell escaping note:** When using fish shell, avoid special characters like `-` and `:` in commit messages that might be interpreted as command options. Use simple commit messages or properly escape special characters.
+**Commit message file note:** When crafting commit messages, write the full message to a temporary file inside `.git/` and commit with `git commit -F <path>`.
+This avoids shell escaping issues and keeps multiline commit bodies predictable.
 
 Never push code or ask to push code.
 

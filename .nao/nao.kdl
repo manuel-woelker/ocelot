@@ -66,10 +66,20 @@ recipe "default" {
     """
   }
 
+  task "validate" description="Validate executable spec examples" {
+    depends-on "build"
+    run shell="""
+      cargo run \
+        --package ocelot-spec-validation \
+        --bin ocelot-spec-validation
+    """
+  }
+
   task "check" description="Run all repository verification tasks" {
     depends-on "fmt"
     depends-on "clippy"
     depends-on "test"
+    depends-on "validate"
     run shell="""
       printf 'All repository verification tasks completed.\n'
     """
