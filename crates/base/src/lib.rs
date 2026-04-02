@@ -3,6 +3,7 @@ pub mod diagnostic_level;
 pub mod error;
 pub mod file_path;
 pub mod logging;
+pub mod render_source_diagnostics;
 pub mod result;
 pub mod shared_string;
 pub mod source_annotation;
