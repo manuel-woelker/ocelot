@@ -2,4 +2,5 @@
 
 pub mod discovered_test;
 pub mod engine;
+pub mod failed_test_result;
 pub mod test_run_summary;

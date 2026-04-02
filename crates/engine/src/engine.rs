@@ -1,4 +1,5 @@
 use crate::discovered_test::DiscoveredTest;
+use crate::failed_test_result::FailedTestResult;
 use crate::test_run_summary::TestRunSummary;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_base::error::OcelotError;
@@ -62,8 +63,7 @@ impl Engine {
     }
 
     pub fn run_tests(&self, path: impl Into<FilePath>) -> OcelotResult<TestRunSummary> {
-        let path = path.into();
-        let source_file = self.load_source_file(path.clone())?;
+        let source_file = self.load_source_file(path.into())?;
         let script = ocelot_parser::parse_script::parse_script(&source_file)?;
         let interpreter = ocelot_interpreter::interpreter::Interpreter::new(&*self.pal);
         let mut summary = TestRunSummary::new();
@@ -75,13 +75,12 @@ impl Engine {
 
             match interpreter.interpret_statements(&test_item.body) {
                 Ok(()) => summary.passed.push(test_item.name.clone()),
-                Err(error) => {
-                    summary.failed.push(test_item.name.clone());
-                    return Err(
-                        OcelotError::message(format!("test `{}` failed", test_item.name))
-                            .with_source(error),
-                    );
-                }
+                Err(error) => summary.failed.push(FailedTestResult::new(
+                    test_item.name.clone(),
+                    OcelotError::message(format!("test `{}` failed", test_item.name))
+                        .with_source(error)
+                        .to_test_string(),
+                )),
             }
         }
 
@@ -198,5 +197,31 @@ mod tests {
             .unwrap_err();
 
         assert!(error.to_test_string().contains("unknown test `missing`"));
+    }
+
+    #[test]
+    fn run_tests_reports_passes_and_failures_for_all_tests() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/tests.ocelot",
+            "test \"first\" { println(\"one\"); } \
+             test \"broken\" { println(missing_value); } \
+             test \"third\" { println(\"three\"); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal.clone()));
+
+        let summary = engine.run_tests("examples/tests.ocelot").unwrap();
+
+        assert_eq!(summary.passed, vec!["first", "third"]);
+        assert_eq!(summary.failed.len(), 1);
+        assert_eq!(summary.failed[0].name, "broken");
+        assert!(summary.failed[0].message.contains("test `broken` failed"));
+        assert!(
+            summary.failed[0]
+                .message
+                .contains("unresolved identifier `missing_value`")
+        );
+        assert_eq!(pal.take_printed_output(), "one\nthree\n");
     }
 }
