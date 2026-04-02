@@ -1,9 +1,13 @@
 pub mod cli;
+pub mod diagnostic_level;
 pub mod error;
 pub mod file_path;
 pub mod logging;
 pub mod result;
 pub mod shared_string;
+pub mod source_annotation;
+pub mod source_diagnostic;
+pub mod source_excerpt;
 pub mod source_file;
 pub mod span;
 pub mod timestamp;
