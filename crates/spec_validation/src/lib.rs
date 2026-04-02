@@ -1,8 +1,10 @@
 pub mod capturing_pal;
 pub mod execute_spec_example;
+pub mod expected_outcome;
 pub mod load_spec_chapters;
 pub mod loaded_spec_chapter;
 pub mod normalize_validation_text;
+pub mod observed_outcome;
 pub mod render_validation_error;
 pub mod render_validation_report;
 pub mod run_validation_runner;

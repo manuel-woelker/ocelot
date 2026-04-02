@@ -1,3 +1,4 @@
+use crate::expected_outcome::ExpectedOutcome;
 use crate::loaded_spec_chapter::LoadedSpecChapter;
 use crate::normalize_validation_text::normalize_validation_text;
 use crate::spec_example::SpecExample;
@@ -49,8 +50,8 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
     let mut example_name: Option<String> = None;
     let mut example_line_number = 0usize;
     let mut source_block: Option<String> = None;
-    let mut output_block: Option<String> = None;
-    let mut waiting_for_output_block = false;
+    let mut expected_outcome: Option<ExpectedOutcome> = None;
+    let mut waiting_for_expectation = None;
     let mut line_index = 0usize;
 
     while line_index < lines.len() {
@@ -64,12 +65,12 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
                 &mut malformed_failures,
                 &mut example_name,
                 &mut source_block,
-                &mut output_block,
+                &mut expected_outcome,
                 example_line_number,
             );
             example_name = Some(rest.trim().to_owned());
             example_line_number = line_index + 1;
-            waiting_for_output_block = false;
+            waiting_for_expectation = None;
             line_index += 1;
             continue;
         }
@@ -79,8 +80,17 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
             continue;
         }
 
-        if trimmed == "### Output" {
-            waiting_for_output_block = true;
+        if let Some(expectation_kind) = parse_expectation_heading(trimmed) {
+            if waiting_for_expectation.is_some() || expected_outcome.is_some() {
+                malformed_failures.push(new_malformed_failure(
+                    path,
+                    example_name.as_deref().unwrap_or("unknown example"),
+                    example_line_number,
+                    "example must contain exactly one `### Output` or `### Error` section",
+                ));
+            } else {
+                waiting_for_expectation = Some(expectation_kind);
+            }
             line_index += 1;
             continue;
         }
@@ -106,7 +116,7 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
             } else {
                 source_block = Some(lines[line_index + 1..block_end].join("\n"));
             }
-            waiting_for_output_block = false;
+            waiting_for_expectation = None;
             line_index = block_end + 1;
             continue;
         }
@@ -122,26 +132,33 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
                 break;
             };
 
-            if !waiting_for_output_block {
+            let Some(expectation_kind) = waiting_for_expectation.take() else {
                 malformed_failures.push(new_malformed_failure(
                     path,
                     example_name.as_deref().unwrap_or("unknown example"),
                     example_line_number,
-                    "`text` block must appear under `### Output`",
+                    "`text` block must appear under `### Output` or `### Error`",
                 ));
-            } else if output_block.is_some() {
+                line_index = block_end + 1;
+                continue;
+            };
+
+            if expected_outcome.is_some() {
                 malformed_failures.push(new_malformed_failure(
                     path,
                     example_name.as_deref().unwrap_or("unknown example"),
                     example_line_number,
-                    "example must contain exactly one output block",
+                    "example must contain exactly one expectation block",
                 ));
             } else {
-                output_block = Some(normalize_validation_text(
+                let text = SharedString::from(normalize_validation_text(
                     &lines[line_index + 1..block_end].join("\n"),
                 ));
+                expected_outcome = Some(match expectation_kind {
+                    ExpectationKind::Output => ExpectedOutcome::Output(text),
+                    ExpectationKind::Error => ExpectedOutcome::Error(text),
+                });
             }
-            waiting_for_output_block = false;
             line_index = block_end + 1;
             continue;
         }
@@ -155,7 +172,7 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
         &mut malformed_failures,
         &mut example_name,
         &mut source_block,
-        &mut output_block,
+        &mut expected_outcome,
         example_line_number,
     );
 
@@ -172,19 +189,19 @@ fn finalize_example(
     malformed_failures: &mut Vec<ValidationFailure>,
     example_name: &mut Option<String>,
     source_block: &mut Option<String>,
-    output_block: &mut Option<String>,
+    expected_outcome: &mut Option<ExpectedOutcome>,
     example_line_number: usize,
 ) {
     let Some(name) = example_name.take() else {
         return;
     };
 
-    match (source_block.take(), output_block.take()) {
-        (Some(source), Some(expected_output)) => examples.push(SpecExample {
+    match (source_block.take(), expected_outcome.take()) {
+        (Some(source), Some(expected_outcome)) => examples.push(SpecExample {
             chapter_path: path.clone(),
             name: SharedString::from(name),
             source: SharedString::from(source),
-            expected_output: SharedString::from(expected_output),
+            expected_outcome,
             line_number: example_line_number,
         }),
         (None, _) => malformed_failures.push(new_malformed_failure(
@@ -197,8 +214,22 @@ fn finalize_example(
             path,
             &name,
             example_line_number,
-            "example is missing its `### Output` `text` block",
+            "example is missing its `### Output` or `### Error` `text` block",
         )),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExpectationKind {
+    Output,
+    Error,
+}
+
+fn parse_expectation_heading(trimmed_line: &str) -> Option<ExpectationKind> {
+    match trimmed_line {
+        "### Output" => Some(ExpectationKind::Output),
+        "### Error" => Some(ExpectationKind::Error),
+        _ => None,
     }
 }
 
@@ -226,6 +257,7 @@ fn new_malformed_failure(
 #[cfg(test)]
 mod tests {
     use super::load_spec_chapters;
+    use crate::expected_outcome::ExpectedOutcome;
     use expect_test::expect;
     use ocelot_base::file_path::FilePath;
     use ocelot_pal::pal_mock::PalMock;
@@ -257,6 +289,10 @@ mod tests {
             ]
         );
         assert_eq!(chapters[0].examples[0].name.as_str(), "earlier");
+        assert_eq!(
+            chapters[0].examples[0].expected_outcome,
+            ExpectedOutcome::Output("hello".into())
+        );
     }
 
     #[test]
@@ -276,9 +312,69 @@ println("hello");
         let chapters = load_spec_chapters(&pal, &FilePath::from("docs/spec")).unwrap();
         let malformed = &chapters[0].malformed_failures[0];
 
-        expect!["example is missing its `### Output` `text` block"]
+        expect!["example is missing its `### Output` or `### Error` `text` block"]
             .assert_eq(malformed.message.as_str());
         assert_eq!(malformed.line_number, 2);
+    }
+
+    #[test]
+    fn extracts_error_expectations() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "docs/spec/09.01 Standard library - println.md",
+            r#"
+## Example: fails
+
+```ocelot
+println();
+```
+
+### Error
+
+```text
+type error
+```
+"#,
+        );
+
+        let chapters = load_spec_chapters(&pal, &FilePath::from("docs/spec")).unwrap();
+
+        assert_eq!(
+            chapters[0].examples[0].expected_outcome,
+            ExpectedOutcome::Error("type error".into())
+        );
+    }
+
+    #[test]
+    fn reports_examples_with_both_expectation_sections_as_malformed() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "docs/spec/09.01 Standard library - println.md",
+            r#"
+## Example: ambiguous
+
+```ocelot
+println("hello");
+```
+
+### Output
+
+```text
+hello
+```
+
+### Error
+
+```text
+boom
+```
+"#,
+        );
+
+        let chapters = load_spec_chapters(&pal, &FilePath::from("docs/spec")).unwrap();
+
+        expect!["example must contain exactly one `### Output` or `### Error` section"]
+            .assert_eq(chapters[0].malformed_failures[0].message.as_str());
     }
 
     fn chapter(name: &str) -> String {

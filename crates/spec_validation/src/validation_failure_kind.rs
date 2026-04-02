@@ -5,4 +5,10 @@ pub enum ValidationFailureKind {
     MalformedExample,
     /// The observed output did not match the expected output block.
     OutputMismatch,
+    /// The observed error text did not match the expected error block.
+    ErrorMismatch,
+    /// Execution succeeded when the example expected an error.
+    ExpectedErrorButSucceeded,
+    /// Execution failed when the example expected output.
+    ExpectedOutputButFailed,
 }

@@ -1,3 +1,4 @@
+use crate::expected_outcome::ExpectedOutcome;
 use ocelot_base::file_path::FilePath;
 use ocelot_base::shared_string::SharedString;
 
@@ -10,8 +11,8 @@ pub struct SpecExample {
     pub name: SharedString,
     /// The source code from the fenced `ocelot` block.
     pub source: SharedString,
-    /// The expected normalized output from the fenced `text` block.
-    pub expected_output: SharedString,
+    /// The expected normalized result from the fenced `text` block.
+    pub expected_outcome: ExpectedOutcome,
     /// The one-based line number of the example heading in the chapter.
     pub line_number: usize,
 }

@@ -66,6 +66,20 @@ fn parse_command_inner(args: Vec<String>) -> Option<CliCommand> {
     }
 }
 
+fn render_test_summary_lines(summary: &TestRunSummary) -> Vec<String> {
+    let mut lines = Vec::new();
+
+    for test_name in &summary.passed {
+        lines.push(format!("PASS {test_name}"));
+    }
+
+    for failed_test in &summary.failed {
+        lines.push(format!("FAIL {}", failed_test.name));
+    }
+
+    lines
+}
+
 #[cfg(test)]
 mod tests {
     use super::{parse_command_inner, render_test_summary_lines};
@@ -113,18 +127,4 @@ mod tests {
             ]
         );
     }
-}
-
-fn render_test_summary_lines(summary: &TestRunSummary) -> Vec<String> {
-    let mut lines = Vec::new();
-
-    for test_name in &summary.passed {
-        lines.push(format!("PASS {test_name}"));
-    }
-
-    for failed_test in &summary.failed {
-        lines.push(format!("FAIL {}", failed_test.name));
-    }
-
-    lines
 }

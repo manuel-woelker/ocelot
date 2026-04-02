@@ -1,6 +1,8 @@
 use crate::capturing_pal::CapturingPal;
 use crate::execute_spec_example::execute_spec_example;
+use crate::expected_outcome::ExpectedOutcome;
 use crate::load_spec_chapters::load_spec_chapters;
+use crate::observed_outcome::ObservedOutcome;
 use crate::validation_failure::ValidationFailure;
 use crate::validation_failure_kind::ValidationFailureKind;
 use crate::validation_report::ValidationReport;
@@ -25,21 +27,64 @@ pub fn validate_spec_directory(
 
     for chapter in &chapters {
         for example in &chapter.examples {
-            let observed_output = execute_spec_example(pal, execution_root, example)?;
-            if observed_output == example.expected_output.as_str() {
-                passed_example_count += 1;
-                continue;
-            }
+            let observed_outcome = execute_spec_example(pal, execution_root, example)?;
 
-            failures.push(ValidationFailure {
-                chapter_path: example.chapter_path.clone(),
-                example_name: example.name.clone(),
-                kind: ValidationFailureKind::OutputMismatch,
-                message: SharedString::from("output mismatch"),
-                expected_output: Some(example.expected_output.clone()),
-                actual_output: Some(SharedString::from(observed_output)),
-                line_number: example.line_number,
-            });
+            match (&example.expected_outcome, observed_outcome) {
+                (ExpectedOutcome::Output(expected), ObservedOutcome::Output(actual))
+                    if actual.as_str() == expected.as_str() =>
+                {
+                    passed_example_count += 1;
+                }
+                (ExpectedOutcome::Error(expected), ObservedOutcome::Error(actual))
+                    if actual.as_str() == expected.as_str() =>
+                {
+                    passed_example_count += 1;
+                }
+                (ExpectedOutcome::Output(expected), ObservedOutcome::Output(actual)) => {
+                    failures.push(ValidationFailure {
+                        chapter_path: example.chapter_path.clone(),
+                        example_name: example.name.clone(),
+                        kind: ValidationFailureKind::OutputMismatch,
+                        message: SharedString::from("output mismatch"),
+                        expected_output: Some(expected.clone()),
+                        actual_output: Some(actual),
+                        line_number: example.line_number,
+                    });
+                }
+                (ExpectedOutcome::Error(expected), ObservedOutcome::Error(actual)) => {
+                    failures.push(ValidationFailure {
+                        chapter_path: example.chapter_path.clone(),
+                        example_name: example.name.clone(),
+                        kind: ValidationFailureKind::ErrorMismatch,
+                        message: SharedString::from("error mismatch"),
+                        expected_output: Some(expected.clone()),
+                        actual_output: Some(actual),
+                        line_number: example.line_number,
+                    });
+                }
+                (ExpectedOutcome::Error(expected), ObservedOutcome::Output(actual)) => {
+                    failures.push(ValidationFailure {
+                        chapter_path: example.chapter_path.clone(),
+                        example_name: example.name.clone(),
+                        kind: ValidationFailureKind::ExpectedErrorButSucceeded,
+                        message: SharedString::from("example succeeded but an error was expected"),
+                        expected_output: Some(expected.clone()),
+                        actual_output: Some(actual),
+                        line_number: example.line_number,
+                    });
+                }
+                (ExpectedOutcome::Output(expected), ObservedOutcome::Error(actual)) => {
+                    failures.push(ValidationFailure {
+                        chapter_path: example.chapter_path.clone(),
+                        example_name: example.name.clone(),
+                        kind: ValidationFailureKind::ExpectedOutputButFailed,
+                        message: SharedString::from("example failed but output was expected"),
+                        expected_output: Some(expected.clone()),
+                        actual_output: Some(actual),
+                        line_number: example.line_number,
+                    });
+                }
+            }
         }
     }
 
@@ -55,6 +100,7 @@ pub fn validate_spec_directory(
 mod tests {
     use super::validate_spec_directory;
     use crate::capturing_pal::CapturingPal;
+    use crate::validation_failure_kind::ValidationFailureKind;
     use expect_test::expect;
     use ocelot_base::file_path::FilePath;
     use ocelot_pal::pal::PalHandle;
@@ -79,6 +125,18 @@ mod tests {
             )
             .unwrap(),
         );
+        inner_pal.set_file(
+            "docs/spec/04.01 Declarations - Test items.md",
+            std::fs::read_to_string(repo_root.join("docs/spec/04.01 Declarations - Test items.md"))
+                .unwrap(),
+        );
+        inner_pal.set_file(
+            "docs/spec/08.02 Runtime behavior - Test items.md",
+            std::fs::read_to_string(
+                repo_root.join("docs/spec/08.02 Runtime behavior - Test items.md"),
+            )
+            .unwrap(),
+        );
         let pal = CapturingPal::new(PalHandle::new(inner_pal));
 
         let report = validate_spec_directory(
@@ -89,9 +147,9 @@ mod tests {
         .unwrap();
 
         expect![[r#"
-            2
-            5
-            5
+            4
+            9
+            9
             0
         "#]]
         .assert_eq(&format!(
@@ -139,6 +197,110 @@ goodbye
                 .as_ref()
                 .map(|text| text.as_str()),
             Some("hello")
+        );
+    }
+
+    #[test]
+    fn reports_error_mismatches() {
+        let inner_pal = PalMock::new();
+        inner_pal.set_file(
+            "docs/spec/09.01 Standard library - println.md",
+            r#"
+## Example: requires one argument
+
+```ocelot
+println();
+```
+
+### Error
+
+```text
+different error
+```
+"#,
+        );
+        let pal = CapturingPal::new(PalHandle::new(inner_pal));
+
+        let report = validate_spec_directory(
+            &pal,
+            &FilePath::from("docs/spec"),
+            Path::new("/tmp/spec-validation"),
+        )
+        .unwrap();
+
+        assert_eq!(report.failures.len(), 1);
+        assert_eq!(
+            report.failures[0].kind,
+            ValidationFailureKind::ErrorMismatch
+        );
+        assert_eq!(report.failures[0].message.as_str(), "error mismatch");
+    }
+
+    #[test]
+    fn reports_success_when_error_was_expected() {
+        let inner_pal = PalMock::new();
+        inner_pal.set_file(
+            "docs/spec/09.01 Standard library - println.md",
+            r#"
+## Example: should fail
+
+```ocelot
+println("hello");
+```
+
+### Error
+
+```text
+some error
+```
+"#,
+        );
+        let pal = CapturingPal::new(PalHandle::new(inner_pal));
+
+        let report = validate_spec_directory(
+            &pal,
+            &FilePath::from("docs/spec"),
+            Path::new("/tmp/spec-validation"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            report.failures[0].kind,
+            ValidationFailureKind::ExpectedErrorButSucceeded
+        );
+    }
+
+    #[test]
+    fn reports_failure_when_output_was_expected() {
+        let inner_pal = PalMock::new();
+        inner_pal.set_file(
+            "docs/spec/09.01 Standard library - println.md",
+            r#"
+## Example: should print
+
+```ocelot
+println();
+```
+
+### Output
+
+```text
+hello
+```
+"#,
+        );
+        let pal = CapturingPal::new(PalHandle::new(inner_pal));
+
+        let report = validate_spec_directory(
+            &pal,
+            &FilePath::from("docs/spec"),
+            Path::new("/tmp/spec-validation"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            report.failures[0].kind,
+            ValidationFailureKind::ExpectedOutputButFailed
         );
     }
 }

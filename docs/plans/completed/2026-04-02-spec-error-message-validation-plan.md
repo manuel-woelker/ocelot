@@ -201,13 +201,13 @@ The real-spec test matters here because this change is mostly about tightening t
 
 # What concrete tasks should track this plan?
 
-- [ ] Add an explicit expected-outcome enum to extracted spec examples.
-- [ ] Update Markdown extraction to support `### Output` and `### Error` expectation sections.
-- [ ] Reject examples that define both expectation headings or neither heading.
-- [ ] Distinguish output mismatches, error mismatches, and wrong execution outcome failures.
-- [ ] Keep error comparisons based on validator-owned stable message rendering.
-- [ ] Update validation report rendering for the new failure categories.
-- [ ] Migrate existing failing spec examples in `docs/spec` from `### Output` to `### Error`.
-- [ ] Update `docs/spec/README.md` to document the explicit error-expectation contract.
-- [ ] Add or update colocated tests for extraction, execution, report rendering, and real-spec validation.
-- [ ] Run `nao check`.
+- [x] Add an explicit expected-outcome enum to extracted spec examples.
+- [x] Update Markdown extraction to support `### Output` and `### Error` expectation sections.
+- [x] Reject examples that define both expectation headings or neither heading.
+- [x] Distinguish output mismatches, error mismatches, and wrong execution outcome failures.
+- [x] Keep error comparisons based on validator-owned stable message rendering.
+- [x] Update validation report rendering for the new failure categories.
+- [x] Migrate existing failing spec examples in `docs/spec` from `### Output` to `### Error`.
+- [x] Update `docs/spec/README.md` to document the explicit error-expectation contract.
+- [x] Add or update colocated tests for extraction, execution, report rendering, and real-spec validation.
+- [x] Run `nao check`.

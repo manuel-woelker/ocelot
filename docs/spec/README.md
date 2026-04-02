@@ -32,7 +32,12 @@ The exact outline may evolve, but the current intended top-level numbering is:
 
 # How should examples be written?
 
-Each example should use a visible heading, exactly one `ocelot` fenced block, and an explicit `### Output` section.
+Each example should use a visible heading, exactly one `ocelot` fenced block, and exactly one explicit expectation section.
+
+Use:
+
+- `### Output` for examples that should execute successfully
+- `### Error` for examples that should fail with a stable error message
 
 Example:
 

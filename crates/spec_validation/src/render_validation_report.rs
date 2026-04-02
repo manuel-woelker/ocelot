@@ -18,6 +18,13 @@ pub fn render_validation_report(report: &ValidationReport) -> String {
         let kind = match failure.kind {
             ValidationFailureKind::MalformedExample => "malformed example",
             ValidationFailureKind::OutputMismatch => "output mismatch",
+            ValidationFailureKind::ErrorMismatch => "error mismatch",
+            ValidationFailureKind::ExpectedErrorButSucceeded => {
+                "expected error but execution succeeded"
+            }
+            ValidationFailureKind::ExpectedOutputButFailed => {
+                "expected output but execution failed"
+            }
         };
         let _ = writeln!(
             &mut rendered,
@@ -70,8 +77,8 @@ mod tests {
             failures: vec![ValidationFailure {
                 chapter_path: FilePath::from("docs/spec/09.01 Standard library - println.md"),
                 example_name: SharedString::from("requires one argument"),
-                kind: ValidationFailureKind::OutputMismatch,
-                message: SharedString::from("output mismatch"),
+                kind: ValidationFailureKind::ErrorMismatch,
+                message: SharedString::from("error mismatch"),
                 expected_output: Some(SharedString::from("expected")),
                 actual_output: Some(SharedString::from("actual")),
                 line_number: 30,
@@ -80,12 +87,41 @@ mod tests {
 
         expect![[r#"
             Validated 2 chapters and 5 examples: 4 passed, 1 failed.
-            docs/spec/09.01 Standard library - println.md:30: output mismatch in `requires one argument`
-              output mismatch
+            docs/spec/09.01 Standard library - println.md:30: error mismatch in `requires one argument`
+              error mismatch
               expected:
                 expected
               actual:
                 actual
+        "#]]
+        .assert_eq(&rendered);
+    }
+
+    #[test]
+    fn renders_wrong_execution_outcome_failures() {
+        let rendered = render_validation_report(&ValidationReport {
+            scanned_chapter_count: 1,
+            example_count: 1,
+            passed_example_count: 0,
+            failures: vec![ValidationFailure {
+                chapter_path: FilePath::from("docs/spec/09.01 Standard library - println.md"),
+                example_name: SharedString::from("requires one argument"),
+                kind: ValidationFailureKind::ExpectedErrorButSucceeded,
+                message: SharedString::from("example succeeded but an error was expected"),
+                expected_output: Some(SharedString::from("type error")),
+                actual_output: Some(SharedString::from("hello")),
+                line_number: 30,
+            }],
+        });
+
+        expect![[r#"
+            Validated 1 chapters and 1 examples: 0 passed, 1 failed.
+            docs/spec/09.01 Standard library - println.md:30: expected error but execution succeeded in `requires one argument`
+              example succeeded but an error was expected
+              expected:
+                type error
+              actual:
+                hello
         "#]]
         .assert_eq(&rendered);
     }
