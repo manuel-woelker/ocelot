@@ -65,6 +65,8 @@ Keep documentation focused and concise—explain the "Why", not the "What" (the 
 
 Functions, interfaces, structs and classes should be documented using the standard language syntax (e.g. JsDoc/TsDoc or RustDoc).
 Use this standard documentation style by default.
+The question-driven documentation style does not apply to RustDoc comments.
+RustDoc should be written classically, telling the reader what the item does.
 Fields on interfaces, structs, and classes should also be documented (including private/internal fields where useful for maintenance).
 
 ## Testing strategy
@@ -94,7 +96,7 @@ Below the first line include detail information about the changes made.
 Also include the agent model identifier used for the commit in a `Model:` section in the commit message body.
 Always run `git add` and `git commit` as separate commands.
 
-**Commit message file note:** When crafting commit messages, write the full message to a temporary file inside `.git/` and commit with `git commit -F <path>`.
+**Commit message file note:** When crafting commit messages, write the full message to `target/commit-message.txt` and commit with `git commit -F target/commit-message.txt`.
 This avoids shell escaping issues and keeps multiline commit bodies predictable.
 
 Never push code or ask to push code.
