@@ -1,5 +1,11 @@
+use crate::discovered_test::DiscoveredTest;
+use crate::test_run_summary::TestRunSummary;
+use ocelot_ast::item_kind::ItemKind;
+use ocelot_base::error::OcelotError;
 use ocelot_base::file_path::FilePath;
 use ocelot_base::result::OcelotResult;
+use ocelot_base::result::OptionExt;
+use ocelot_base::result::ResultExt;
 use ocelot_base::source_file::SourceFile;
 use ocelot_pal::pal::PalHandle;
 
@@ -18,6 +24,68 @@ impl Engine {
         let script = ocelot_parser::parse_script::parse_script(&source_file)?;
         ocelot_interpreter::interpret_script::interpret_script(&script, &*self.pal)?;
         Ok(())
+    }
+
+    pub fn discover_tests(&self, path: impl Into<FilePath>) -> OcelotResult<Vec<DiscoveredTest>> {
+        let source_file = self.load_source_file(path.into())?;
+        let script = ocelot_parser::parse_script::parse_script(&source_file)?;
+
+        Ok(script
+            .items
+            .into_iter()
+            .filter_map(|item| match item.kind {
+                ItemKind::Test(test_item) => {
+                    Some(DiscoveredTest::new(test_item.name, test_item.span))
+                }
+                ItemKind::Statement(_) => None,
+            })
+            .collect())
+    }
+
+    pub fn run_test(&self, path: impl Into<FilePath>, test_name: &str) -> OcelotResult<()> {
+        let source_file = self.load_source_file(path.into())?;
+        let script = ocelot_parser::parse_script::parse_script(&source_file)?;
+        let test_item = script
+            .items
+            .iter()
+            .find_map(|item| match &item.kind {
+                ItemKind::Test(test_item) if test_item.name == test_name => Some(test_item),
+                _ => None,
+            })
+            .context(format!("unknown test `{test_name}`"))?;
+
+        ocelot_interpreter::interpreter::Interpreter::new(&*self.pal)
+            .interpret_statements(&test_item.body)
+            .context(format!("test `{}` failed", test_item.name))?;
+
+        Ok(())
+    }
+
+    pub fn run_tests(&self, path: impl Into<FilePath>) -> OcelotResult<TestRunSummary> {
+        let path = path.into();
+        let source_file = self.load_source_file(path.clone())?;
+        let script = ocelot_parser::parse_script::parse_script(&source_file)?;
+        let interpreter = ocelot_interpreter::interpreter::Interpreter::new(&*self.pal);
+        let mut summary = TestRunSummary::new();
+
+        for item in &script.items {
+            let ItemKind::Test(test_item) = &item.kind else {
+                continue;
+            };
+
+            match interpreter.interpret_statements(&test_item.body) {
+                Ok(()) => summary.passed.push(test_item.name.clone()),
+                Err(error) => {
+                    summary.failed.push(test_item.name.clone());
+                    return Err(
+                        OcelotError::message(format!("test `{}` failed", test_item.name))
+                            .with_source(error),
+                    );
+                }
+            }
+        }
+
+        Ok(summary)
     }
 
     fn load_source_file(&self, path: FilePath) -> OcelotResult<SourceFile> {
@@ -49,5 +117,86 @@ mod tests {
         "#]]
         .assert_eq(&pal.get_effects());
         assert_eq!(pal.take_printed_output(), "hello, world\n");
+    }
+
+    #[test]
+    fn run_script_ignores_test_items() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/mixed.ocelot",
+            "println(\"setup\"); test \"prints hello\" { println(\"hello\"); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal.clone()));
+
+        engine.run_script("examples/mixed.ocelot").unwrap();
+
+        assert_eq!(pal.take_printed_output(), "setup\n");
+    }
+
+    #[test]
+    fn discover_tests_returns_names_in_source_order() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/tests.ocelot",
+            "test \"first\" { println(\"one\"); } test \"second\" { println(\"two\"); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal));
+
+        let tests = engine.discover_tests("examples/tests.ocelot").unwrap();
+
+        assert_eq!(tests.len(), 2);
+        assert_eq!(tests[0].name, "first");
+        assert_eq!(tests[1].name, "second");
+    }
+
+    #[test]
+    fn run_test_executes_only_the_named_test() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/tests.ocelot",
+            "test \"first\" { println(\"one\"); } test \"second\" { println(\"two\"); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal.clone()));
+
+        engine.run_test("examples/tests.ocelot", "second").unwrap();
+
+        assert_eq!(pal.take_printed_output(), "two\n");
+    }
+
+    #[test]
+    fn run_test_reports_the_failing_test_name() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/tests.ocelot",
+            "test \"broken\" { println(missing_value); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal));
+
+        let error = engine
+            .run_test("examples/tests.ocelot", "broken")
+            .unwrap_err();
+
+        assert!(error.to_test_string().contains("test `broken` failed"));
+    }
+
+    #[test]
+    fn run_tests_reports_unknown_test_names() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/tests.ocelot",
+            "test \"first\" { println(\"one\"); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal));
+
+        let error = engine
+            .run_test("examples/tests.ocelot", "missing")
+            .unwrap_err();
+
+        assert!(error.to_test_string().contains("unknown test `missing`"));
     }
 }

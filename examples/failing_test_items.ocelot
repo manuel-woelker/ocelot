@@ -1,0 +1,3 @@
+test "fails on unresolved identifier" {
+    println(missing_value);
+}

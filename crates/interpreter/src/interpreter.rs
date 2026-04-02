@@ -1,5 +1,7 @@
 use ocelot_ast::expression::Expression;
 use ocelot_ast::expression_kind::ExpressionKind;
+use ocelot_ast::item::Item;
+use ocelot_ast::item_kind::ItemKind;
 use ocelot_ast::script::Script;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
@@ -19,10 +21,25 @@ impl<'a> Interpreter<'a> {
 
     /// Executes a script AST.
     pub fn interpret_script(&self, script: &Script) -> OcelotResult<()> {
-        for statement in &script.statements {
+        for item in &script.items {
+            self.interpret_item(item)?;
+        }
+        Ok(())
+    }
+
+    /// Executes one ordered sequence of statements.
+    pub fn interpret_statements(&self, statements: &[Statement]) -> OcelotResult<()> {
+        for statement in statements {
             self.interpret_statement(statement)?;
         }
         Ok(())
+    }
+
+    fn interpret_item(&self, item: &Item) -> OcelotResult<()> {
+        match &item.kind {
+            ItemKind::Statement(statement) => self.interpret_statement(statement),
+            ItemKind::Test(_) => Ok(()),
+        }
     }
 
     fn interpret_statement(&self, statement: &Statement) -> OcelotResult<()> {

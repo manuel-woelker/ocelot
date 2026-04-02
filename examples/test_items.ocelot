@@ -1,0 +1,9 @@
+println("setup");
+
+test "prints one line" {
+    println("hello");
+}
+
+test "prints another line" {
+    println("goodbye");
+}

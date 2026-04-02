@@ -252,14 +252,14 @@ In particular, engine tests should use `PalMock` and verify observable behavior 
 
 # What concrete tasks should track this plan?
 
-- [ ] Introduce a file-level item AST with explicit `Item` and `ItemKind` nodes.
-- [ ] Update the parser to parse top-level items instead of only statements.
-- [ ] Add lexer support for `{`, `}`, and `test` item parsing.
-- [ ] Add a dedicated `TestItem` AST node with a string-literal name and statement body.
-- [ ] Add parser coverage for valid test items and malformed test declarations.
-- [ ] Update the interpreter and engine so normal script execution ignores test items.
-- [ ] Add engine APIs for test discovery and test execution.
-- [ ] Add colocated engine tests using `PalMock` for mixed script-plus-test files.
-- [ ] Add initial CLI support for running tests.
-- [ ] Add spec chapters documenting test item syntax and behavior.
-- [ ] Run `nao check`.
+- [x] Introduce a file-level item AST with explicit `Item` and `ItemKind` nodes.
+- [x] Update the parser to parse top-level items instead of only statements.
+- [x] Add lexer support for `{`, `}`, and `test` item parsing.
+- [x] Add a dedicated `TestItem` AST node with a string-literal name and statement body.
+- [x] Add parser coverage for valid test items and malformed test declarations.
+- [x] Update the interpreter and engine so normal script execution ignores test items.
+- [x] Add engine APIs for test discovery and test execution.
+- [x] Add colocated engine tests using `PalMock` for mixed script-plus-test files.
+- [x] Add initial CLI support for running tests.
+- [x] Add spec chapters documenting test item syntax and behavior.
+- [x] Run `nao check`.

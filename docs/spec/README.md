@@ -56,7 +56,9 @@ This keeps the spec readable for humans and makes it realistic to extract exampl
 
 The first numbered spec chapters are:
 
+- [04.01 Declarations - Test items](./04.01%20Declarations%20-%20Test%20items.md)
 - [08.01 Runtime behavior - Scripts](./08.01%20Runtime%20behavior%20-%20Scripts.md)
+- [08.02 Runtime behavior - Test items](./08.02%20Runtime%20behavior%20-%20Test%20items.md)
 - [09.01 Standard library - println](./09.01%20Standard%20library%20-%20println.md)
 
 Additional chapters can be added later without redesigning the format.

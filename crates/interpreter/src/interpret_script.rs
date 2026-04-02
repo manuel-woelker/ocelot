@@ -13,22 +13,28 @@ mod tests {
     use super::interpret_script;
     use ocelot_ast::expression::Expression;
     use ocelot_ast::expression_kind::ExpressionKind;
+    use ocelot_ast::item::Item;
+    use ocelot_ast::item_kind::ItemKind;
     use ocelot_ast::println_statement::PrintlnStatement;
     use ocelot_ast::script::Script;
     use ocelot_ast::statement::Statement;
     use ocelot_ast::statement_kind::StatementKind;
     use ocelot_ast::string_literal_expression::StringLiteralExpression;
+    use ocelot_ast::test_item::TestItem;
     use ocelot_base::span::Span;
     use ocelot_pal::pal_mock::PalMock;
 
     #[test]
     fn interprets_println_string_literal() {
         let script = Script::new(
-            vec![Statement::new(
-                StatementKind::Println(PrintlnStatement::new(Expression::new(
-                    ExpressionKind::StringLiteral(StringLiteralExpression::new("hello")),
-                    Span::new(8, 15),
-                ))),
+            vec![Item::new(
+                ItemKind::Statement(Statement::new(
+                    StatementKind::Println(PrintlnStatement::new(Expression::new(
+                        ExpressionKind::StringLiteral(StringLiteralExpression::new("hello")),
+                        Span::new(8, 15),
+                    ))),
+                    Span::new(0, 17),
+                )),
                 Span::new(0, 17),
             )],
             Span::new(0, 17),
@@ -38,5 +44,45 @@ mod tests {
         interpret_script(&script, &pal).unwrap();
 
         assert_eq!(pal.take_printed_output(), "hello\n");
+    }
+
+    #[test]
+    fn ignores_test_items_during_normal_script_execution() {
+        let script = Script::new(
+            vec![
+                Item::new(
+                    ItemKind::Statement(Statement::new(
+                        StatementKind::Println(PrintlnStatement::new(Expression::new(
+                            ExpressionKind::StringLiteral(StringLiteralExpression::new("setup")),
+                            Span::new(8, 15),
+                        ))),
+                        Span::new(0, 17),
+                    )),
+                    Span::new(0, 17),
+                ),
+                Item::new(
+                    ItemKind::Test(TestItem::new(
+                        "prints hello",
+                        vec![Statement::new(
+                            StatementKind::Println(PrintlnStatement::new(Expression::new(
+                                ExpressionKind::StringLiteral(StringLiteralExpression::new(
+                                    "hello",
+                                )),
+                                Span::new(32, 39),
+                            ))),
+                            Span::new(24, 41),
+                        )],
+                        Span::new(18, 43),
+                    )),
+                    Span::new(18, 43),
+                ),
+            ],
+            Span::new(0, 43),
+        );
+        let pal = PalMock::new();
+
+        interpret_script(&script, &pal).unwrap();
+
+        assert_eq!(pal.take_printed_output(), "setup\n");
     }
 }

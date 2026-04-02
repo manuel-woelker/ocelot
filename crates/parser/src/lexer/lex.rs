@@ -21,6 +21,14 @@ pub fn lex(source: &str) -> OcelotResult<impl Iterator<Item = Token>> {
                 tokens.push(Token::new(TokenType::RightParen, index, index + 1));
                 index += 1;
             }
+            b'{' => {
+                tokens.push(Token::new(TokenType::LeftBrace, index, index + 1));
+                index += 1;
+            }
+            b'}' => {
+                tokens.push(Token::new(TokenType::RightBrace, index, index + 1));
+                index += 1;
+            }
             b';' => {
                 tokens.push(Token::new(TokenType::Semicolon, index, index + 1));
                 index += 1;
@@ -48,7 +56,11 @@ pub fn lex(source: &str) -> OcelotResult<impl Iterator<Item = Token>> {
                     index += 1;
                 }
 
-                tokens.push(Token::new(TokenType::Identifier, start, index));
+                let token_type = match &source[start..index] {
+                    "test" => TokenType::Test,
+                    _ => TokenType::Identifier,
+                };
+                tokens.push(Token::new(token_type, start, index));
             }
             _ => {
                 tokens.push(Token::new(TokenType::Unexpected, index, index + 1));
@@ -89,6 +101,30 @@ mod tests {
                 TokenType::String,
                 TokenType::RightParen,
                 TokenType::Semicolon,
+                TokenType::EndOfFile,
+            ]
+        );
+    }
+
+    #[test]
+    fn lexes_test_item_tokens() {
+        let token_types: Vec<_> = lex("test \"prints\" { println(\"hello\"); }")
+            .unwrap()
+            .map(|token| token.token_type)
+            .collect();
+
+        assert_eq!(
+            token_types,
+            vec![
+                TokenType::Test,
+                TokenType::String,
+                TokenType::LeftBrace,
+                TokenType::Identifier,
+                TokenType::LeftParen,
+                TokenType::String,
+                TokenType::RightParen,
+                TokenType::Semicolon,
+                TokenType::RightBrace,
                 TokenType::EndOfFile,
             ]
         );

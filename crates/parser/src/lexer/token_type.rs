@@ -5,7 +5,10 @@ pub enum TokenType {
     String,
     LeftParen,
     RightParen,
+    LeftBrace,
+    RightBrace,
     Semicolon,
+    Test,
     Unexpected,
     EndOfFile,
 }

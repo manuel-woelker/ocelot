@@ -4,12 +4,16 @@ use crate::lexer::token_type::TokenType;
 use ocelot_ast::expression::Expression;
 use ocelot_ast::expression_kind::ExpressionKind;
 use ocelot_ast::identifier_expression::IdentifierExpression;
+use ocelot_ast::item::Item;
+use ocelot_ast::item_kind::ItemKind;
 use ocelot_ast::println_statement::PrintlnStatement;
 use ocelot_ast::script::Script;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
 use ocelot_ast::string_literal_expression::StringLiteralExpression;
+use ocelot_ast::test_item::TestItem;
 use ocelot_base::result::OcelotResult;
+use ocelot_base::shared_string::SharedString;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 
@@ -33,15 +37,49 @@ impl<'a> Parser<'a> {
 
     /// Parses the source file into a script AST.
     pub fn parse_script(&mut self) -> OcelotResult<Script> {
-        let mut statements = Vec::new();
+        let mut items = Vec::new();
 
         while !self.at(TokenType::EndOfFile) {
-            statements.push(self.parse_statement()?);
+            items.push(self.parse_item()?);
         }
 
         Ok(Script::new(
-            statements,
+            items,
             Span::new(0, self.source_file.source().len()),
+        ))
+    }
+
+    fn parse_item(&mut self) -> OcelotResult<Item> {
+        match self.current().token_type {
+            TokenType::Test => self.parse_test_item(),
+            _ => {
+                let statement = self.parse_statement()?;
+                let span = statement.span.clone();
+                Ok(Item::new(ItemKind::Statement(statement), span))
+            }
+        }
+    }
+
+    fn parse_test_item(&mut self) -> OcelotResult<Item> {
+        let test_token = self.expect(TokenType::Test, "expected `test` item")?;
+        let name_token = self.expect(TokenType::String, "expected test name string")?;
+        let name_literal = self.source_text(&name_token.span);
+        let name = SharedString::from(&name_literal[1..name_literal.len() - 1]);
+        self.expect(TokenType::LeftBrace, "expected `{` after test name")?;
+
+        let mut body = Vec::new();
+        while !self.at(TokenType::RightBrace) {
+            if self.at(TokenType::EndOfFile) {
+                ocelot_base::bail!("expected `}}` to close test body");
+            }
+            body.push(self.parse_statement()?);
+        }
+
+        let right_brace = self.expect(TokenType::RightBrace, "expected `}` after test body")?;
+        let span = Span::new(test_token.span.start(), right_brace.span.end());
+        Ok(Item::new(
+            ItemKind::Test(TestItem::new(name, body, span.clone())),
+            span,
         ))
     }
 
