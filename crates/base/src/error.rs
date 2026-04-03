@@ -3,12 +3,14 @@ use std::fmt::{Debug, Display, Formatter};
 use std::panic::Location;
 use tracing_error::{SpanTrace, SpanTraceStatus};
 
+use crate::compilation_stage::CompilationStage;
 use crate::shared_string::SharedString;
 use crate::unansi;
 
 #[derive(Debug)]
 pub enum ErrorKind {
     Message(SharedString),
+    CompilationError(CompilationStage),
     Std(Box<dyn StdError + Send + Sync + 'static>),
 }
 
@@ -16,6 +18,7 @@ impl Display for ErrorKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Message(message) => f.write_str(message),
+            Self::CompilationError(stage) => write!(f, "{stage} compilation error"),
             Self::Std(error) => Display::fmt(error, f),
         }
     }
@@ -54,6 +57,18 @@ impl OcelotError {
         location: &'static Location<'static>,
     ) -> Self {
         Self::at_location(ErrorKind::Message(s.into()), location)
+    }
+
+    #[track_caller]
+    pub fn compilation_error(stage: CompilationStage) -> Self {
+        Self::compilation_error_at_location(stage, Location::caller())
+    }
+
+    pub fn compilation_error_at_location(
+        stage: CompilationStage,
+        location: &'static Location<'static>,
+    ) -> Self {
+        Self::at_location(ErrorKind::CompilationError(stage), location)
     }
 
     #[track_caller]

@@ -1,5 +1,6 @@
 pub mod cli;
 pub mod compilation_context;
+pub mod compilation_stage;
 pub mod diagnostic_level;
 pub mod error;
 pub mod file_path;

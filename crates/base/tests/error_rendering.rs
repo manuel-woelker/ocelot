@@ -1,4 +1,5 @@
 use expect_test::expect;
+use ocelot_base::compilation_stage::CompilationStage;
 use ocelot_base::error::OcelotError;
 use ocelot_base::logging::{info_span, init_logging};
 use ocelot_base::result::OcelotResult;
@@ -14,7 +15,7 @@ fn err_macro_formats_error_with_caller_location() {
 
     expect!([r#"
         × error test 123
-          at crates/base/tests/error_rendering.rs:13:17
+          at crates/base/tests/error_rendering.rs:14:17
     "#])
     .assert_eq(&error.to_test_string());
 }
@@ -28,7 +29,7 @@ fn bail_macro_formats_error_with_caller_location() {
 
     expect!([r#"
         × error test 123
-          at crates/base/tests/error_rendering.rs:25:9
+          at crates/base/tests/error_rendering.rs:26:9
     "#])
     .assert_eq(&error.to_test_string());
 }
@@ -40,9 +41,9 @@ fn chained_error_formats_cause_and_locations() {
 
     expect!([r#"
         × error failed to read file
-          at crates/base/tests/error_rendering.rs:38:17
+          at crates/base/tests/error_rendering.rs:39:17
         caused by: missing file
-             at crates/base/tests/error_rendering.rs:39:22
+             at crates/base/tests/error_rendering.rs:40:22
     "#])
     .assert_eq(&error.to_test_string());
 }
@@ -54,9 +55,9 @@ fn std_source_error_formats_cause_and_locations() {
 
     expect!([r#"
         × error cannot initialize
-          at crates/base/tests/error_rendering.rs:53:17
+          at crates/base/tests/error_rendering.rs:54:17
         caused by: missing config
-             at crates/base/tests/error_rendering.rs:53:59
+             at crates/base/tests/error_rendering.rs:54:59
     "#])
     .assert_eq(&error.to_test_string());
 }
@@ -68,11 +69,11 @@ fn multiline_cause_renders_as_indented_block() {
 
     expect!([r#"
         × error failed to load recipe
-          at crates/base/tests/error_rendering.rs:66:17
+          at crates/base/tests/error_rendering.rs:67:17
         caused by:
            line one
            line two
-             at crates/base/tests/error_rendering.rs:67:22
+             at crates/base/tests/error_rendering.rs:68:22
     "#])
     .assert_eq(&error.to_test_string());
 }
@@ -87,10 +88,10 @@ fn span_trace_renders_as_structured_frames() {
 
     expect!([r#"
         × error failed inside span
-          at crates/base/tests/error_rendering.rs:86:17
+          at crates/base/tests/error_rendering.rs:87:17
           span trace:
             0: error_rendering::error_test_span
-               at crates/base/tests/error_rendering.rs:83
+               at crates/base/tests/error_rendering.rs:84
     "#])
     .assert_eq(&error.to_test_string());
 }
@@ -115,4 +116,29 @@ fn chained_error_only_renders_root_cause_span_trace() {
     assert!(rendered.contains("inner_error_span"));
     assert!(rendered.contains("outer_error_span"));
     assert_eq!(rendered.matches("span trace:").count(), 1);
+}
+
+#[test]
+fn compilation_error_formats_stage_name() {
+    let error = OcelotError::compilation_error(CompilationStage::Parser);
+
+    expect!([r#"
+        × error parser compilation error
+          at crates/base/tests/error_rendering.rs:123:17
+    "#])
+    .assert_eq(&error.to_test_string());
+}
+
+#[test]
+fn compilation_error_can_wrap_another_error() {
+    let error = OcelotError::compilation_error(CompilationStage::Resolver)
+        .with_source(OcelotError::message("unresolved import"));
+
+    expect!([r#"
+        × error resolver compilation error
+          at crates/base/tests/error_rendering.rs:134:17
+        caused by: unresolved import
+             at crates/base/tests/error_rendering.rs:135:22
+    "#])
+    .assert_eq(&error.to_test_string());
 }
