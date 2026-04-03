@@ -13,8 +13,15 @@ use ocelot_ast::statement_kind::StatementKind;
 use ocelot_ast::string_literal_expression::StringLiteralExpression;
 use ocelot_ast::test_item::TestItem;
 use ocelot_base::compilation_context::CompilationContext;
+use ocelot_base::compilation_stage::CompilationStage;
+use ocelot_base::diagnostic_level::DiagnosticLevel;
+use ocelot_base::error::ErrorKind;
+use ocelot_base::error::OcelotError;
 use ocelot_base::result::OcelotResult;
 use ocelot_base::shared_string::SharedString;
+use ocelot_base::source_annotation::SourceAnnotation;
+use ocelot_base::source_diagnostic::SourceDiagnostic;
+use ocelot_base::source_excerpt::SourceExcerpt;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 
@@ -50,7 +57,11 @@ impl<'a> Parser<'a> {
         let mut items = Vec::new();
 
         while !self.at(TokenType::EndOfFile) {
-            items.push(self.parse_item()?);
+            match self.parse_item() {
+                Ok(item) => items.push(item),
+                Err(error) if is_parser_compilation_error(&error) => return Ok(None),
+                Err(error) => return Err(error),
+            }
         }
 
         Ok(Some(Script::new(
@@ -62,11 +73,11 @@ impl<'a> Parser<'a> {
     fn parse_item(&mut self) -> OcelotResult<Item> {
         match self.current().token_type {
             TokenType::Test => self.parse_test_item(),
-            _ => {
+            _ => Ok({
                 let statement = self.parse_statement()?;
                 let span = statement.span.clone();
-                Ok(Item::new(ItemKind::Statement(statement), span))
-            }
+                Item::new(ItemKind::Statement(statement), span)
+            }),
         }
     }
 
@@ -80,7 +91,11 @@ impl<'a> Parser<'a> {
         let mut body = Vec::new();
         while !self.at(TokenType::RightBrace) {
             if self.at(TokenType::EndOfFile) {
-                ocelot_base::bail!("expected `}}` to close test body");
+                return self.emit_fatal_diagnostic(
+                    "expected `}` to close test body",
+                    self.current().span.clone(),
+                    "test body ends here",
+                );
             }
             body.push(self.parse_statement()?);
         }
@@ -99,12 +114,20 @@ impl<'a> Parser<'a> {
         let name = self.source_text(&identifier.span);
 
         if name != "println" {
-            ocelot_base::bail!("expected `println` statement");
+            return self.emit_fatal_diagnostic(
+                "expected `println` statement",
+                identifier.span,
+                "statement is not supported",
+            );
         }
 
         self.expect(TokenType::LeftParen, "expected `(` after `println`")?;
         if self.at(TokenType::RightParen) {
-            ocelot_base::bail!("type error: `println` expects exactly one argument");
+            return self.emit_fatal_diagnostic(
+                "type error: `println` expects exactly one argument",
+                self.current().span.clone(),
+                "missing argument",
+            );
         }
         let argument = self.parse_expression()?;
         self.expect(TokenType::RightParen, "expected `)` after argument")?;
@@ -140,11 +163,13 @@ impl<'a> Parser<'a> {
                 ))
             }
             TokenType::Unexpected => {
-                ocelot_base::bail!("unexpected token")
+                self.emit_fatal_diagnostic("unexpected token", token.span, "unexpected character")
             }
-            _ => {
-                ocelot_base::bail!("expected expression")
-            }
+            _ => self.emit_fatal_diagnostic(
+                "expected expression",
+                token.span,
+                "expression expected here",
+            ),
         }
     }
 
@@ -152,7 +177,7 @@ impl<'a> Parser<'a> {
         let token = self.current().clone();
 
         if token.token_type != token_type {
-            ocelot_base::bail!("{message}");
+            return self.emit_fatal_diagnostic(message, token.span, "found here");
         }
 
         self.position += 1;
@@ -170,4 +195,57 @@ impl<'a> Parser<'a> {
     fn source_text(&self, span: &Span) -> &str {
         &self.source_file.source()[span.start()..span.end()]
     }
+
+    fn emit_fatal_diagnostic<T>(
+        &mut self,
+        message: impl Into<SharedString>,
+        span: Span,
+        annotation: impl Into<SharedString>,
+    ) -> OcelotResult<T> {
+        self.compilation_context
+            .add_diagnostic(self.source_diagnostic(message, span, annotation));
+        Err(OcelotError::compilation_error(CompilationStage::Parser))
+    }
+
+    fn source_diagnostic(
+        &self,
+        message: impl Into<SharedString>,
+        span: Span,
+        annotation: impl Into<SharedString>,
+    ) -> SourceDiagnostic {
+        let message = message.into();
+        let annotation = annotation.into();
+        let (line_number, line_start, line_end) = self.line_bounds(span.start());
+        let source_line = &self.source_file.source()[line_start..line_end];
+        let relative_start = span.start().saturating_sub(line_start);
+        let relative_end = span.end().saturating_sub(line_start);
+
+        SourceDiagnostic::new(DiagnosticLevel::Error, &self.source_file.path, message).with_excerpt(
+            SourceExcerpt::new(&self.source_file.path, line_number, source_line).with_annotation(
+                SourceAnnotation::new(Span::new(relative_start, relative_end), annotation),
+            ),
+        )
+    }
+
+    fn line_bounds(&self, index: usize) -> (usize, usize, usize) {
+        let source = self.source_file.source();
+        let line_start = source[..index].rfind('\n').map_or(0, |offset| offset + 1);
+        let line_end = source[index..]
+            .find('\n')
+            .map_or(source.len(), |offset| index + offset);
+        let line_number = source[..line_start]
+            .bytes()
+            .filter(|byte| *byte == b'\n')
+            .count()
+            + 1;
+
+        (line_number, line_start, line_end)
+    }
+}
+
+fn is_parser_compilation_error(error: &OcelotError) -> bool {
+    matches!(
+        error.kind(),
+        ErrorKind::CompilationError(CompilationStage::Parser)
+    )
 }

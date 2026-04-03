@@ -3,6 +3,7 @@ use crate::failed_test_result::FailedTestResult;
 use crate::test_run_summary::TestRunSummary;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_base::compilation_context::CompilationContext;
+use ocelot_base::compilation_stage::CompilationStage;
 use ocelot_base::error::OcelotError;
 use ocelot_base::file_path::FilePath;
 use ocelot_base::render_source_diagnostics::render_source_diagnostics;
@@ -101,9 +102,12 @@ impl Engine {
 
         match script {
             Some(script) => Ok(script),
-            None if compilation_context.has_errors() => Err(OcelotError::message(
-                render_source_diagnostics(&compilation_context.source_diagnostics.diagnostics),
-            )),
+            None if compilation_context.has_errors() => Err(OcelotError::compilation_error(
+                CompilationStage::Parser,
+            )
+            .with_source(OcelotError::message(render_source_diagnostics(
+                &compilation_context.source_diagnostics.diagnostics,
+            )))),
             None => Err(OcelotError::message(
                 "parser returned no script without reporting diagnostics",
             )),
@@ -115,6 +119,8 @@ impl Engine {
 mod tests {
     use super::Engine;
     use expect_test::expect;
+    use ocelot_base::compilation_stage::CompilationStage;
+    use ocelot_base::error::ErrorKind;
     use ocelot_pal::pal::PalHandle;
     use ocelot_pal::pal_mock::PalMock;
 
@@ -215,6 +221,26 @@ mod tests {
             .unwrap_err();
 
         assert!(error.to_test_string().contains("unknown test `missing`"));
+    }
+
+    #[test]
+    fn run_script_tags_parser_failures_as_compilation_errors() {
+        let pal = PalMock::new();
+        pal.set_file("examples/broken.ocelot", "println();");
+
+        let engine = Engine::new(PalHandle::new(pal));
+
+        let error = engine.run_script("examples/broken.ocelot").unwrap_err();
+
+        assert!(matches!(
+            error.kind(),
+            ErrorKind::CompilationError(CompilationStage::Parser)
+        ));
+        assert!(
+            error
+                .to_test_string()
+                .contains("type error: `println` expects exactly one argument")
+        );
     }
 
     #[test]

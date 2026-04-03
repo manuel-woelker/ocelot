@@ -167,11 +167,11 @@ Verification should include:
 
 # What concrete tasks should track this plan?
 
-- [ ] Add parser helper code to build `SourceDiagnostic`s from source spans.
-- [ ] Introduce an internal `ParseOutcome` type for parser diagnostic control flow.
-- [ ] Convert parser syntax/type-error `bail!()` sites to shared-context diagnostics.
-- [ ] Change parser control flow so parser diagnostics use `ParseOutcome` internally and reach a non-artifact public outcome instead of plain `OcelotError`.
-- [ ] Update parser tests to assert on structured diagnostics.
-- [ ] Update engine parse-failure handling to distinguish parser compilation failures, using `CompilationError(CompilationStage::Parser)` as the short-term bridge if needed.
-- [ ] Add integration coverage for parser-generated diagnostics.
-- [ ] Run `nao check`.
+- [x] Add parser helper code to build `SourceDiagnostic`s from source spans.
+- [x] Introduce an internal `ParseOutcome` type for parser diagnostic control flow.
+- [x] Convert parser syntax/type-error `bail!()` sites to shared-context diagnostics.
+- [x] Change parser control flow so parser diagnostics use `ParseOutcome` internally and reach a non-artifact public outcome instead of plain `OcelotError`.
+- [x] Update parser tests to assert on structured diagnostics.
+- [x] Update engine parse-failure handling to distinguish parser compilation failures, using `CompilationError(CompilationStage::Parser)` as the short-term bridge if needed.
+- [x] Add integration coverage for parser-generated diagnostics.
+- [x] Run `nao check`.

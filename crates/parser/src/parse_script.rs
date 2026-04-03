@@ -21,6 +21,7 @@ mod tests {
     use ocelot_base::compilation_context::CompilationContext;
     use ocelot_base::diagnostic_level::DiagnosticLevel;
     use ocelot_base::source_file::SourceFile;
+    use ocelot_base::span::Span;
 
     #[test]
     fn parses_println_string_statement() {
@@ -85,38 +86,70 @@ mod tests {
     }
 
     #[test]
-    fn reports_a_clear_error_for_missing_test_name() {
+    fn reports_a_missing_test_name_as_a_source_diagnostic() {
         let source_file = SourceFile::new("examples/invalid.ocelot", "test { println(\"x\"); }");
         let mut context = CompilationContext::default();
 
-        let error = parse_script(&source_file, &mut context).unwrap_err();
+        let script = parse_script(&source_file, &mut context).unwrap();
 
-        assert_eq!(error.kind().to_string(), "expected test name string");
+        assert!(script.is_none());
+        assert!(context.has_errors());
+        assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
+        assert_eq!(
+            context.source_diagnostics.diagnostics[0].message,
+            "expected test name string"
+        );
+        assert_eq!(
+            context.source_diagnostics.diagnostics[0].excerpts[0].annotations[0].span,
+            Span::new(5, 6)
+        );
     }
 
     #[test]
-    fn reports_a_clear_error_for_unterminated_test_body() {
+    fn reports_an_unterminated_test_body_as_a_source_diagnostic() {
         let source_file = SourceFile::new(
             "examples/invalid.ocelot",
             "test \"broken\" { println(\"hello\");",
         );
         let mut context = CompilationContext::default();
 
-        let error = parse_script(&source_file, &mut context).unwrap_err();
+        let script = parse_script(&source_file, &mut context).unwrap();
 
-        assert_eq!(error.kind().to_string(), "expected `}` to close test body");
+        assert!(script.is_none());
+        assert!(context.has_errors());
+        assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
+        assert_eq!(
+            context.source_diagnostics.diagnostics[0].message,
+            "expected `}` to close test body"
+        );
     }
 
     #[test]
-    fn reports_a_clear_error_for_zero_argument_println() {
+    fn reports_zero_argument_println_as_a_source_diagnostic() {
         let source_file = SourceFile::new("examples/invalid.ocelot", "println();");
         let mut context = CompilationContext::default();
 
-        let error = parse_script(&source_file, &mut context).unwrap_err();
+        let script = parse_script(&source_file, &mut context).unwrap();
 
+        assert!(script.is_none());
+        assert!(context.has_errors());
         assert_eq!(
-            error.kind().to_string(),
+            context.source_diagnostics.diagnostics[0].message,
             "type error: `println` expects exactly one argument"
+        );
+    }
+
+    #[test]
+    fn reports_unexpected_statement_names_as_a_source_diagnostic() {
+        let source_file = SourceFile::new("examples/invalid.ocelot", "print(\"hello\");");
+        let mut context = CompilationContext::default();
+
+        let script = parse_script(&source_file, &mut context).unwrap();
+
+        assert!(script.is_none());
+        assert_eq!(
+            context.source_diagnostics.diagnostics[0].message,
+            "expected `println` statement"
         );
     }
 
