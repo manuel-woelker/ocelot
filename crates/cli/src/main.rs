@@ -159,13 +159,20 @@ fn render_test_summary_lines(summary: &TestRunSummary) -> Vec<String> {
     }
 
     for failed_test in &summary.failed {
-        lines.push(format!("FAIL {}", failed_test.name));
+        lines.push(format!(
+            "FAIL {}",
+            highlight_failed_test_name(failed_test.name.as_str())
+        ));
         for detail_line in render_failed_test_detail_lines(failed_test) {
             lines.push(detail_line);
         }
     }
 
     lines
+}
+
+fn highlight_failed_test_name(name: &str) -> String {
+    format!("\u{1b}[1;31m{name}\u{1b}[0m")
 }
 
 fn render_failed_test_detail_lines(failed_test: &FailedTestResult) -> Vec<String> {
@@ -179,6 +186,8 @@ fn render_failed_test_detail_lines(failed_test: &FailedTestResult) -> Vec<String
     let mut lines = Vec::new();
     lines.push(String::new());
     lines.extend(detail.lines().map(|line| format!("  {line}")));
+    lines.push(String::from("  ────────────────────────────────────────"));
+    lines.push(String::new());
     lines
 }
 
@@ -351,12 +360,14 @@ mod tests {
             vec![
                 String::from("PASS first"),
                 String::from("PASS third"),
-                String::from("FAIL broken"),
+                String::from("FAIL \u{1b}[1;31mbroken\u{1b}[0m"),
                 String::new(),
                 String::from("  error: assert_eq values differ"),
                 String::from("  "),
                 String::from("  expected: \"a\""),
                 String::from("  actual:   \"b\""),
+                String::from("  ────────────────────────────────────────"),
+                String::new(),
             ]
         );
     }
