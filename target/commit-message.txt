@@ -1,13 +1,15 @@
-refactor(cli): simplify command parsing and execution
+feat(cli): support running tests across multiple files
 
-Unify CLI parsing around a small command enum and a single execution path.
-Remove the duplicate PAL arguments from run_command so argument parsing and
-execution both use the same handle.
-Add focused parser tests for run and test command handling.
+Allow `ocelot test` to accept zero or more script paths.
+When no paths are provided, discover all `.ocelot` files and run tests across
+the full set. When paths are provided, run tests for each requested file and
+merge the summaries.
+Simplify CLI argument parsing by consuming the raw PAL argument list directly.
 
 User Prompts:
 - take a good look at crates/cli/src/main.rs and simplify the parsing and execution
 - remove the duplicate pal arguments
+- the test subcommand should take 0 - n file arguments, if no file arguments are given, find all ocelot files and run all tests, if 1 or more files are given, run all these tests
 - commit
 
 Model:
