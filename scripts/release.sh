@@ -10,16 +10,16 @@ DRY_RUN=0
 MODE="publish"
 TARGET_VERSION=""
 
-CRATE_DIRS=(
-  "crates/base"
-  "crates/pal"
-  "crates/cli"
-)
-
-CRATE_PACKAGES=(
-  "ocelot-base"
-  "ocelot-pal"
-  "ocelot"
+RELEASE_CRATES=(
+  "crates/base:ocelot-base"
+  "crates/ast:ocelot-ast"
+  "crates/pal:ocelot-pal"
+  "crates/parser:ocelot-parser"
+  "crates/interpreter:ocelot-interpreter"
+  "crates/resolver:ocelot-resolver"
+  "crates/engine:ocelot-engine"
+  "crates/spec_validation:ocelot-spec-validation"
+  "crates/cli:ocelot"
 )
 
 usage() {
@@ -61,6 +61,16 @@ manifest_value() {
 crate_version() {
   local crate_dir="$1"
   manifest_value "$ROOT_DIR/$crate_dir/Cargo.toml" "version"
+}
+
+release_crate_dir() {
+  local release_crate="$1"
+  printf '%s\n' "${release_crate%%:*}"
+}
+
+release_package_name() {
+  local release_crate="$1"
+  printf '%s\n' "${release_crate##*:}"
 }
 
 release_version() {
@@ -119,9 +129,11 @@ crate_version_exists_on_crates_io() {
 
 assert_release_version_available() {
   local version="$1"
+  local release_crate
   local package_name
 
-  for package_name in "${CRATE_PACKAGES[@]}"; do
+  for release_crate in "${RELEASE_CRATES[@]}"; do
+    package_name="$(release_package_name "$release_crate")"
     if crate_version_exists_on_crates_io "$package_name" "$version"; then
       fail "$package_name $version already exists on crates.io; bump the shared version before publishing"
     fi
@@ -130,9 +142,11 @@ assert_release_version_available() {
 
 assert_shared_version() {
   local expected_version="$1"
+  local release_crate
   local crate_dir
 
-  for crate_dir in "${CRATE_DIRS[@]}"; do
+  for release_crate in "${RELEASE_CRATES[@]}"; do
+    crate_dir="$(release_crate_dir "$release_crate")"
     local actual_version
     actual_version="$(crate_version "$crate_dir")"
     [[ -n "$actual_version" ]] || fail "missing version in $crate_dir/Cargo.toml"
@@ -142,9 +156,12 @@ assert_shared_version() {
 
 assert_internal_dependency_versions() {
   local expected_version="$1"
+  local release_crate
+  local crate_dir
   local manifest_path
 
-  for crate_dir in "${CRATE_DIRS[@]}"; do
+  for release_crate in "${RELEASE_CRATES[@]}"; do
+    crate_dir="$(release_crate_dir "$release_crate")"
     manifest_path="$ROOT_DIR/$crate_dir/Cargo.toml"
 
     while IFS= read -r dependency_line; do
@@ -172,6 +189,8 @@ update_manifest_version() {
 prepare_release_version() {
   local version="$1"
   local print_manual_next_step="${2:-1}"
+  local release_crate
+  local crate_dir
   local manifest_path
   local current_version
 
@@ -183,7 +202,8 @@ prepare_release_version() {
   require_tool sed
   assert_clean_worktree
 
-  for crate_dir in "${CRATE_DIRS[@]}"; do
+  for release_crate in "${RELEASE_CRATES[@]}"; do
+    crate_dir="$(release_crate_dir "$release_crate")"
     manifest_path="$ROOT_DIR/$crate_dir/Cargo.toml"
     log "updating $manifest_path to version $version"
     update_manifest_version "$manifest_path" "$version"
@@ -199,9 +219,11 @@ prepare_release_version() {
 }
 
 manifest_paths() {
+  local release_crate
   local crate_dir
 
-  for crate_dir in "${CRATE_DIRS[@]}"; do
+  for release_crate in "${RELEASE_CRATES[@]}"; do
+    crate_dir="$(release_crate_dir "$release_crate")"
     printf '%s/%s/Cargo.toml\n' "$ROOT_DIR" "$crate_dir"
   done
 }
@@ -244,13 +266,13 @@ wait_for_crate_version() {
 
 publish_crates() {
   local version="$1"
+  local release_crate
   local crate_dir
   local package_name
-  local index
 
-  for index in "${!CRATE_DIRS[@]}"; do
-    crate_dir="${CRATE_DIRS[$index]}"
-    package_name="${CRATE_PACKAGES[$index]}"
+  for release_crate in "${RELEASE_CRATES[@]}"; do
+    crate_dir="$(release_crate_dir "$release_crate")"
+    package_name="$(release_package_name "$release_crate")"
     log "publishing $package_name $version"
     cargo publish \
       --manifest-path "$ROOT_DIR/$crate_dir/Cargo.toml" \

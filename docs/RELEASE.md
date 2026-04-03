@@ -2,7 +2,7 @@
 
 `ocelot` currently ships:
 
-- crates.io packages for `ocelot-base`, `ocelot-pal`, and `ocelot`
+- crates.io packages for `ocelot-base`, `ocelot-ast`, `ocelot-pal`, `ocelot-parser`, `ocelot-interpreter`, `ocelot-resolver`, `ocelot-engine`, `ocelot-spec-validation`, and `ocelot`
 - a GitHub release artifact containing the statically linked `ocelot` binary for `x86_64-unknown-linux-musl`
 
 # How are release versions managed?
@@ -11,9 +11,15 @@ All workspace crates currently share one version.
 
 The release script expects:
 
+- `crates/ast`
 - `crates/base`
-- `crates/pal`
 - `crates/cli`
+- `crates/engine`
+- `crates/interpreter`
+- `crates/pal`
+- `crates/parser`
+- `crates/resolver`
+- `crates/spec_validation`
 
 to use the same version, and it verifies that all internal path dependencies are pinned to that same version.
 
