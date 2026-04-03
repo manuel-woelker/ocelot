@@ -93,7 +93,7 @@ At minimum, this slice should cover:
 The exact phase boundary can stay pragmatic:
 
 - syntax problems belong in the parser
-- native signature mismatches can remain interpreter or engine errors in the short term if they are upgraded to consistent source diagnostics
+- native signature mismatches can be handled in parsing for known builtins when preserving source diagnostics is worth the small amount of special knowledge
 
 The main thing to avoid is regressing into opaque string errors once calls stop being parser-special-cased.
 
@@ -127,6 +127,17 @@ Verification should include:
 - spec-validation coverage updates if spec examples or stable diagnostics change
 - running `nao check`
 
+# What landed from this plan?
+
+This change landed the first generic call-expression path in the language implementation:
+
+- the AST now represents calls with `CallExpression` and statements with `ExpressionStatement`
+- the parser now parses generic expression statements and postfix call syntax with comma-separated arguments
+- `println` now executes through native function dispatch instead of a dedicated statement node
+- the interpreter now uses a small `RuntimeValue` enum so call evaluation can return either strings or a unit-like result
+- parser, interpreter, engine, and spec coverage were updated, including a new [`01.01 Expressions - Function calls`](/data/projects/ocelot/docs/spec/01.01%20Expressions%20-%20Function%20calls.md) chapter
+- `nao check` passes
+
 # What assumptions, risks, and open questions should stay explicit?
 
 - This plan assumes the first callable callee form is a bare identifier only. Supporting calls on arbitrary expressions can come later.
@@ -138,12 +149,12 @@ Verification should include:
 
 # What concrete tasks should track this plan?
 
-- [ ] Add an active plan for first-slice function call support oriented around native functions.
-- [ ] Add AST support for call expressions and expression statements, replacing the `PrintlnStatement` special case.
-- [ ] Update the parser to parse generic call syntax and generic expression statements.
-- [ ] Update parser diagnostics and parser tests for valid and invalid call syntax.
-- [ ] Introduce a minimal runtime value model needed to evaluate calls cleanly.
-- [ ] Implement native function dispatch for `println` and any supporting diagnostics for unknown or invalid native calls.
-- [ ] Update interpreter and engine tests to cover the new call execution path in scripts and tests.
-- [ ] Update spec chapters and spec validation coverage if the new implementation changes wording or stable diagnostics.
-- [ ] Run `nao check`.
+- [x] Add an active plan for first-slice function call support oriented around native functions.
+- [x] Add AST support for call expressions and expression statements, replacing the `PrintlnStatement` special case.
+- [x] Update the parser to parse generic call syntax and generic expression statements.
+- [x] Update parser diagnostics and parser tests for valid and invalid call syntax.
+- [x] Introduce a minimal runtime value model needed to evaluate calls cleanly.
+- [x] Implement native function dispatch for `println` and any supporting diagnostics for unknown or invalid native calls.
+- [x] Update interpreter and engine tests to cover the new call execution path in scripts and tests.
+- [x] Update spec chapters and spec validation coverage if the new implementation changes wording or stable diagnostics.
+- [x] Run `nao check`.

@@ -1,12 +1,13 @@
 use crate::lexer::lex::lex;
 use crate::lexer::token::Token;
 use crate::lexer::token_type::TokenType;
+use ocelot_ast::call_expression::CallExpression;
 use ocelot_ast::expression::Expression;
 use ocelot_ast::expression_kind::ExpressionKind;
+use ocelot_ast::expression_statement::ExpressionStatement;
 use ocelot_ast::identifier_expression::IdentifierExpression;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
-use ocelot_ast::println_statement::PrintlnStatement;
 use ocelot_ast::script::Script;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
@@ -109,38 +110,28 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_statement(&mut self) -> OcelotResult<Statement> {
-        let start = self.current().span.start();
-        let identifier = self.expect(TokenType::Identifier, "expected statement")?;
-        let name = self.source_text(&identifier.span);
-
-        if name != "println" {
-            return self.emit_fatal_diagnostic(
-                "expected `println` statement",
-                identifier.span,
-                "statement is not supported",
-            );
-        }
-
-        self.expect(TokenType::LeftParen, "expected `(` after `println`")?;
-        if self.at(TokenType::RightParen) {
-            return self.emit_fatal_diagnostic(
-                "type error: `println` expects exactly one argument",
-                self.current().span.clone(),
-                "missing argument",
-            );
-        }
-        let argument = self.parse_expression()?;
-        self.expect(TokenType::RightParen, "expected `)` after argument")?;
+        let expression = self.parse_expression()?;
+        self.validate_native_call(&expression)?;
         let semicolon = self.expect(TokenType::Semicolon, "expected `;` after statement")?;
-        let statement_span = Span::new(start, semicolon.span.end());
+        let statement_span = Span::new(expression.span.start(), semicolon.span.end());
 
         Ok(Statement::new(
-            StatementKind::Println(PrintlnStatement::new(argument)),
+            StatementKind::Expression(ExpressionStatement::new(expression)),
             statement_span,
         ))
     }
 
     fn parse_expression(&mut self) -> OcelotResult<Expression> {
+        let mut expression = self.parse_primary_expression()?;
+
+        while self.at(TokenType::LeftParen) {
+            expression = self.parse_call_expression(expression)?;
+        }
+
+        Ok(expression)
+    }
+
+    fn parse_primary_expression(&mut self) -> OcelotResult<Expression> {
         let token = self.current().clone();
 
         match token.token_type {
@@ -169,6 +160,58 @@ impl<'a> Parser<'a> {
                 "expected expression",
                 token.span,
                 "expression expected here",
+            ),
+        }
+    }
+
+    fn parse_call_expression(&mut self, callee: Expression) -> OcelotResult<Expression> {
+        self.expect(TokenType::LeftParen, "expected `(` after callee")?;
+        let mut arguments = Vec::new();
+
+        if !self.at(TokenType::RightParen) {
+            loop {
+                arguments.push(self.parse_expression()?);
+
+                if !self.at(TokenType::Comma) {
+                    break;
+                }
+
+                self.position += 1;
+            }
+        }
+
+        let right_paren = self.expect(TokenType::RightParen, "expected `)` after argument list")?;
+        let span = Span::new(callee.span.start(), right_paren.span.end());
+        Ok(Expression::new(
+            ExpressionKind::Call(CallExpression::new(callee, arguments)),
+            span,
+        ))
+    }
+
+    fn validate_native_call(&mut self, expression: &Expression) -> OcelotResult<()> {
+        let ExpressionKind::Call(call_expression) = &expression.kind else {
+            return Ok(());
+        };
+
+        let ExpressionKind::Identifier(identifier) = &call_expression.callee.kind else {
+            return Ok(());
+        };
+
+        if identifier.name != "println" {
+            return Ok(());
+        }
+
+        match call_expression.arguments.len() {
+            1 => Ok(()),
+            0 => self.emit_fatal_diagnostic(
+                "type error: `println` expects exactly one argument",
+                Span::new(expression.span.end() - 1, expression.span.end()),
+                "missing argument",
+            ),
+            _ => self.emit_fatal_diagnostic(
+                "type error: `println` expects exactly one argument",
+                call_expression.arguments[1].span.clone(),
+                "extra argument",
             ),
         }
     }

@@ -62,6 +62,7 @@ This keeps the spec readable for humans and makes it realistic to extract exampl
 
 The first numbered spec chapters are:
 
+- [01.01 Expressions - Function calls](./01.01%20Expressions%20-%20Function%20calls.md)
 - [04.01 Declarations - Test items](./04.01%20Declarations%20-%20Test%20items.md)
 - [08.01 Runtime behavior - Scripts](./08.01%20Runtime%20behavior%20-%20Scripts.md)
 - [08.02 Runtime behavior - Test items](./08.02%20Runtime%20behavior%20-%20Test%20items.md)

@@ -27,7 +27,9 @@ pub fn parse_script(
 #[cfg(test)]
 mod tests {
     use super::parse_script;
+    use ocelot_ast::call_expression::CallExpression;
     use ocelot_ast::expression_kind::ExpressionKind;
+    use ocelot_ast::expression_statement::ExpressionStatement;
     use ocelot_ast::item_kind::ItemKind;
     use ocelot_ast::statement_kind::StatementKind;
     use ocelot_base::compilation_context::CompilationContext;
@@ -36,7 +38,7 @@ mod tests {
     use ocelot_base::span::Span;
 
     #[test]
-    fn parses_println_string_statement() {
+    fn parses_println_call_expression_statement() {
         let source_file = SourceFile::new("examples/hello.ocelot", "println(\"hello\");");
         let mut context = CompilationContext::default();
 
@@ -47,13 +49,28 @@ mod tests {
 
         match &script.items[0].kind {
             ItemKind::Statement(statement) => match &statement.kind {
-                StatementKind::Println(println_statement) => match &println_statement.argument.kind
-                {
-                    ExpressionKind::StringLiteral(string_literal) => {
-                        assert_eq!(string_literal.value, "hello");
+                StatementKind::Expression(ExpressionStatement { expression }) => {
+                    match &expression.kind {
+                        ExpressionKind::Call(CallExpression { callee, arguments }) => {
+                            match &callee.kind {
+                                ExpressionKind::Identifier(identifier) => {
+                                    assert_eq!(identifier.name, "println");
+                                }
+                                other => panic!("expected identifier callee, got {other:?}"),
+                            }
+
+                            assert_eq!(arguments.len(), 1);
+
+                            match &arguments[0].kind {
+                                ExpressionKind::StringLiteral(string_literal) => {
+                                    assert_eq!(string_literal.value, "hello");
+                                }
+                                other => panic!("expected string literal, got {other:?}"),
+                            }
+                        }
+                        other => panic!("expected call expression, got {other:?}"),
                     }
-                    other => panic!("expected string literal, got {other:?}"),
-                },
+                }
             },
             other => panic!("expected statement item, got {other:?}"),
         }
@@ -133,6 +150,37 @@ mod tests {
     }
 
     #[test]
+    fn parses_non_call_expression_statements() {
+        let source_file = SourceFile::new("examples/statement.ocelot", "\"hello\"; name;");
+        let mut context = CompilationContext::default();
+
+        let script = parse_script(&source_file, &mut context).unwrap();
+
+        assert_eq!(script.items.len(), 2);
+        assert!(!context.has_errors());
+    }
+
+    #[test]
+    fn parses_multiple_call_arguments() {
+        let source_file = SourceFile::new(
+            "examples/arguments.ocelot",
+            "println(\"hello\", \"world\");",
+        );
+        let mut context = CompilationContext::default();
+
+        parse_script(&source_file, &mut context).unwrap_err();
+        assert!(context.has_errors());
+        assert_eq!(
+            context.source_diagnostics.diagnostics[0].message,
+            "type error: `println` expects exactly one argument"
+        );
+        assert_eq!(
+            context.source_diagnostics.diagnostics[0].excerpts[0].annotations[0].message,
+            "extra argument"
+        );
+    }
+
+    #[test]
     fn reports_zero_argument_println_as_a_source_diagnostic() {
         let source_file = SourceFile::new("examples/invalid.ocelot", "println();");
         let mut context = CompilationContext::default();
@@ -142,18 +190,6 @@ mod tests {
         assert_eq!(
             context.source_diagnostics.diagnostics[0].message,
             "type error: `println` expects exactly one argument"
-        );
-    }
-
-    #[test]
-    fn reports_unexpected_statement_names_as_a_source_diagnostic() {
-        let source_file = SourceFile::new("examples/invalid.ocelot", "print(\"hello\");");
-        let mut context = CompilationContext::default();
-
-        parse_script(&source_file, &mut context).unwrap_err();
-        assert_eq!(
-            context.source_diagnostics.diagnostics[0].message,
-            "expected `println` statement"
         );
     }
 
@@ -172,6 +208,19 @@ mod tests {
         assert_eq!(
             context.source_diagnostics.diagnostics[0].message,
             "unterminated string literal"
+        );
+    }
+
+    #[test]
+    fn reports_trailing_commas_in_argument_lists() {
+        let source_file = SourceFile::new("examples/invalid.ocelot", "println(\"hello\",);");
+        let mut context = CompilationContext::default();
+
+        parse_script(&source_file, &mut context).unwrap_err();
+        assert!(context.has_errors());
+        assert_eq!(
+            context.source_diagnostics.diagnostics[0].message,
+            "expected expression"
         );
     }
 }

@@ -24,6 +24,10 @@ pub fn lex(source_file: &SourceFile, context: &mut CompilationContext) -> Vec<To
                 tokens.push(Token::new(TokenType::LeftParen, index, index + 1));
                 index += 1;
             }
+            b',' => {
+                tokens.push(Token::new(TokenType::Comma, index, index + 1));
+                index += 1;
+            }
             b')' => {
                 tokens.push(Token::new(TokenType::RightParen, index, index + 1));
                 index += 1;
@@ -210,6 +214,34 @@ mod tests {
             vec![
                 TokenType::Identifier,
                 TokenType::LeftParen,
+                TokenType::String,
+                TokenType::RightParen,
+                TokenType::Semicolon,
+                TokenType::EndOfFile,
+            ]
+        );
+        assert!(!context.has_errors());
+    }
+
+    #[test]
+    fn lexes_commas_in_argument_lists() {
+        let source_file = SourceFile::new(
+            "examples/arguments.ocelot",
+            "println(\"hello\", \"world\");",
+        );
+        let mut context = CompilationContext::default();
+        let token_types: Vec<_> = lex(&source_file, &mut context)
+            .into_iter()
+            .map(|token| token.token_type)
+            .collect();
+
+        assert_eq!(
+            token_types,
+            vec![
+                TokenType::Identifier,
+                TokenType::LeftParen,
+                TokenType::String,
+                TokenType::Comma,
                 TokenType::String,
                 TokenType::RightParen,
                 TokenType::Semicolon,

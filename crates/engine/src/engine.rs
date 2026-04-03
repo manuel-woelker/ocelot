@@ -142,6 +142,21 @@ mod tests {
     }
 
     #[test]
+    fn run_script_discards_non_call_expression_statements() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/expressions.ocelot",
+            "\"hello\"; println(\"world\");",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal.clone()));
+
+        engine.run_script("examples/expressions.ocelot").unwrap();
+
+        assert_eq!(pal.take_printed_output(), "world\n");
+    }
+
+    #[test]
     fn discover_tests_returns_names_in_source_order() {
         let pal = PalMock::new();
         pal.set_file(
@@ -224,6 +239,22 @@ mod tests {
             error
                 .to_test_string()
                 .contains("type error: `println` expects exactly one argument")
+        );
+    }
+
+    #[test]
+    fn run_script_reports_unknown_native_functions() {
+        let pal = PalMock::new();
+        pal.set_file("examples/broken.ocelot", "printline(\"hello\");");
+
+        let engine = Engine::new(PalHandle::new(pal));
+
+        let error = engine.run_script("examples/broken.ocelot").unwrap_err();
+
+        assert!(
+            error
+                .to_test_string()
+                .contains("unknown native function `printline`")
         );
     }
 

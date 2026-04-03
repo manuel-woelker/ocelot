@@ -11,11 +11,13 @@ pub fn interpret_script(script: &Script, pal: &dyn Pal) -> OcelotResult<()> {
 #[cfg(test)]
 mod tests {
     use super::interpret_script;
+    use ocelot_ast::call_expression::CallExpression;
     use ocelot_ast::expression::Expression;
     use ocelot_ast::expression_kind::ExpressionKind;
+    use ocelot_ast::expression_statement::ExpressionStatement;
+    use ocelot_ast::identifier_expression::IdentifierExpression;
     use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
-    use ocelot_ast::println_statement::PrintlnStatement;
     use ocelot_ast::script::Script;
     use ocelot_ast::statement::Statement;
     use ocelot_ast::statement_kind::StatementKind;
@@ -29,9 +31,20 @@ mod tests {
         let script = Script::new(
             vec![Item::new(
                 ItemKind::Statement(Statement::new(
-                    StatementKind::Println(PrintlnStatement::new(Expression::new(
-                        ExpressionKind::StringLiteral(StringLiteralExpression::new("hello")),
-                        Span::new(8, 15),
+                    StatementKind::Expression(ExpressionStatement::new(Expression::new(
+                        ExpressionKind::Call(CallExpression::new(
+                            Expression::new(
+                                ExpressionKind::Identifier(IdentifierExpression::new("println")),
+                                Span::new(0, 7),
+                            ),
+                            vec![Expression::new(
+                                ExpressionKind::StringLiteral(StringLiteralExpression::new(
+                                    "hello",
+                                )),
+                                Span::new(8, 15),
+                            )],
+                        )),
+                        Span::new(0, 16),
                     ))),
                     Span::new(0, 17),
                 )),
@@ -52,9 +65,22 @@ mod tests {
             vec![
                 Item::new(
                     ItemKind::Statement(Statement::new(
-                        StatementKind::Println(PrintlnStatement::new(Expression::new(
-                            ExpressionKind::StringLiteral(StringLiteralExpression::new("setup")),
-                            Span::new(8, 15),
+                        StatementKind::Expression(ExpressionStatement::new(Expression::new(
+                            ExpressionKind::Call(CallExpression::new(
+                                Expression::new(
+                                    ExpressionKind::Identifier(IdentifierExpression::new(
+                                        "println",
+                                    )),
+                                    Span::new(0, 7),
+                                ),
+                                vec![Expression::new(
+                                    ExpressionKind::StringLiteral(StringLiteralExpression::new(
+                                        "setup",
+                                    )),
+                                    Span::new(8, 15),
+                                )],
+                            )),
+                            Span::new(0, 16),
                         ))),
                         Span::new(0, 17),
                     )),
@@ -64,11 +90,22 @@ mod tests {
                     ItemKind::Test(TestItem::new(
                         "prints hello",
                         vec![Statement::new(
-                            StatementKind::Println(PrintlnStatement::new(Expression::new(
-                                ExpressionKind::StringLiteral(StringLiteralExpression::new(
-                                    "hello",
+                            StatementKind::Expression(ExpressionStatement::new(Expression::new(
+                                ExpressionKind::Call(CallExpression::new(
+                                    Expression::new(
+                                        ExpressionKind::Identifier(IdentifierExpression::new(
+                                            "println",
+                                        )),
+                                        Span::new(24, 31),
+                                    ),
+                                    vec![Expression::new(
+                                        ExpressionKind::StringLiteral(
+                                            StringLiteralExpression::new("hello"),
+                                        ),
+                                        Span::new(32, 39),
+                                    )],
                                 )),
-                                Span::new(32, 39),
+                                Span::new(24, 40),
                             ))),
                             Span::new(24, 41),
                         )],
