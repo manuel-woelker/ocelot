@@ -29,6 +29,7 @@ impl AssertionError {
         let source_line = &source_file.source()[line_start..line_end];
         let relative_start = span.start().saturating_sub(line_start);
         let relative_end = span.end().saturating_sub(line_start);
+        let summary = summary.into();
         let diagnostic = SourceDiagnostic::new(DiagnosticLevel::Error, &source_file.path, summary)
             .with_excerpt(
                 SourceExcerpt::new(&source_file.path, line_number, source_line).with_annotation(
@@ -59,14 +60,56 @@ impl AssertionError {
 
 /// Renders an assertion error as a source diagnostic followed by a short diff.
 pub fn render_assertion_error(assertion_error: &AssertionError) -> SharedString {
-    let rendered_diagnostic =
-        render_source_diagnostics(std::slice::from_ref(&assertion_error.diagnostic));
+    let rendered_diagnostic = strip_column_from_assertion_diagnostic(&render_source_diagnostics(
+        std::slice::from_ref(&assertion_error.diagnostic),
+    ));
+    let location_line = assertion_error_location_line(assertion_error);
 
     crate::shared_format!(
-        "{rendered_diagnostic}\n\nexpected: {}\nactual:   {}",
+        "{rendered_diagnostic}\n{location_line}\n\nexpected: {}\nactual:   {}",
         assertion_error.expected,
         assertion_error.actual
     )
+}
+
+fn assertion_error_location_line(assertion_error: &AssertionError) -> SharedString {
+    let line_number = assertion_error
+        .diagnostic
+        .excerpts
+        .first()
+        .map(|excerpt| excerpt.line_number)
+        .unwrap_or(1);
+
+    crate::shared_format!("at {}:{line_number}", assertion_error.file_path())
+}
+
+fn strip_column_from_assertion_diagnostic(rendered: &str) -> SharedString {
+    let mut updated_lines = Vec::new();
+
+    for line in rendered.lines() {
+        if line.contains("╭▸ ") {
+            updated_lines.push(strip_trailing_column_number(line));
+        } else {
+            updated_lines.push(line.to_owned());
+        }
+    }
+
+    SharedString::from(updated_lines.join("\n"))
+}
+
+fn strip_trailing_column_number(line: &str) -> String {
+    let Some(last_colon_index) = line.rfind(':') else {
+        return line.to_owned();
+    };
+
+    if line[last_colon_index + 1..]
+        .chars()
+        .all(|character| character.is_ascii_digit())
+    {
+        line[..last_colon_index].to_owned()
+    } else {
+        line.to_owned()
+    }
 }
 
 fn line_bounds(source: &str, index: usize) -> (usize, usize, usize) {
@@ -113,10 +156,11 @@ mod tests {
 
         expect![[r#"
             error: assert_eq values differ
-              ╭▸ examples/tests.ocelot:1:1
+              ╭▸ examples/tests.ocelot:1
               │
             1 │ assert_eq("a", "b");
               ╰╴━━━━━━━━━━━━━━━━━━━ assertion failed here
+            at examples/tests.ocelot:1
 
             expected: "a"
             actual:   "b""#]]
