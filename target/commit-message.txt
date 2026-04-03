@@ -1,0 +1,14 @@
+fix(cli): render compilation diagnostics directly
+
+Print only rendered source diagnostics when CLI execution fails with a
+CompilationError instead of wrapping them in the generic CLI error header.
+Move CLI formatting snapshot tests into their own integration test file so
+track_caller line numbers stay stable when src/cli.rs changes.
+
+User Prompts:
+- when the cli executes with a CompilationError, only output the collected sourcediagnostics, instead of printing the usual error output
+- move the cli test to their own file, so the line numbers in the test do not change on every source change
+- commit
+
+Model:
+- GPT-5 Codex

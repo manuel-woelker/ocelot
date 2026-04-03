@@ -1,3 +1,4 @@
+use crate::error::ErrorKind;
 use crate::error::OcelotError;
 use crate::result::OcelotResult;
 use std::fmt::Write as _;
@@ -36,6 +37,10 @@ pub fn try_main_with_headline(headline: &str, run: impl FnOnce() -> OcelotResult
 /// It returns a stable, human-readable rendering of a [`OcelotError`] that is
 /// suitable for printing from a command-line binary.
 pub fn format_cli_error(headline: &str, error: &OcelotError) -> String {
+    if let Some(rendered_diagnostics) = compilation_diagnostics_output(error) {
+        return rendered_diagnostics.to_string();
+    }
+
     let mut rendered = String::new();
     let _ = writeln!(&mut rendered, "\u{1b}[1;31m━━ {}\u{1b}[0m", headline);
     if error.write_to(&mut rendered).is_err() {
@@ -78,49 +83,12 @@ pub fn format_cli_error(headline: &str, error: &OcelotError) -> String {
     rendered
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::error::OcelotError;
-    use expect_test::expect;
-
-    use super::format_cli_error;
-
-    #[test]
-    fn format_cli_error_renders_headline_and_cause_chain() {
-        let error = OcelotError::message("failed to verify")
-            .with_source(OcelotError::message("missing reference output"));
-
-        expect!([r#"
-            ━━ verification failed
-            × error failed to verify
-              at crates/base/src/cli.rs:90:21
-            caused by: missing reference output
-                 at crates/base/src/cli.rs:91:26
-
-            ━━ cause chain
-              • missing reference output
-                at crates/base/src/cli.rs:91:26
-        "#])
-        .assert_eq(&crate::unansi(&format_cli_error(
-            "verification failed",
-            &error,
-        )));
-    }
-
-    #[test]
-    fn format_cli_error_skips_cause_chain_for_multiline_cause() {
-        let error = OcelotError::message("failed to load recipe")
-            .with_source(OcelotError::message("line one\nline two"));
-
-        expect!([r#"
-            ━━ recipe failed
-            × error failed to load recipe
-              at crates/base/src/cli.rs:112:21
-            caused by:
-               line one
-               line two
-                 at crates/base/src/cli.rs:113:26
-        "#])
-        .assert_eq(&crate::unansi(&format_cli_error("recipe failed", &error)));
+fn compilation_diagnostics_output(error: &OcelotError) -> Option<&str> {
+    match error.kind() {
+        ErrorKind::CompilationError(_) => error
+            .source()
+            .and_then(|source| source.kind().as_message())
+            .map(|message| message.as_str()),
+        ErrorKind::Message(_) | ErrorKind::Std(_) => None,
     }
 }
