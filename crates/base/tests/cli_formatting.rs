@@ -1,7 +1,10 @@
 use expect_test::expect;
+use ocelot_base::assertion_error::AssertionError;
 use ocelot_base::cli::format_cli_error;
 use ocelot_base::compilation_stage::CompilationStage;
 use ocelot_base::error::OcelotError;
+use ocelot_base::source_file::SourceFile;
+use ocelot_base::span::Span;
 
 /* 📖 # Why keep CLI formatting tests in their own file?
 These snapshots include `#[track_caller]` locations from the test call sites.
@@ -16,13 +19,13 @@ fn format_cli_error_renders_headline_and_cause_chain() {
     expect!([r#"
         ━━ verification failed
         × error failed to verify
-          at crates/base/tests/cli_formatting.rs:13:17
+          at crates/base/tests/cli_formatting.rs:16:17
         caused by: missing reference output
-             at crates/base/tests/cli_formatting.rs:14:22
+             at crates/base/tests/cli_formatting.rs:17:22
 
         ━━ cause chain
           • missing reference output
-            at crates/base/tests/cli_formatting.rs:14:22
+            at crates/base/tests/cli_formatting.rs:17:22
     "#])
     .assert_eq(&ocelot_base::unansi(&format_cli_error(
         "verification failed",
@@ -38,11 +41,11 @@ fn format_cli_error_skips_cause_chain_for_multiline_cause() {
     expect!([r#"
         ━━ recipe failed
         × error failed to load recipe
-          at crates/base/tests/cli_formatting.rs:35:17
+          at crates/base/tests/cli_formatting.rs:38:17
         caused by:
            line one
            line two
-             at crates/base/tests/cli_formatting.rs:36:22
+             at crates/base/tests/cli_formatting.rs:39:22
     "#])
     .assert_eq(&ocelot_base::unansi(&format_cli_error(
         "recipe failed",
@@ -60,6 +63,32 @@ fn format_cli_error_returns_only_rendered_diagnostics_for_compilation_errors() {
         error: invalid syntax
           --> test.ocelot:1:1
     "#])
+    .assert_eq(&ocelot_base::unansi(&format_cli_error(
+        "operation failed",
+        &error,
+    )));
+}
+
+#[test]
+fn format_cli_error_returns_only_rendered_assertion_errors() {
+    let source_file = SourceFile::new("examples/tests.ocelot", "assert_eq(\"a\", \"b\");");
+    let error = OcelotError::assertion_error(AssertionError::new(
+        &source_file,
+        Span::new(0, source_file.source().len() - 1),
+        "assert_eq values differ",
+        "\"a\"",
+        "\"b\"",
+    ));
+
+    expect!([r#"
+        error: assert_eq values differ
+          ╭▸ examples/tests.ocelot:1:1
+          │
+        1 │ assert_eq("a", "b");
+          ╰╴━━━━━━━━━━━━━━━━━━━ assertion failed here
+
+        expected: "a"
+        actual:   "b""#])
     .assert_eq(&ocelot_base::unansi(&format_cli_error(
         "operation failed",
         &error,

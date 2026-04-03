@@ -1,3 +1,4 @@
+use crate::assertion_error::render_assertion_error;
 use crate::error::ErrorKind;
 use crate::error::OcelotError;
 use crate::result::OcelotResult;
@@ -37,8 +38,8 @@ pub fn try_main_with_headline(headline: &str, run: impl FnOnce() -> OcelotResult
 /// It returns a stable, human-readable rendering of a [`OcelotError`] that is
 /// suitable for printing from a command-line binary.
 pub fn format_cli_error(headline: &str, error: &OcelotError) -> String {
-    if let Some(rendered_diagnostics) = compilation_diagnostics_output(error) {
-        return rendered_diagnostics.to_string();
+    if let Some(rendered_diagnostics) = special_error_output(error) {
+        return rendered_diagnostics;
     }
 
     let mut rendered = String::new();
@@ -83,12 +84,15 @@ pub fn format_cli_error(headline: &str, error: &OcelotError) -> String {
     rendered
 }
 
-fn compilation_diagnostics_output(error: &OcelotError) -> Option<&str> {
+fn special_error_output(error: &OcelotError) -> Option<String> {
     match error.kind() {
+        ErrorKind::AssertionError(assertion_error) => {
+            Some(render_assertion_error(assertion_error).to_string())
+        }
         ErrorKind::CompilationError(_) => error
             .source()
             .and_then(|source| source.kind().as_message())
-            .map(|message| message.as_str()),
+            .map(ToString::to_string),
         ErrorKind::Message(_) | ErrorKind::Std(_) => None,
     }
 }

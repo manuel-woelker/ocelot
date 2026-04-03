@@ -1,3 +1,4 @@
+pub mod assertion_error;
 pub mod cli;
 pub mod compilation_context;
 pub mod compilation_stage;

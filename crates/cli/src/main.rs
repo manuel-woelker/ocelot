@@ -1,10 +1,10 @@
 mod cli_command;
 
 use crate::cli_command::CliCommand;
-use ocelot_base::cli::try_main;
-use ocelot_base::error::OcelotError;
+use ocelot_base::cli::format_cli_error;
 use ocelot_base::result::OcelotResult;
 use ocelot_engine::engine::Engine;
+use ocelot_engine::failed_test_result::FailedTestResult;
 use ocelot_engine::test_run_summary::TestRunSummary;
 use ocelot_pal::pal_real::PalReal;
 use std::process::ExitCode;
@@ -15,29 +15,47 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    try_main(|| run_cli(&command))
+    match command {
+        CliCommand::Run { script_path } => run_cli(script_path.as_str()),
+        CliCommand::Test { script_path } => run_test_cli(script_path.as_str()),
+    }
 }
 
-fn run_cli(command: &CliCommand) -> OcelotResult<()> {
-    let pal = PalReal::new_handle()?;
-    let engine = Engine::new(pal);
-
-    match command {
-        CliCommand::Run { script_path } => engine.run_script(script_path.as_str()),
-        CliCommand::Test { script_path } => {
-            let summary = engine.run_tests(script_path.as_str())?;
-            report_test_summary(&summary);
-
-            if summary.is_success() {
-                Ok(())
-            } else {
-                Err(OcelotError::message(format!(
-                    "{} test(s) failed",
-                    summary.failed.len()
-                )))
-            }
+fn run_cli(script_path: &str) -> ExitCode {
+    match run_script(script_path) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprint!("{}", format_cli_error("operation failed", &error));
+            ExitCode::FAILURE
         }
     }
+}
+
+fn run_script(script_path: &str) -> OcelotResult<()> {
+    let pal = PalReal::new_handle()?;
+    Engine::new(pal).run_script(script_path)
+}
+
+fn run_test_cli(script_path: &str) -> ExitCode {
+    match run_tests(script_path) {
+        Ok(summary) => {
+            report_test_summary(&summary);
+            if summary.is_success() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            }
+        }
+        Err(error) => {
+            eprint!("{}", format_cli_error("operation failed", &error));
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run_tests(script_path: &str) -> OcelotResult<TestRunSummary> {
+    let pal = PalReal::new_handle()?;
+    Engine::new(pal).run_tests(script_path)
 }
 
 fn parse_command() -> Option<CliCommand> {
@@ -75,8 +93,25 @@ fn render_test_summary_lines(summary: &TestRunSummary) -> Vec<String> {
 
     for failed_test in &summary.failed {
         lines.push(format!("FAIL {}", failed_test.name));
+        for detail_line in render_failed_test_detail_lines(failed_test) {
+            lines.push(detail_line);
+        }
     }
 
+    lines
+}
+
+fn render_failed_test_detail_lines(failed_test: &FailedTestResult) -> Vec<String> {
+    let header = format!("test `{}` failed", failed_test.name);
+    let detail = failed_test
+        .message
+        .strip_prefix(header.as_str())
+        .and_then(|message| message.strip_prefix('\n'))
+        .unwrap_or(failed_test.message.as_str());
+
+    let mut lines = Vec::new();
+    lines.push(String::new());
+    lines.extend(detail.lines().map(|line| format!("  {line}")));
     lines
 }
 
@@ -115,7 +150,10 @@ mod tests {
     fn renders_pass_and_fail_lines_for_all_tests() {
         let summary = TestRunSummary {
             passed: vec!["first".into(), "third".into()],
-            failed: vec![FailedTestResult::new("broken", "test `broken` failed")],
+            failed: vec![FailedTestResult::new(
+                "broken",
+                "test `broken` failed\nerror: assert_eq values differ\n\nexpected: \"a\"\nactual:   \"b\"",
+            )],
         };
 
         assert_eq!(
@@ -124,6 +162,11 @@ mod tests {
                 String::from("PASS first"),
                 String::from("PASS third"),
                 String::from("FAIL broken"),
+                String::new(),
+                String::from("  error: assert_eq values differ"),
+                String::from("  "),
+                String::from("  expected: \"a\""),
+                String::from("  actual:   \"b\""),
             ]
         );
     }

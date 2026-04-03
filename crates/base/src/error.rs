@@ -1,3 +1,4 @@
+use crate::assertion_error::AssertionError;
 use std::error::Error as StdError;
 use std::fmt::{Debug, Display, Formatter};
 use std::panic::Location;
@@ -9,6 +10,7 @@ use crate::unansi;
 
 #[derive(Debug)]
 pub enum ErrorKind {
+    AssertionError(Box<AssertionError>),
     Message(SharedString),
     CompilationError(CompilationStage),
     Std(Box<dyn StdError + Send + Sync + 'static>),
@@ -19,7 +21,7 @@ impl ErrorKind {
     pub fn as_message(&self) -> Option<&SharedString> {
         match self {
             Self::Message(message) => Some(message),
-            Self::CompilationError(_) | Self::Std(_) => None,
+            Self::AssertionError(_) | Self::CompilationError(_) | Self::Std(_) => None,
         }
     }
 }
@@ -27,6 +29,7 @@ impl ErrorKind {
 impl Display for ErrorKind {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::AssertionError(assertion_error) => Display::fmt(assertion_error, f),
             Self::Message(message) => f.write_str(message),
             Self::CompilationError(stage) => write!(f, "{stage} compilation error"),
             Self::Std(error) => Display::fmt(error, f),
@@ -67,6 +70,21 @@ impl OcelotError {
         location: &'static Location<'static>,
     ) -> Self {
         Self::at_location(ErrorKind::Message(s.into()), location)
+    }
+
+    #[track_caller]
+    pub fn assertion_error(assertion_error: AssertionError) -> Self {
+        Self::assertion_error_at_location(assertion_error, Location::caller())
+    }
+
+    pub fn assertion_error_at_location(
+        assertion_error: AssertionError,
+        location: &'static Location<'static>,
+    ) -> Self {
+        Self::at_location(
+            ErrorKind::AssertionError(Box::new(assertion_error)),
+            location,
+        )
     }
 
     #[track_caller]

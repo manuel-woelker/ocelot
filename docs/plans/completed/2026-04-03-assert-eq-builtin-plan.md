@@ -175,6 +175,21 @@ Verification should include:
 - spec-validation updates if a new `assert_eq` chapter or examples are added
 - running `nao check`
 
+# What landed from this plan?
+
+This change added the first assertion-oriented builtin and failure path:
+
+- `assert_eq(expected, actual)` now exists as a native builtin function
+- [`RuntimeValue`](/data/projects/ocelot/crates/interpreter/src/runtime_value.rs) now exposes equality and stable assertion rendering helpers
+- [`ErrorKind`](/data/projects/ocelot/crates/base/src/error.rs) now includes a boxed `AssertionError` payload with source diagnostic data and rendered values
+- assertion failures render as a source diagnostic plus a short diff through [`render_assertion_error`](/data/projects/ocelot/crates/base/src/assertion_error.rs)
+- engine test execution now reports assertion mismatches with source context and diff output instead of treating them like generic wrapped errors
+- interpreter, engine, and base formatting coverage were updated
+- `nao check` passes
+
+Spec documentation was intentionally deferred in this change.
+The builtin behavior is stable enough in code, but the repository does not yet have a clean spec-validation path for test-oriented execution output, so locking the exact assertion-reporting shape into `docs/spec` would be premature.
+
 # What assumptions, risks, and open questions should stay explicit?
 
 - This plan assumes `assert_eq` is primarily intended for test bodies, even if the builtin technically exists during ordinary script execution too.
@@ -186,11 +201,11 @@ Verification should include:
 
 # What concrete tasks should track this plan?
 
-- [ ] Add an active plan for the `assert_eq` builtin and its failure-reporting path.
-- [ ] Implement `assert_eq(expected, actual)` as a native builtin function.
-- [ ] Add runtime-value helpers for equality and stable assertion rendering.
-- [ ] Add an `AssertionError` variant to `ErrorKind` with structured assertion payload data.
-- [ ] Render assertion mismatches as a source diagnostic plus expected/actual or diff output during test execution.
-- [ ] Add interpreter and engine coverage for successful assertions, mismatches, and wrong arity.
-- [ ] Add or update spec documentation if the output shape is considered stable enough.
-- [ ] Run `nao check`.
+- [x] Add an active plan for the `assert_eq` builtin and its failure-reporting path.
+- [x] Implement `assert_eq(expected, actual)` as a native builtin function.
+- [x] Add runtime-value helpers for equality and stable assertion rendering.
+- [x] Add an `AssertionError` variant to `ErrorKind` with structured assertion payload data.
+- [x] Render assertion mismatches as a source diagnostic plus expected/actual or diff output during test execution.
+- [x] Add interpreter and engine coverage for successful assertions, mismatches, and wrong arity.
+- [x] Decide whether to add spec documentation now; defer it until test-oriented output has a stable spec-validation path.
+- [x] Run `nao check`.

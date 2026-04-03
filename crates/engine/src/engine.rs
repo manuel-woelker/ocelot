@@ -2,6 +2,8 @@ use crate::discovered_test::DiscoveredTest;
 use crate::failed_test_result::FailedTestResult;
 use crate::test_run_summary::TestRunSummary;
 use ocelot_ast::item_kind::ItemKind;
+use ocelot_base::assertion_error::render_assertion_error;
+use ocelot_base::error::ErrorKind;
 use ocelot_base::error::OcelotError;
 use ocelot_base::file_path::FilePath;
 use ocelot_base::result::OcelotResult;
@@ -23,7 +25,7 @@ impl Engine {
     pub fn run_script(&self, path: impl Into<FilePath>) -> OcelotResult<()> {
         let source_file = self.load_source_file(path.into())?;
         let script = self.parse_script(&source_file)?;
-        ocelot_interpreter::interpret_script::interpret_script(&script, &*self.pal)?;
+        ocelot_interpreter::interpret_script::interpret_script(&script, &source_file, &*self.pal)?;
         Ok(())
     }
 
@@ -55,9 +57,19 @@ impl Engine {
             })
             .context(format!("unknown test `{test_name}`"))?;
 
-        ocelot_interpreter::interpreter::Interpreter::new(&*self.pal)
-            .interpret_statements(&test_item.body)
-            .context(format!("test `{}` failed", test_item.name))?;
+        if let Err(error) =
+            ocelot_interpreter::interpreter::Interpreter::new(&*self.pal, &source_file)
+                .interpret_statements(&test_item.body)
+        {
+            return match error.kind() {
+                ErrorKind::AssertionError(assertion_error) => Err(OcelotError::message(format!(
+                    "test `{}` failed\n{}",
+                    test_item.name,
+                    render_assertion_error(assertion_error)
+                ))),
+                _ => Err(error).context(format!("test `{}` failed", test_item.name)),
+            };
+        }
 
         Ok(())
     }
@@ -65,7 +77,8 @@ impl Engine {
     pub fn run_tests(&self, path: impl Into<FilePath>) -> OcelotResult<TestRunSummary> {
         let source_file = self.load_source_file(path.into())?;
         let script = self.parse_script(&source_file)?;
-        let interpreter = ocelot_interpreter::interpreter::Interpreter::new(&*self.pal);
+        let interpreter =
+            ocelot_interpreter::interpreter::Interpreter::new(&*self.pal, &source_file);
         let mut summary = TestRunSummary::new();
 
         for item in &script.items {
@@ -75,12 +88,24 @@ impl Engine {
 
             match interpreter.interpret_statements(&test_item.body) {
                 Ok(()) => summary.passed.push(test_item.name.clone()),
-                Err(error) => summary.failed.push(FailedTestResult::new(
-                    test_item.name.clone(),
-                    OcelotError::message(format!("test `{}` failed", test_item.name))
-                        .with_source(error)
-                        .to_test_string(),
-                )),
+                Err(error) => match error.kind() {
+                    ErrorKind::AssertionError(assertion_error) => {
+                        summary.failed.push(FailedTestResult::new(
+                            test_item.name.clone(),
+                            format!(
+                                "test `{}` failed\n{}",
+                                test_item.name,
+                                render_assertion_error(assertion_error)
+                            ),
+                        ))
+                    }
+                    _ => summary.failed.push(FailedTestResult::new(
+                        test_item.name.clone(),
+                        OcelotError::message(format!("test `{}` failed", test_item.name))
+                            .with_source(error)
+                            .to_test_string(),
+                    )),
+                },
             }
         }
 
@@ -206,6 +231,27 @@ mod tests {
     }
 
     #[test]
+    fn run_test_renders_assertion_failures_with_source_and_diff() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/tests.ocelot",
+            "test \"broken\" { assert_eq(\"a\", \"b\"); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal));
+
+        let error = engine
+            .run_test("examples/tests.ocelot", "broken")
+            .unwrap_err();
+
+        assert!(error.to_test_string().contains("test `broken` failed"));
+        assert!(error.to_test_string().contains("assert_eq values differ"));
+        assert!(error.to_test_string().contains("assert_eq(\"a\", \"b\");"));
+        assert!(error.to_test_string().contains("expected: \"a\""));
+        assert!(error.to_test_string().contains("actual:   \"b\""));
+    }
+
+    #[test]
     fn run_tests_reports_unknown_test_names() {
         let pal = PalMock::new();
         pal.set_file(
@@ -299,5 +345,28 @@ mod tests {
                 .contains("unresolved identifier `missing_value`")
         );
         assert_eq!(pal.take_printed_output(), "one\nthree\n");
+    }
+
+    #[test]
+    fn run_tests_includes_assertion_failure_output_in_failed_summary() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/tests.ocelot",
+            "test \"broken\" { assert_eq(\"a\", \"b\"); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal));
+
+        let summary = engine.run_tests("examples/tests.ocelot").unwrap();
+
+        assert!(summary.passed.is_empty());
+        assert_eq!(summary.failed.len(), 1);
+        assert!(
+            summary.failed[0]
+                .message
+                .contains("assert_eq values differ")
+        );
+        assert!(summary.failed[0].message.contains("expected: \"a\""));
+        assert!(summary.failed[0].message.contains("actual:   \"b\""));
     }
 }

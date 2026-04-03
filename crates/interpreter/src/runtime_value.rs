@@ -50,6 +50,19 @@ impl RuntimeValue {
             Self::Unit => ocelot_base::bail!("{}", message.as_ref()),
         }
     }
+
+    /// Returns true when both runtime values compare equal.
+    pub fn equals(&self, other: &Self) -> bool {
+        self == other
+    }
+
+    /// Returns a stable user-facing rendering for assertions.
+    pub fn render_for_assertion(&self) -> SharedString {
+        match self {
+            Self::String(value) => SharedString::from(format!("\"{}\"", value)),
+            Self::Unit => SharedString::from("()"),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -97,5 +110,18 @@ mod tests {
                 .to_test_string()
                 .contains("type error: expected string")
         );
+    }
+
+    #[test]
+    fn render_for_assertion_quotes_strings() {
+        let value = RuntimeValue::string("hello");
+
+        assert_eq!(value.render_for_assertion(), "\"hello\"");
+    }
+
+    #[test]
+    fn equals_compares_runtime_values() {
+        assert!(RuntimeValue::string("hello").equals(&RuntimeValue::string("hello")));
+        assert!(!RuntimeValue::string("hello").equals(&RuntimeValue::unit()));
     }
 }
