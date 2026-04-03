@@ -7,6 +7,8 @@ use ocelot_engine::engine::Engine;
 use ocelot_engine::failed_test_result::FailedTestResult;
 use ocelot_engine::test_run_summary::TestRunSummary;
 use ocelot_pal::pal_real::PalReal;
+use pico_args::Arguments;
+use std::ffi::OsString;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
@@ -59,7 +61,7 @@ fn run_tests(script_path: &str) -> OcelotResult<TestRunSummary> {
 }
 
 fn parse_command() -> Option<CliCommand> {
-    parse_command_inner(std::env::args().skip(1).collect())
+    parse_command_inner(std::env::args_os().skip(1).collect())
 }
 
 fn print_usage() {
@@ -72,15 +74,23 @@ fn report_test_summary(summary: &TestRunSummary) {
     }
 }
 
-fn parse_command_inner(args: Vec<String>) -> Option<CliCommand> {
-    match args.as_slice() {
-        [script_path] => Some(CliCommand::Run {
-            script_path: script_path.clone(),
-        }),
-        [command, script_path] if command == "test" => Some(CliCommand::Test {
-            script_path: script_path.clone(),
-        }),
-        _ => None,
+fn parse_command_inner(args: Vec<OsString>) -> Option<CliCommand> {
+    let mut args = Arguments::from_vec(args);
+    let first_argument: String = args.opt_free_from_str().ok()??;
+
+    let command = match first_argument.as_str() {
+        "test" => CliCommand::Test {
+            script_path: args.free_from_str().ok()?,
+        },
+        _ => CliCommand::Run {
+            script_path: first_argument,
+        },
+    };
+
+    if args.finish().is_empty() {
+        Some(command)
+    } else {
+        None
     }
 }
 
@@ -121,9 +131,10 @@ mod tests {
     use crate::cli_command::CliCommand;
     use ocelot_engine::failed_test_result::FailedTestResult;
     use ocelot_engine::test_run_summary::TestRunSummary;
+    use std::ffi::OsString;
 
     fn parse_command_from(args: &[&str]) -> Option<CliCommand> {
-        parse_command_inner(args.iter().map(|value| value.to_string()).collect())
+        parse_command_inner(args.iter().map(OsString::from).collect())
     }
 
     #[test]

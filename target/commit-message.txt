@@ -1,0 +1,13 @@
+refactor(cli): use pico-args for argument parsing
+
+Replace the hand-rolled CLI argument parser with `pico-args` while preserving
+the current command shapes for script execution and test runs. Parse arguments
+through `args_os()` so file paths remain lossless and add the new dependency to
+the workspace and CLI crate manifests.
+
+User Prompts:
+- use the pico-args crate to do argument parsing in cli
+- commit
+
+Model:
+- GPT-5 Codex
