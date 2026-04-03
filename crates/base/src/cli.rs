@@ -1,6 +1,7 @@
 use crate::assertion_error::render_assertion_error;
 use crate::error::ErrorKind;
 use crate::error::OcelotError;
+use crate::render_source_diagnostics::render_source_diagnostics;
 use crate::result::OcelotResult;
 use std::fmt::Write as _;
 use std::process::ExitCode;
@@ -88,6 +89,9 @@ fn special_error_output(error: &OcelotError) -> Option<String> {
     match error.kind() {
         ErrorKind::AssertionError(assertion_error) => {
             Some(render_assertion_error(assertion_error).to_string())
+        }
+        ErrorKind::RuntimeError(diagnostic) => {
+            Some(render_source_diagnostics(std::slice::from_ref(diagnostic.as_ref())).to_string())
         }
         ErrorKind::CompilationError(_) => error
             .source()

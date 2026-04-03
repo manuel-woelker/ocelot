@@ -9,9 +9,15 @@ use ocelot_ast::script::Script;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
 use ocelot_base::assertion_error::AssertionError;
+use ocelot_base::diagnostic_level::DiagnosticLevel;
 use ocelot_base::error::OcelotError;
 use ocelot_base::result::OcelotResult;
+use ocelot_base::shared_string::SharedString;
+use ocelot_base::source_annotation::SourceAnnotation;
+use ocelot_base::source_diagnostic::SourceDiagnostic;
+use ocelot_base::source_excerpt::SourceExcerpt;
 use ocelot_base::source_file::SourceFile;
+use ocelot_base::span::Span;
 use ocelot_pal::pal::Pal;
 
 /// Stateful AST-walking interpreter context.
@@ -66,9 +72,11 @@ impl<'a> Interpreter<'a> {
             ExpressionKind::StringLiteral(string_literal) => {
                 Ok(RuntimeValue::string(string_literal.value.clone()))
             }
-            ExpressionKind::Identifier(identifier) => {
-                ocelot_base::bail!("unresolved identifier `{}`", identifier.name)
-            }
+            ExpressionKind::Identifier(identifier) => self.runtime_source_error(
+                format!("unresolved identifier `{}`", identifier.name),
+                expression.span.clone(),
+                "not found",
+            ),
         }
     }
 
@@ -126,5 +134,50 @@ impl<'a> Interpreter<'a> {
             expected.render_for_assertion(),
             actual.render_for_assertion(),
         )))
+    }
+
+    fn runtime_source_error<T>(
+        &self,
+        message: impl Into<SharedString>,
+        span: Span,
+        annotation: impl Into<SharedString>,
+    ) -> OcelotResult<T> {
+        let diagnostic = self.source_diagnostic(message, span, annotation);
+        Err(OcelotError::runtime_error(diagnostic))
+    }
+
+    fn source_diagnostic(
+        &self,
+        message: impl Into<SharedString>,
+        span: Span,
+        annotation: impl Into<SharedString>,
+    ) -> SourceDiagnostic {
+        let message = message.into();
+        let annotation = annotation.into();
+        let (line_number, line_start, line_end) = self.line_bounds(span.start());
+        let source_line = &self.source_file.source()[line_start..line_end];
+        let relative_start = span.start().saturating_sub(line_start);
+        let relative_end = span.end().saturating_sub(line_start);
+
+        SourceDiagnostic::new(DiagnosticLevel::Error, &self.source_file.path, message).with_excerpt(
+            SourceExcerpt::new(&self.source_file.path, line_number, source_line).with_annotation(
+                SourceAnnotation::new(Span::new(relative_start, relative_end), annotation),
+            ),
+        )
+    }
+
+    fn line_bounds(&self, index: usize) -> (usize, usize, usize) {
+        let source = self.source_file.source();
+        let line_start = source[..index].rfind('\n').map_or(0, |offset| offset + 1);
+        let line_end = source[index..]
+            .find('\n')
+            .map_or(source.len(), |offset| index + offset);
+        let line_number = source[..line_start]
+            .bytes()
+            .filter(|byte| *byte == b'\n')
+            .count()
+            + 1;
+
+        (line_number, line_start, line_end)
     }
 }

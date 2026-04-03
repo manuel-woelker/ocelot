@@ -6,6 +6,7 @@ use ocelot_base::assertion_error::render_assertion_error;
 use ocelot_base::error::ErrorKind;
 use ocelot_base::error::OcelotError;
 use ocelot_base::file_path::FilePath;
+use ocelot_base::render_source_diagnostics::render_source_diagnostics;
 use ocelot_base::result::OcelotResult;
 use ocelot_base::result::OptionExt;
 use ocelot_base::result::ResultExt;
@@ -67,6 +68,11 @@ impl Engine {
                     test_item.name,
                     render_assertion_error(assertion_error)
                 ))),
+                ErrorKind::RuntimeError(diagnostic) => Err(OcelotError::message(format!(
+                    "test `{}` failed\n{}",
+                    test_item.name,
+                    render_source_diagnostics(std::slice::from_ref(diagnostic.as_ref()))
+                ))),
                 _ => Err(error).context(format!("test `{}` failed", test_item.name)),
             };
         }
@@ -96,6 +102,18 @@ impl Engine {
                                 "test `{}` failed\n{}",
                                 test_item.name,
                                 render_assertion_error(assertion_error)
+                            ),
+                        ))
+                    }
+                    ErrorKind::RuntimeError(diagnostic) => {
+                        summary.failed.push(FailedTestResult::new(
+                            test_item.name.clone(),
+                            format!(
+                                "test `{}` failed\n{}",
+                                test_item.name,
+                                render_source_diagnostics(std::slice::from_ref(
+                                    diagnostic.as_ref()
+                                ))
                             ),
                         ))
                     }
@@ -231,6 +249,39 @@ mod tests {
     }
 
     #[test]
+    fn run_test_renders_runtime_source_diagnostics_for_unresolved_identifiers() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/tests.ocelot",
+            "test \"broken\" { println(missing_value); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal));
+
+        let error = engine
+            .run_test("examples/tests.ocelot", "broken")
+            .unwrap_err();
+
+        assert!(error.to_test_string().contains("test `broken` failed"));
+        assert!(
+            error
+                .to_test_string()
+                .contains("unresolved identifier `missing_value`")
+        );
+        assert!(error.to_test_string().contains("println(missing_value);"));
+        assert!(
+            error
+                .to_test_string()
+                .contains("at examples/tests.ocelot:1")
+        );
+        assert!(
+            !error
+                .to_test_string()
+                .contains("crates/interpreter/src/interpreter.rs")
+        );
+    }
+
+    #[test]
     fn run_test_renders_assertion_failures_with_source_and_diff() {
         let pal = PalMock::new();
         pal.set_file(
@@ -345,6 +396,31 @@ mod tests {
                 .contains("unresolved identifier `missing_value`")
         );
         assert_eq!(pal.take_printed_output(), "one\nthree\n");
+    }
+
+    #[test]
+    fn run_tests_preserve_runtime_source_diagnostics_in_failed_summary() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/tests.ocelot",
+            "test \"broken\" { println(missing_value); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal));
+
+        let summary = engine.run_tests("examples/tests.ocelot").unwrap();
+
+        assert_eq!(summary.failed.len(), 1);
+        assert!(
+            summary.failed[0]
+                .message
+                .contains("unresolved identifier `missing_value`")
+        );
+        assert!(
+            summary.failed[0]
+                .message
+                .contains("at examples/tests.ocelot:1")
+        );
     }
 
     #[test]
