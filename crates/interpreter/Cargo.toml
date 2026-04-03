@@ -1,12 +1,12 @@
 [package]
 name = "ocelot-interpreter"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "Interpreter for the ocelot project"
 license = "MIT"
 repository = "https://github.com/manuel-woelker/ocelot"
 
 [dependencies]
-ocelot-ast = { path = "../ast", version = "0.1.1" }
-ocelot-base = { path = "../base", version = "0.1.1" }
-ocelot-pal = { path = "../pal", version = "0.1.1" }
+ocelot-ast = { path = "../ast", version = "0.1.2" }
+ocelot-base = { path = "../base", version = "0.1.2" }
+ocelot-pal = { path = "../pal", version = "0.1.2" }

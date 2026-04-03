@@ -1,15 +1,15 @@
 [package]
 name = "ocelot-spec-validation"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "Specification example validation for the ocelot project"
 license = "MIT"
 repository = "https://github.com/manuel-woelker/ocelot"
 
 [dependencies]
-ocelot-base = { path = "../base", version = "0.1.1" }
-ocelot-engine = { path = "../engine", version = "0.1.1" }
-ocelot-pal = { path = "../pal", version = "0.1.1" }
+ocelot-base = { path = "../base", version = "0.1.2" }
+ocelot-engine = { path = "../engine", version = "0.1.2" }
+ocelot-pal = { path = "../pal", version = "0.1.2" }
 
 [dev-dependencies]
 expect-test = { workspace = true }

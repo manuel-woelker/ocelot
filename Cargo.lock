@@ -367,7 +367,7 @@ dependencies = [
 
 [[package]]
 name = "ocelot"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ocelot-base",
  "ocelot-engine",
@@ -376,14 +376,14 @@ dependencies = [
 
 [[package]]
 name = "ocelot-ast"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ocelot-base",
 ]
 
 [[package]]
 name = "ocelot-base"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "annotate-snippets",
  "anstream",
@@ -398,7 +398,7 @@ dependencies = [
 
 [[package]]
 name = "ocelot-engine"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "expect-test",
  "ocelot-ast",
@@ -410,7 +410,7 @@ dependencies = [
 
 [[package]]
 name = "ocelot-interpreter"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ocelot-ast",
  "ocelot-base",
@@ -419,7 +419,7 @@ dependencies = [
 
 [[package]]
 name = "ocelot-pal"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "expect-test",
  "ignore",
@@ -431,7 +431,7 @@ dependencies = [
 
 [[package]]
 name = "ocelot-parser"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ocelot-ast",
  "ocelot-base",
@@ -439,7 +439,7 @@ dependencies = [
 
 [[package]]
 name = "ocelot-resolver"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "ocelot-ast",
  "ocelot-base",
@@ -447,7 +447,7 @@ dependencies = [
 
 [[package]]
 name = "ocelot-spec-validation"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "expect-test",
  "ocelot-base",
