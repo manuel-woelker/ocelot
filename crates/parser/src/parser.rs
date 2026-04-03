@@ -12,6 +12,7 @@ use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
 use ocelot_ast::string_literal_expression::StringLiteralExpression;
 use ocelot_ast::test_item::TestItem;
+use ocelot_base::compilation_context::CompilationContext;
 use ocelot_base::result::OcelotResult;
 use ocelot_base::shared_string::SharedString;
 use ocelot_base::source_file::SourceFile;
@@ -20,33 +21,42 @@ use ocelot_base::span::Span;
 /// Stateful parser context for one source file.
 pub struct Parser<'a> {
     source_file: &'a SourceFile,
+    compilation_context: &'a mut CompilationContext,
     tokens: Vec<Token>,
     position: usize,
 }
 
 impl<'a> Parser<'a> {
     /// Creates a parser for one source file.
-    pub fn new(source_file: &'a SourceFile) -> OcelotResult<Self> {
-        let tokens = lex(source_file.source())?.collect();
-        Ok(Self {
+    pub fn new(
+        source_file: &'a SourceFile,
+        compilation_context: &'a mut CompilationContext,
+    ) -> Self {
+        let tokens = lex(source_file, compilation_context);
+        Self {
             source_file,
+            compilation_context,
             tokens,
             position: 0,
-        })
+        }
     }
 
     /// Parses the source file into a script AST.
-    pub fn parse_script(&mut self) -> OcelotResult<Script> {
+    pub fn parse_script(&mut self) -> OcelotResult<Option<Script>> {
+        if self.compilation_context.has_errors() {
+            return Ok(None);
+        }
+
         let mut items = Vec::new();
 
         while !self.at(TokenType::EndOfFile) {
             items.push(self.parse_item()?);
         }
 
-        Ok(Script::new(
+        Ok(Some(Script::new(
             items,
             Span::new(0, self.source_file.source().len()),
-        ))
+        )))
     }
 
     fn parse_item(&mut self) -> OcelotResult<Item> {

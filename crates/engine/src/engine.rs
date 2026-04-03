@@ -2,8 +2,10 @@ use crate::discovered_test::DiscoveredTest;
 use crate::failed_test_result::FailedTestResult;
 use crate::test_run_summary::TestRunSummary;
 use ocelot_ast::item_kind::ItemKind;
+use ocelot_base::compilation_context::CompilationContext;
 use ocelot_base::error::OcelotError;
 use ocelot_base::file_path::FilePath;
+use ocelot_base::render_source_diagnostics::render_source_diagnostics;
 use ocelot_base::result::OcelotResult;
 use ocelot_base::result::OptionExt;
 use ocelot_base::result::ResultExt;
@@ -22,14 +24,14 @@ impl Engine {
 
     pub fn run_script(&self, path: impl Into<FilePath>) -> OcelotResult<()> {
         let source_file = self.load_source_file(path.into())?;
-        let script = ocelot_parser::parse_script::parse_script(&source_file)?;
+        let script = self.parse_script(&source_file)?;
         ocelot_interpreter::interpret_script::interpret_script(&script, &*self.pal)?;
         Ok(())
     }
 
     pub fn discover_tests(&self, path: impl Into<FilePath>) -> OcelotResult<Vec<DiscoveredTest>> {
         let source_file = self.load_source_file(path.into())?;
-        let script = ocelot_parser::parse_script::parse_script(&source_file)?;
+        let script = self.parse_script(&source_file)?;
 
         Ok(script
             .items
@@ -45,7 +47,7 @@ impl Engine {
 
     pub fn run_test(&self, path: impl Into<FilePath>, test_name: &str) -> OcelotResult<()> {
         let source_file = self.load_source_file(path.into())?;
-        let script = ocelot_parser::parse_script::parse_script(&source_file)?;
+        let script = self.parse_script(&source_file)?;
         let test_item = script
             .items
             .iter()
@@ -64,7 +66,7 @@ impl Engine {
 
     pub fn run_tests(&self, path: impl Into<FilePath>) -> OcelotResult<TestRunSummary> {
         let source_file = self.load_source_file(path.into())?;
-        let script = ocelot_parser::parse_script::parse_script(&source_file)?;
+        let script = self.parse_script(&source_file)?;
         let interpreter = ocelot_interpreter::interpreter::Interpreter::new(&*self.pal);
         let mut summary = TestRunSummary::new();
 
@@ -90,6 +92,22 @@ impl Engine {
     fn load_source_file(&self, path: FilePath) -> OcelotResult<SourceFile> {
         let source = self.pal.read_file_to_string(&path)?;
         Ok(SourceFile::new(path, source))
+    }
+
+    fn parse_script(&self, source_file: &SourceFile) -> OcelotResult<ocelot_ast::script::Script> {
+        let mut compilation_context = CompilationContext::default();
+        let script =
+            ocelot_parser::parse_script::parse_script(source_file, &mut compilation_context)?;
+
+        match script {
+            Some(script) => Ok(script),
+            None if compilation_context.has_errors() => Err(OcelotError::message(
+                render_source_diagnostics(&compilation_context.source_diagnostics.diagnostics),
+            )),
+            None => Err(OcelotError::message(
+                "parser returned no script without reporting diagnostics",
+            )),
+        }
     }
 }
 
