@@ -44,11 +44,15 @@ pub fn lex(source_file: &SourceFile, context: &mut CompilationContext) -> Vec<To
                 let start = index;
                 index += 1;
 
-                while index < bytes.len() && bytes[index] != b'"' {
+                while index < bytes.len()
+                    && bytes[index] != b'"'
+                    && bytes[index] != b'\n'
+                    && bytes[index] != b'\r'
+                {
                     index += 1;
                 }
 
-                if index >= bytes.len() {
+                if index >= bytes.len() || bytes[index] == b'\n' || bytes[index] == b'\r' {
                     context.add_diagnostic(unterminated_string_diagnostic(
                         source_file,
                         start,
@@ -218,6 +222,45 @@ mod tests {
     #[test]
     fn reports_unterminated_strings_as_source_diagnostics() {
         let source_file = SourceFile::new("examples/broken.ocelot", "println(\"hello);");
+        let mut context = CompilationContext::default();
+        let token_types: Vec<_> = lex(&source_file, &mut context)
+            .into_iter()
+            .map(|token| token.token_type)
+            .collect();
+
+        assert_eq!(
+            token_types,
+            vec![
+                TokenType::Identifier,
+                TokenType::LeftParen,
+                TokenType::EndOfFile
+            ]
+        );
+        assert!(context.has_errors());
+        assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
+
+        let diagnostic = &context.source_diagnostics.diagnostics[0];
+
+        assert_eq!(diagnostic.level, DiagnosticLevel::Error);
+        assert_eq!(diagnostic.file_path.as_str(), "examples/broken.ocelot");
+        assert_eq!(diagnostic.message, "unterminated string literal");
+        assert_eq!(diagnostic.excerpts.len(), 1);
+        assert_eq!(diagnostic.excerpts[0].line_number, 1);
+        assert_eq!(diagnostic.excerpts[0].source_line, "println(\"hello);");
+        assert_eq!(diagnostic.excerpts[0].annotations.len(), 1);
+        assert_eq!(
+            diagnostic.excerpts[0].annotations[0].span,
+            ocelot_base::span::Span::new(8, 16)
+        );
+        assert_eq!(
+            diagnostic.excerpts[0].annotations[0].message,
+            "string is missing a closing quote"
+        );
+    }
+
+    #[test]
+    fn reports_strings_terminated_by_a_newline_as_source_diagnostics() {
+        let source_file = SourceFile::new("examples/broken.ocelot", "println(\"hello);\n");
         let mut context = CompilationContext::default();
         let token_types: Vec<_> = lex(&source_file, &mut context)
             .into_iter()

@@ -29,6 +29,7 @@ The exact outline may evolve, but the current intended top-level numbering is:
 - `07`: Effects
 - `08`: Runtime behavior
 - `09`: Standard library
+- `91`: Lexer errors
 
 # How should examples be written?
 
@@ -65,5 +66,6 @@ The first numbered spec chapters are:
 - [08.01 Runtime behavior - Scripts](./08.01%20Runtime%20behavior%20-%20Scripts.md)
 - [08.02 Runtime behavior - Test items](./08.02%20Runtime%20behavior%20-%20Test%20items.md)
 - [09.01 Standard library - println](./09.01%20Standard%20library%20-%20println.md)
+- [91.01 Lexer errors - Unterminated strings](./91.01%20Lexer%20errors%20-%20Unterminated%20strings.md)
 
 Additional chapters can be added later without redesigning the format.
