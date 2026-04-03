@@ -1,18 +1,13 @@
-refactor(cli): inline command dispatch
+refactor(cli): simplify command parsing and execution
 
-Simplify the CLI entrypoint by inlining command dispatch into `run_command`
-and removing the intermediate command types and helper function. The CLI now
-parses PAL-provided arguments with `pico-args`, dispatches directly to script
-or test execution, and keeps the tests focused on the PAL-backed execution
-path.
+Unify CLI parsing around a small command enum and a single execution path.
+Remove the duplicate PAL arguments from run_command so argument parsing and
+execution both use the same handle.
+Add focused parser tests for run and test command handling.
 
 User Prompts:
-- remove the CliCommand env and use the pico-args subcommand method to determine what subcommand to run
-- do not use a struct, instead of parsing the command, determine the correct command, and then execute the correct function directly
-- put the usage path into run_command as well
-- put it in run_command_inner
-- run_command_inner should not take closures as arguments, just the pal, then simplify the call
-- inline run_command_inner
+- take a good look at crates/cli/src/main.rs and simplify the parsing and execution
+- remove the duplicate pal arguments
 - commit
 
 Model:
