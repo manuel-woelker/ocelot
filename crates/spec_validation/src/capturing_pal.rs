@@ -8,6 +8,7 @@ use ocelot_pal::process_event_sink::ProcessEventSink;
 use ocelot_pal::process_result::ProcessResult;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::ffi::OsString;
 use std::io::Cursor;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
@@ -39,6 +40,10 @@ impl CapturingPal {
 }
 
 impl Pal for CapturingPal {
+    fn args(&self) -> Vec<OsString> {
+        self.inner.args()
+    }
+
     fn file_exists(&self, path: &FilePath) -> OcelotResult<bool> {
         if self.virtual_files.read().contains_key(path) {
             return Ok(true);

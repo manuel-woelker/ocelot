@@ -1,12 +1,13 @@
-refactor(cli): use pico-args for argument parsing
+refactor(cli): parse arguments through the PAL
 
-Replace the hand-rolled CLI argument parser with `pico-args` while preserving
-the current command shapes for script execution and test runs. Parse arguments
-through `args_os()` so file paths remain lossless and add the new dependency to
-the workspace and CLI crate manifests.
+Add an `args` method to the platform abstraction layer and implement it for the
+real, mock, and capturing PAL variants. Update the CLI entrypoint to construct
+one real PAL handle up front, parse arguments through that PAL, and reuse the
+same handle for execution so argument parsing can be covered by tests with
+`PalMock`.
 
 User Prompts:
-- use the pico-args crate to do argument parsing in cli
+- add an args method to the pal, and instantiate a real_pal in the cli code, the args parsing should use that pal method so it can be tested
 - commit
 
 Model:

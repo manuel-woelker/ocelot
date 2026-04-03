@@ -10,6 +10,7 @@ use ocelot_base::result::{OcelotResult, OptionExt};
 use ocelot_base::timestamp::Timestamp;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::ffi::OsString;
 use std::fmt::Debug;
 use std::io::Cursor;
 use std::sync::Arc;
@@ -25,6 +26,7 @@ pub struct PalMock {
 struct PalMockInner {
     effects_string: String,
     printed_output: String,
+    args: Vec<OsString>,
     file_map: HashMap<FilePath, Vec<u8>>,
     directories: HashSet<FilePath>,
     process_executions: HashMap<ProcessCommand, (Vec<ProcessEvent>, ProcessResult, Duration)>,
@@ -40,6 +42,7 @@ impl PalMock {
             inner: Arc::new(RwLock::new(PalMockInner {
                 effects_string: String::new(),
                 printed_output: String::new(),
+                args: Vec::new(),
                 file_map: HashMap::new(),
                 directories: HashSet::new(),
                 process_executions: HashMap::new(),
@@ -81,6 +84,10 @@ impl PalMock {
             .write()
             .file_map
             .insert(FilePath::from(file_path), content.into());
+    }
+
+    pub fn set_args(&self, args: impl IntoIterator<Item = impl Into<OsString>>) {
+        self.inner.write().args = args.into_iter().map(Into::into).collect();
     }
 
     pub fn set_directory(&self, path: &str) {
@@ -146,6 +153,10 @@ impl Default for PalMock {
 }
 
 impl Pal for PalMock {
+    fn args(&self) -> Vec<OsString> {
+        self.inner.read().args.clone()
+    }
+
     fn file_exists(&self, path: &FilePath) -> OcelotResult<bool> {
         Ok(self.inner.read().file_map.contains_key(path))
     }

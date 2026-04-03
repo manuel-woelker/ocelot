@@ -5,6 +5,7 @@ use ocelot_base::file_path::FilePath;
 use ocelot_base::result::OcelotResult;
 use ocelot_base::shared_string::SharedString;
 use ocelot_base::timestamp::Timestamp;
+use std::ffi::OsString;
 use std::fmt::Debug;
 use std::io::{Read, Seek};
 use std::sync::Arc;
@@ -16,6 +17,9 @@ impl<T: Read + Seek> ReadSeek for T {} // blanket impl
 
 // Platform abstraction layer used to decouple logic from the underlying platform
 pub trait Pal: Debug + Sync + Send + 'static {
+    /// Returns the current process arguments excluding the executable name.
+    fn args(&self) -> Vec<OsString>;
+
     /// Does the file exist?
     fn file_exists(&self, path: &FilePath) -> OcelotResult<bool>;
 

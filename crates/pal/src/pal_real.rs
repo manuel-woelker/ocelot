@@ -19,6 +19,7 @@ use ocelot_base::file_path::FilePath;
 use ocelot_base::logging::{error, info};
 use ocelot_base::result::{OcelotResult, OptionExt, ResultExt};
 use ocelot_base::timestamp::Timestamp;
+use std::ffi::OsString;
 use std::fmt::Debug;
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -194,6 +195,10 @@ impl PalReal {
 }
 
 impl Pal for PalReal {
+    fn args(&self) -> Vec<OsString> {
+        std::env::args_os().skip(1).collect()
+    }
+
     fn file_exists(&self, path: &FilePath) -> OcelotResult<bool> {
         Ok(std::fs::exists(self.resolve_path(path)?)?)
     }
