@@ -6,6 +6,9 @@ use ocelot_pal::pal::{FileChangeCallback, Pal, PalHandle, ReadSeek};
 use ocelot_pal::process_command::ProcessCommand;
 use ocelot_pal::process_event_sink::ProcessEventSink;
 use ocelot_pal::process_result::ProcessResult;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::io::Cursor;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -14,6 +17,8 @@ use std::time::{Duration, SystemTime};
 pub struct CapturingPal {
     inner: PalHandle,
     printed_output: Arc<RwLock<String>>,
+    virtual_files: Arc<RwLock<HashMap<FilePath, Vec<u8>>>>,
+    virtual_directories: Arc<RwLock<HashSet<FilePath>>>,
 }
 
 impl CapturingPal {
@@ -22,6 +27,8 @@ impl CapturingPal {
         Self {
             inner,
             printed_output: Arc::new(RwLock::new(String::new())),
+            virtual_files: Arc::new(RwLock::new(HashMap::new())),
+            virtual_directories: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 
@@ -33,10 +40,16 @@ impl CapturingPal {
 
 impl Pal for CapturingPal {
     fn file_exists(&self, path: &FilePath) -> OcelotResult<bool> {
+        if self.virtual_files.read().contains_key(path) {
+            return Ok(true);
+        }
         self.inner.file_exists(path)
     }
 
     fn read_file(&self, path: &FilePath) -> OcelotResult<Box<dyn ReadSeek + 'static>> {
+        if let Some(content) = self.virtual_files.read().get(path).cloned() {
+            return Ok(Box::new(Cursor::new(content)));
+        }
         self.inner.read_file(path)
     }
 
@@ -44,10 +57,16 @@ impl Pal for CapturingPal {
         &self,
         path: &FilePath,
     ) -> OcelotResult<ocelot_base::shared_string::SharedString> {
+        if let Some(content) = self.virtual_files.read().get(path).cloned() {
+            return ocelot_base::shared_string::SharedString::from_utf8(&content);
+        }
         self.inner.read_file_to_string(path)
     }
 
     fn read_file_to_end(&self, path: &FilePath) -> OcelotResult<Vec<u8>> {
+        if let Some(content) = self.virtual_files.read().get(path).cloned() {
+            return Ok(content);
+        }
         self.inner.read_file_to_end(path)
     }
 
@@ -56,7 +75,19 @@ impl Pal for CapturingPal {
         path: &FilePath,
         globs: &[String],
     ) -> OcelotResult<Box<dyn Iterator<Item = OcelotResult<FilePath>> + '_>> {
-        self.inner.walk_directory(path, globs)
+        let mut results = self
+            .inner
+            .walk_directory(path, globs)?
+            .collect::<Vec<OcelotResult<FilePath>>>();
+        results.extend(
+            self.virtual_files
+                .read()
+                .keys()
+                .filter(|file_path| file_path.as_path().starts_with(path.as_path()))
+                .cloned()
+                .map(Ok),
+        );
+        Ok(Box::new(results.into_iter()))
     }
 
     fn watch_directory(
@@ -69,19 +100,28 @@ impl Pal for CapturingPal {
     }
 
     fn create_directory_all(&self, path: &FilePath) -> OcelotResult<()> {
-        self.inner.create_directory_all(path)
+        self.virtual_directories.write().insert(path.clone());
+        Ok(())
     }
 
     fn create_directory(&self, path: &FilePath) -> OcelotResult<bool> {
-        self.inner.create_directory(path)
+        Ok(self.virtual_directories.write().insert(path.clone()))
     }
 
     fn write_file(&self, path: &FilePath, content: &[u8]) -> OcelotResult<()> {
-        self.inner.write_file(path, content)
+        self.virtual_files
+            .write()
+            .insert(path.clone(), content.to_vec());
+        Ok(())
     }
 
     fn append_file(&self, path: &FilePath, content: &[u8]) -> OcelotResult<()> {
-        self.inner.append_file(path, content)
+        self.virtual_files
+            .write()
+            .entry(path.clone())
+            .and_modify(|existing| existing.extend_from_slice(content))
+            .or_insert_with(|| content.to_vec());
+        Ok(())
     }
 
     fn print(&self, text: &str) -> OcelotResult<()> {

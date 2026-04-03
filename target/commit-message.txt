@@ -1,12 +1,15 @@
-feat(spec): specify unterminated string lexer errors
+feat(spec): validate full rendered diagnostics
 
-Add a lexer error chapter to the spec with an unterminated string example
-and expected diagnostic headline. Tighten the lexer so string literals also
-fail when they reach a line break without a closing quote, and add a focused
-lexer test for that case.
+Update spec validation to compare full rendered compilation diagnostics
+instead of only the headline. Keep synthetic spec sources entirely in the
+PAL-backed in-memory overlay and use the stable fictitious filename
+`spec-test.ocelot` so rendered diagnostic paths stay deterministic.
 
 User Prompts:
-- add a chapter 91 to specs to specify lexer errors, add a spec file with an example for an unterminated string, and it's expected error output
+- the expected error spec for the lexer error should be the whole formatted output, including unicode drawing symbols produce by diagnostics rendering
+- the fictitious name for all synthetic spec source files should be "spec-test.ocelot"
+- remove the /tmp/spec-validation/ prefix as well
+- the validator should not write temp files but use the pal abstraction to create in memory files
 - nao check
 - commit
 

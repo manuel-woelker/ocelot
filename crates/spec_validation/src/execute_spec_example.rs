@@ -16,11 +16,6 @@ pub fn execute_spec_example(
     example: &SpecExample,
 ) -> OcelotResult<ObservedOutcome> {
     let example_path = build_example_path(execution_root, example);
-    let example_directory = example_path
-        .parent()
-        .expect("generated example path should always have a parent");
-
-    pal.create_directory_all(&example_directory)?;
     pal.write_file(&example_path, example.source.as_bytes())?;
     pal.take_printed_output();
 
@@ -41,13 +36,9 @@ pub fn execute_spec_example(
 }
 
 fn build_example_path(execution_root: &std::path::Path, example: &SpecExample) -> FilePath {
-    let chapter_stem = example
-        .chapter_path
-        .file_stem()
-        .unwrap_or("spec-chapter")
-        .replace(['/', '\\'], "_");
-    let file_name = format!("{chapter_stem}-line-{}.ocelot", example.line_number);
-    FilePath::new(execution_root.join(file_name))
+    let _ = execution_root;
+    let _ = example;
+    FilePath::from("spec-test.ocelot")
 }
 
 #[cfg(test)]
@@ -59,7 +50,7 @@ mod tests {
     use crate::spec_example::SpecExample;
     use ocelot_base::file_path::FilePath;
     use ocelot_base::shared_string::SharedString;
-    use ocelot_pal::pal::PalHandle;
+    use ocelot_pal::pal::{Pal, PalHandle};
     use ocelot_pal::pal_mock::PalMock;
     use std::path::Path;
 
@@ -85,10 +76,7 @@ mod tests {
             ObservedOutcome::Output(SharedString::from("hello"))
         );
         assert_eq!(
-            inner_pal
-                .read_file_string(
-                    "/tmp/spec-validation/09.01 Standard library - println-line-10.ocelot"
-                )
+            pal.read_file_to_string(&FilePath::from("spec-test.ocelot"))
                 .unwrap(),
             "println(\"hello\");"
         );
@@ -114,7 +102,7 @@ mod tests {
         assert_eq!(
             observed,
             ObservedOutcome::Error(SharedString::from(
-                "type error: `println` expects exactly one argument"
+                "error: type error: `println` expects exactly one argument\n  ╭▸ spec-test.ocelot:1:9\n  │\n1 │ println();\n  ╰╴        ━ missing argument"
             ))
         );
     }

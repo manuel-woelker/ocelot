@@ -10,7 +10,7 @@ fn main() -> ExitCode {
         run_validation_runner(
             &pal,
             &FilePath::from("docs/spec"),
-            &std::env::temp_dir().join("ocelot-spec-validation"),
+            &std::env::temp_dir().join("spec-validation"),
         )
     })
 }

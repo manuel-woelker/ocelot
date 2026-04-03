@@ -6,9 +6,8 @@ use ocelot_base::unansi;
 pub fn render_validation_error(error: &OcelotError) -> String {
     if matches!(error.kind(), ErrorKind::CompilationError(_))
         && let Some(source) = error.source()
-        && let Some(headline) = rendered_diagnostic_headline(&source.kind().to_string())
     {
-        return headline;
+        return unansi(&source.kind().to_string());
     }
 
     let mut rendered = error.kind().to_string();
@@ -24,16 +23,6 @@ pub fn render_validation_error(error: &OcelotError) -> String {
     rendered
 }
 
-fn rendered_diagnostic_headline(rendered: &str) -> Option<String> {
-    let rendered = unansi(rendered);
-    let first_line = rendered.lines().next()?.trim();
-
-    first_line
-        .strip_prefix("error: ")
-        .or_else(|| first_line.strip_prefix("warning: "))
-        .map(str::to_owned)
-}
-
 #[cfg(test)]
 mod tests {
     use super::render_validation_error;
@@ -47,16 +36,16 @@ mod tests {
     }
 
     #[test]
-    fn unwraps_compilation_error_to_diagnostic_headline() {
+    fn unwraps_compilation_error_to_full_rendered_diagnostic() {
         let error = OcelotError::compilation_error(CompilationStage::Parser).with_source(
             OcelotError::message(
-                "\u{1b}[1m\u{1b}[91merror\u{1b}[0m\u{1b}[1m: type error: `println` expects exactly one argument\u{1b}[0m",
+                "\u{1b}[1m\u{1b}[91merror\u{1b}[0m\u{1b}[1m: type error: `println` expects exactly one argument\u{1b}[0m\n  \u{1b}[1m\u{1b}[94m╭▸ \u{1b}[0mexamples/test.ocelot:1:1",
             ),
         );
 
         assert_eq!(
             render_validation_error(&error),
-            "type error: `println` expects exactly one argument"
+            "error: type error: `println` expects exactly one argument\n  ╭▸ examples/test.ocelot:1:1"
         );
     }
 }

@@ -137,6 +137,13 @@ mod tests {
             )
             .unwrap(),
         );
+        inner_pal.set_file(
+            "docs/spec/91.01 Lexer errors - Unterminated strings.md",
+            std::fs::read_to_string(
+                repo_root.join("docs/spec/91.01 Lexer errors - Unterminated strings.md"),
+            )
+            .unwrap(),
+        );
         let pal = CapturingPal::new(PalHandle::new(inner_pal));
 
         let report = validate_spec_directory(
@@ -147,9 +154,9 @@ mod tests {
         .unwrap();
 
         expect![[r#"
-            4
-            9
-            9
+            5
+            10
+            10
             0
         "#]]
         .assert_eq(&format!(
