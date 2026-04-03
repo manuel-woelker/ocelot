@@ -259,6 +259,23 @@ mod tests {
     }
 
     #[test]
+    fn run_script_reports_native_argument_type_mismatches() {
+        let pal = PalMock::new();
+        pal.set_file("examples/broken.ocelot", "println(println(\"hello\"));");
+
+        let engine = Engine::new(PalHandle::new(pal.clone()));
+
+        let error = engine.run_script("examples/broken.ocelot").unwrap_err();
+
+        assert!(
+            error
+                .to_test_string()
+                .contains("type error: `println` expects a string argument")
+        );
+        assert_eq!(pal.take_printed_output(), "hello\n");
+    }
+
+    #[test]
     fn run_tests_reports_passes_and_failures_for_all_tests() {
         let pal = PalMock::new();
         pal.set_file(

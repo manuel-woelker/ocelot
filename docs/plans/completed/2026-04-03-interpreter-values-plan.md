@@ -110,6 +110,16 @@ Verification should include:
 - native-function tests that demonstrate argument validation through shared helpers rather than one-off matching
 - running `nao check`
 
+# What landed from this plan?
+
+This change kept the interpreter value layer intentionally simple and made it more usable:
+
+- [`RuntimeValue`](/data/projects/ocelot/crates/interpreter/src/runtime_value.rs) now has constructors, access helpers, and colocated tests
+- native-function code in [`interpreter.rs`](/data/projects/ocelot/crates/interpreter/src/interpreter.rs) now uses shared value helpers instead of manual pattern matching
+- the value module now includes a short rationale comment documenting why the interpreter still uses a Rust enum and explicitly defers NaN-boxing
+- engine coverage now includes a nested `println` case that exercises shared string-expectation validation through the interpreter path
+- `nao check` passes
+
 # What assumptions, risks, and open questions should stay explicit?
 
 - This plan assumes the interpreter stays tree-walking for now. A future VM could justify different value-representation tradeoffs.
@@ -121,9 +131,9 @@ Verification should include:
 
 # What concrete tasks should track this plan?
 
-- [ ] Add an active plan for intentional interpreter value representation.
-- [ ] Expand `RuntimeValue` into a small value API with constructors and typed access helpers.
-- [ ] Refactor native-function code to use shared value helpers.
-- [ ] Add tests for value helpers and native-call argument validation.
-- [ ] Document the current representation choice and explicitly defer NaN-boxing unless profiling justifies it.
-- [ ] Run `nao check`.
+- [x] Add an active plan for intentional interpreter value representation.
+- [x] Expand `RuntimeValue` into a small value API with constructors and typed access helpers.
+- [x] Refactor native-function code to use shared value helpers.
+- [x] Add tests for value helpers and native-call argument validation.
+- [x] Document the current representation choice and explicitly defer NaN-boxing unless profiling justifies it.
+- [x] Run `nao check`.

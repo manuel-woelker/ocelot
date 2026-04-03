@@ -9,7 +9,6 @@ use ocelot_ast::script::Script;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
 use ocelot_base::result::OcelotResult;
-use ocelot_base::shared_string::SharedString;
 use ocelot_pal::pal::Pal;
 
 /// Stateful AST-walking interpreter context.
@@ -58,9 +57,9 @@ impl<'a> Interpreter<'a> {
     fn evaluate_expression(&self, expression: &Expression) -> OcelotResult<RuntimeValue> {
         match &expression.kind {
             ExpressionKind::Call(call_expression) => self.evaluate_call_expression(call_expression),
-            ExpressionKind::StringLiteral(string_literal) => Ok(RuntimeValue::String(
-                SharedString::from(string_literal.value.clone()),
-            )),
+            ExpressionKind::StringLiteral(string_literal) => {
+                Ok(RuntimeValue::string(string_literal.value.clone()))
+            }
             ExpressionKind::Identifier(identifier) => {
                 ocelot_base::bail!("unresolved identifier `{}`", identifier.name)
             }
@@ -90,11 +89,9 @@ impl<'a> Interpreter<'a> {
         }
 
         let value = self.evaluate_expression(&call_expression.arguments[0])?;
-        let RuntimeValue::String(text) = value else {
-            ocelot_base::bail!("type error: `println` expects a string argument");
-        };
+        let text = value.expect_string("type error: `println` expects a string argument")?;
 
         self.pal.print(&format!("{text}\n"))?;
-        Ok(RuntimeValue::Unit)
+        Ok(RuntimeValue::unit())
     }
 }
