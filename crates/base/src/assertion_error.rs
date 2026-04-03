@@ -148,7 +148,7 @@ mod tests {
               │
             1 │ assert_eq("a", "b");
               ╰╴━━━━━━━━━━━━━━━━━━━ assertion failed here
-            at examples/tests.ocelot:1
+            at examples/tests.ocelot:1:1
 
             expected: "a"
             actual:   "b""#]]

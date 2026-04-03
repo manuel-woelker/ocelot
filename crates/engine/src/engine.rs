@@ -272,7 +272,7 @@ mod tests {
         assert!(
             error
                 .to_test_string()
-                .contains("at examples/tests.ocelot:1")
+                .contains("at examples/tests.ocelot:1:25")
         );
         assert!(
             !error
@@ -419,7 +419,7 @@ mod tests {
         assert!(
             summary.failed[0]
                 .message
-                .contains("at examples/tests.ocelot:1")
+                .contains("at examples/tests.ocelot:1:25")
         );
     }
 

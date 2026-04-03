@@ -73,10 +73,15 @@ fn level_for(level: DiagnosticLevel) -> Level<'static> {
 
 fn source_diagnostic_location_line(diagnostic: &SourceDiagnostic) -> Option<SharedString> {
     let excerpt = diagnostic.excerpts.first()?;
+    let column_number = excerpt
+        .annotations
+        .first()
+        .map_or(1, |annotation| annotation.span.start() + 1);
     Some(crate::shared_format!(
-        "at {}:{}",
+        "at {}:{}:{}",
         excerpt.file_path,
-        excerpt.line_number
+        excerpt.line_number,
+        column_number
     ))
 }
 
@@ -118,7 +123,7 @@ mod tests {
               │
             3 │ println(value);
               ╰╴        ━━━━━ not found
-            at examples/test.ocelot:3"#]]
+            at examples/test.ocelot:3:9"#]]
         .assert_eq(&rendered);
     }
 
@@ -142,7 +147,7 @@ mod tests {
               │
             2 │ println(value);
               ╰╴        ━━━━━ never read
-            at examples/test.ocelot:2"#]]
+            at examples/test.ocelot:2:9"#]]
         .assert_eq(&rendered);
     }
 }

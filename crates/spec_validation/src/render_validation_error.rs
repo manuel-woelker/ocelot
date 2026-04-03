@@ -39,13 +39,13 @@ mod tests {
     fn unwraps_compilation_error_to_full_rendered_diagnostic() {
         let error = OcelotError::compilation_error(CompilationStage::Parser).with_source(
             OcelotError::message(
-                "\u{1b}[1m\u{1b}[91merror\u{1b}[0m\u{1b}[1m: type error: `println` expects exactly one argument\u{1b}[0m\n  \u{1b}[1m\u{1b}[94m╭▸ \u{1b}[0mexamples/test.ocelot:1:1\nat examples/test.ocelot:1",
+                "\u{1b}[1m\u{1b}[91merror\u{1b}[0m\u{1b}[1m: type error: `println` expects exactly one argument\u{1b}[0m\n  \u{1b}[1m\u{1b}[94m╭▸ \u{1b}[0mexamples/test.ocelot:1:1\nat examples/test.ocelot:1:1",
             ),
         );
 
         assert_eq!(
             render_validation_error(&error),
-            "error: type error: `println` expects exactly one argument\n  ╭▸ examples/test.ocelot:1:1\nat examples/test.ocelot:1"
+            "error: type error: `println` expects exactly one argument\n  ╭▸ examples/test.ocelot:1:1\nat examples/test.ocelot:1:1"
         );
     }
 }
