@@ -96,10 +96,23 @@ fn run_test_files(
 
     let mut summary = TestRunSummary::new();
     for script_path in script_paths {
-        merge_test_summary(&mut summary, engine.run_tests(&script_path)?);
+        merge_test_summary(&mut summary, run_test_file(engine, &script_path));
     }
 
     Ok(summary)
+}
+
+fn run_test_file(engine: &Engine, script_path: &FilePath) -> TestRunSummary {
+    match engine.run_tests(script_path) {
+        Ok(summary) => summary,
+        Err(error) => TestRunSummary {
+            passed: Vec::new(),
+            failed: vec![FailedTestResult::new(
+                script_path.as_str(),
+                format_cli_error("test file failed", &error),
+            )],
+        },
+    }
 }
 
 fn discover_ocelot_files(pal: &PalHandle) -> OcelotResult<Vec<FilePath>> {
@@ -171,7 +184,10 @@ fn render_failed_test_detail_lines(failed_test: &FailedTestResult) -> Vec<String
 
 #[cfg(test)]
 mod tests {
-    use super::{CliCommand, parse_command, render_test_summary_lines, run_command};
+    use super::{
+        CliCommand, parse_command, render_test_summary_lines, run_command, run_test_files,
+    };
+    use ocelot_engine::engine::Engine;
     use ocelot_engine::failed_test_result::FailedTestResult;
     use ocelot_engine::test_run_summary::TestRunSummary;
     use ocelot_pal::pal::PalHandle;
@@ -276,6 +292,39 @@ mod tests {
         assert!(effects.contains("READ FILE: examples/first.ocelot"));
         assert!(effects.contains("READ FILE: examples/second.ocelot"));
         assert_eq!(pal.take_printed_output(), "one\ntwo\n");
+    }
+
+    #[test]
+    fn collects_parse_errors_without_stopping_other_test_files() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/good.ocelot",
+            "test \"passes\" { println(\"ok\"); }",
+        );
+        pal.set_file("examples/bad.ocelot", "println(\"hello);");
+        let pal = PalHandle::new(pal.clone());
+        let engine = Engine::new(pal.clone());
+
+        let summary = run_test_files(
+            &engine,
+            &pal,
+            &["examples/good.ocelot".into(), "examples/bad.ocelot".into()],
+        )
+        .unwrap();
+
+        assert_eq!(summary.passed.as_slice(), ["passes"]);
+        assert_eq!(summary.failed.len(), 1);
+        assert_eq!(summary.failed[0].name, "examples/bad.ocelot");
+        assert!(
+            summary.failed[0]
+                .message
+                .contains("unterminated string literal")
+        );
+        assert!(
+            !summary.failed[0]
+                .message
+                .contains("crates/parser/src/parse_script.rs")
+        );
     }
 
     #[test]
