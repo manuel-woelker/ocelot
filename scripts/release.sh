@@ -73,6 +73,53 @@ release_package_name() {
   printf '%s\n' "${release_crate##*:}"
 }
 
+assert_release_crates_cover_all_crates() {
+  local release_crate
+  local crate_dir
+  local manifest_path
+  local actual_crate_dir
+  local missing=()
+  local extra=()
+  declare -A configured_crates=()
+  declare -A actual_crates=()
+
+  for release_crate in "${RELEASE_CRATES[@]}"; do
+    crate_dir="$(release_crate_dir "$release_crate")"
+    configured_crates["$crate_dir"]=1
+  done
+
+  while IFS= read -r manifest_path; do
+    actual_crate_dir="${manifest_path%/Cargo.toml}"
+    actual_crates["$actual_crate_dir"]=1
+  done < <(find "$ROOT_DIR/crates" -mindepth 2 -maxdepth 2 -name Cargo.toml | sort)
+
+  for actual_crate_dir in "${!actual_crates[@]}"; do
+    if [[ -z "${configured_crates[$actual_crate_dir]:-}" ]]; then
+      missing+=("${actual_crate_dir#"$ROOT_DIR/"}")
+    fi
+  done
+
+  for crate_dir in "${!configured_crates[@]}"; do
+    if [[ -z "${actual_crates["$ROOT_DIR/$crate_dir"]:-}" ]]; then
+      extra+=("$crate_dir")
+    fi
+  done
+
+  if [[ "${#missing[@]}" -gt 0 || "${#extra[@]}" -gt 0 ]]; then
+    if [[ "${#missing[@]}" -gt 0 ]]; then
+      printf 'error: RELEASE_CRATES is missing workspace crates:\n' >&2
+      printf '  %s\n' "${missing[@]}" >&2
+    fi
+
+    if [[ "${#extra[@]}" -gt 0 ]]; then
+      printf 'error: RELEASE_CRATES references unknown crate entries:\n' >&2
+      printf '  %s\n' "${extra[@]}" >&2
+    fi
+
+    exit 1
+  fi
+}
+
 release_version() {
   crate_version "crates/cli"
 }
@@ -304,6 +351,7 @@ run_pre_release_checks() {
   require_tool grep
   require_tool nao
 
+  assert_release_crates_cover_all_crates
   assert_release_branch
   assert_clean_worktree
   assert_shared_version "$version"
