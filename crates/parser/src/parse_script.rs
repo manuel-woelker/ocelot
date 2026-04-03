@@ -1,6 +1,9 @@
 use crate::parser::Parser;
 use ocelot_ast::script::Script;
 use ocelot_base::compilation_context::CompilationContext;
+use ocelot_base::compilation_stage::CompilationStage;
+use ocelot_base::error::OcelotError;
+use ocelot_base::render_source_diagnostics::render_source_diagnostics;
 use ocelot_base::result::OcelotResult;
 use ocelot_base::source_file::SourceFile;
 
@@ -8,8 +11,17 @@ use ocelot_base::source_file::SourceFile;
 pub fn parse_script(
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
-) -> OcelotResult<Option<Script>> {
-    Parser::new(source_file, compilation_context).parse_script()
+) -> OcelotResult<Script> {
+    match Parser::new(source_file, compilation_context).parse_script() {
+        Ok(script) => Ok(script),
+        Err(_) if compilation_context.has_errors() => Err(OcelotError::compilation_error(
+            CompilationStage::Parser,
+        )
+        .with_source(OcelotError::message(render_source_diagnostics(
+            &compilation_context.source_diagnostics.diagnostics,
+        )))),
+        Err(error) => Err(error),
+    }
 }
 
 #[cfg(test)]
@@ -28,7 +40,7 @@ mod tests {
         let source_file = SourceFile::new("examples/hello.ocelot", "println(\"hello\");");
         let mut context = CompilationContext::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap().unwrap();
+        let script = parse_script(&source_file, &mut context).unwrap();
 
         assert_eq!(script.items.len(), 1);
         assert!(!context.has_errors());
@@ -55,7 +67,7 @@ mod tests {
         );
         let mut context = CompilationContext::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap().unwrap();
+        let script = parse_script(&source_file, &mut context).unwrap();
 
         assert_eq!(script.items.len(), 2);
         assert_eq!(script.span.start(), 0);
@@ -71,7 +83,7 @@ mod tests {
         );
         let mut context = CompilationContext::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap().unwrap();
+        let script = parse_script(&source_file, &mut context).unwrap();
 
         assert_eq!(script.items.len(), 2);
         assert!(!context.has_errors());
@@ -90,9 +102,7 @@ mod tests {
         let source_file = SourceFile::new("examples/invalid.ocelot", "test { println(\"x\"); }");
         let mut context = CompilationContext::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
-
-        assert!(script.is_none());
+        parse_script(&source_file, &mut context).unwrap_err();
         assert!(context.has_errors());
         assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
         assert_eq!(
@@ -113,9 +123,7 @@ mod tests {
         );
         let mut context = CompilationContext::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
-
-        assert!(script.is_none());
+        parse_script(&source_file, &mut context).unwrap_err();
         assert!(context.has_errors());
         assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
         assert_eq!(
@@ -129,9 +137,7 @@ mod tests {
         let source_file = SourceFile::new("examples/invalid.ocelot", "println();");
         let mut context = CompilationContext::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
-
-        assert!(script.is_none());
+        parse_script(&source_file, &mut context).unwrap_err();
         assert!(context.has_errors());
         assert_eq!(
             context.source_diagnostics.diagnostics[0].message,
@@ -144,9 +150,7 @@ mod tests {
         let source_file = SourceFile::new("examples/invalid.ocelot", "print(\"hello\");");
         let mut context = CompilationContext::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
-
-        assert!(script.is_none());
+        parse_script(&source_file, &mut context).unwrap_err();
         assert_eq!(
             context.source_diagnostics.diagnostics[0].message,
             "expected `println` statement"
@@ -158,9 +162,7 @@ mod tests {
         let source_file = SourceFile::new("examples/invalid.ocelot", "println(\"hello);");
         let mut context = CompilationContext::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
-
-        assert!(script.is_none());
+        parse_script(&source_file, &mut context).unwrap_err();
         assert!(context.has_errors());
         assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
         assert_eq!(

@@ -49,9 +49,9 @@ impl<'a> Parser<'a> {
     }
 
     /// Parses the source file into a script AST.
-    pub fn parse_script(&mut self) -> OcelotResult<Option<Script>> {
+    pub fn parse_script(&mut self) -> OcelotResult<Script> {
         if self.compilation_context.has_errors() {
-            return Ok(None);
+            return Err(OcelotError::compilation_error(CompilationStage::Parser));
         }
 
         let mut items = Vec::new();
@@ -59,15 +59,15 @@ impl<'a> Parser<'a> {
         while !self.at(TokenType::EndOfFile) {
             match self.parse_item() {
                 Ok(item) => items.push(item),
-                Err(error) if is_parser_compilation_error(&error) => return Ok(None),
+                Err(error) if is_parser_compilation_error(&error) => return Err(error),
                 Err(error) => return Err(error),
             }
         }
 
-        Ok(Some(Script::new(
+        Ok(Script::new(
             items,
             Span::new(0, self.source_file.source().len()),
-        )))
+        ))
     }
 
     fn parse_item(&mut self) -> OcelotResult<Item> {

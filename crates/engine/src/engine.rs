@@ -2,11 +2,8 @@ use crate::discovered_test::DiscoveredTest;
 use crate::failed_test_result::FailedTestResult;
 use crate::test_run_summary::TestRunSummary;
 use ocelot_ast::item_kind::ItemKind;
-use ocelot_base::compilation_context::CompilationContext;
-use ocelot_base::compilation_stage::CompilationStage;
 use ocelot_base::error::OcelotError;
 use ocelot_base::file_path::FilePath;
-use ocelot_base::render_source_diagnostics::render_source_diagnostics;
 use ocelot_base::result::OcelotResult;
 use ocelot_base::result::OptionExt;
 use ocelot_base::result::ResultExt;
@@ -96,22 +93,9 @@ impl Engine {
     }
 
     fn parse_script(&self, source_file: &SourceFile) -> OcelotResult<ocelot_ast::script::Script> {
-        let mut compilation_context = CompilationContext::default();
-        let script =
-            ocelot_parser::parse_script::parse_script(source_file, &mut compilation_context)?;
-
-        match script {
-            Some(script) => Ok(script),
-            None if compilation_context.has_errors() => Err(OcelotError::compilation_error(
-                CompilationStage::Parser,
-            )
-            .with_source(OcelotError::message(render_source_diagnostics(
-                &compilation_context.source_diagnostics.diagnostics,
-            )))),
-            None => Err(OcelotError::message(
-                "parser returned no script without reporting diagnostics",
-            )),
-        }
+        let mut compilation_context =
+            ocelot_base::compilation_context::CompilationContext::default();
+        ocelot_parser::parse_script::parse_script(source_file, &mut compilation_context)
     }
 }
 
