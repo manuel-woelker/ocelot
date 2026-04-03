@@ -63,24 +63,12 @@ pub fn render_assertion_error(assertion_error: &AssertionError) -> SharedString 
     let rendered_diagnostic = strip_column_from_assertion_diagnostic(&render_source_diagnostics(
         std::slice::from_ref(&assertion_error.diagnostic),
     ));
-    let location_line = assertion_error_location_line(assertion_error);
 
     crate::shared_format!(
-        "{rendered_diagnostic}\n{location_line}\n\nexpected: {}\nactual:   {}",
+        "{rendered_diagnostic}\n\nexpected: {}\nactual:   {}",
         assertion_error.expected,
         assertion_error.actual
     )
-}
-
-fn assertion_error_location_line(assertion_error: &AssertionError) -> SharedString {
-    let line_number = assertion_error
-        .diagnostic
-        .excerpts
-        .first()
-        .map(|excerpt| excerpt.line_number)
-        .unwrap_or(1);
-
-    crate::shared_format!("at {}:{line_number}", assertion_error.file_path())
 }
 
 fn strip_column_from_assertion_diagnostic(rendered: &str) -> SharedString {

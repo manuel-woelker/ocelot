@@ -23,8 +23,20 @@ fn render_source_diagnostics_with_renderer(
     diagnostics: &[SourceDiagnostic],
     renderer: Renderer,
 ) -> SharedString {
-    let groups: Vec<_> = diagnostics.iter().map(render_group).collect();
-    renderer.render(&groups).into()
+    let mut rendered_groups = Vec::new();
+
+    for diagnostic in diagnostics {
+        let mut rendered = renderer.render(&[render_group(diagnostic)]).to_string();
+
+        if let Some(location_line) = source_diagnostic_location_line(diagnostic) {
+            rendered.push('\n');
+            rendered.push_str(location_line.as_str());
+        }
+
+        rendered_groups.push(rendered);
+    }
+
+    rendered_groups.join("\n\n").into()
 }
 
 fn render_group<'a>(diagnostic: &'a SourceDiagnostic) -> Group<'a> {
@@ -57,6 +69,15 @@ fn level_for(level: DiagnosticLevel) -> Level<'static> {
         DiagnosticLevel::Error => Level::ERROR,
         DiagnosticLevel::Warning => Level::WARNING,
     }
+}
+
+fn source_diagnostic_location_line(diagnostic: &SourceDiagnostic) -> Option<SharedString> {
+    let excerpt = diagnostic.excerpts.first()?;
+    Some(crate::shared_format!(
+        "at {}:{}",
+        excerpt.file_path,
+        excerpt.line_number
+    ))
 }
 
 #[cfg(test)]
@@ -96,7 +117,8 @@ mod tests {
               ╭▸ examples/test.ocelot:3:9
               │
             3 │ println(value);
-              ╰╴        ━━━━━ not found"#]]
+              ╰╴        ━━━━━ not found
+            at examples/test.ocelot:3"#]]
         .assert_eq(&rendered);
     }
 
@@ -119,7 +141,8 @@ mod tests {
               ╭▸ examples/test.ocelot:2:9
               │
             2 │ println(value);
-              ╰╴        ━━━━━ never read"#]]
+              ╰╴        ━━━━━ never read
+            at examples/test.ocelot:2"#]]
         .assert_eq(&rendered);
     }
 }

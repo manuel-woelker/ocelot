@@ -89,7 +89,8 @@ fn format_cli_error_returns_only_rendered_assertion_errors() {
         at examples/tests.ocelot:1
 
         expected: "a"
-        actual:   "b""#])
+        actual:   "b"
+    "#])
     .assert_eq(&ocelot_base::unansi(&format_cli_error(
         "operation failed",
         &error,

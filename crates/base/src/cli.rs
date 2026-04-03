@@ -39,7 +39,7 @@ pub fn try_main_with_headline(headline: &str, run: impl FnOnce() -> OcelotResult
 /// suitable for printing from a command-line binary.
 pub fn format_cli_error(headline: &str, error: &OcelotError) -> String {
     if let Some(rendered_diagnostics) = special_error_output(error) {
-        return rendered_diagnostics;
+        return ensure_trailing_newline(rendered_diagnostics);
     }
 
     let mut rendered = String::new();
@@ -95,4 +95,12 @@ fn special_error_output(error: &OcelotError) -> Option<String> {
             .map(ToString::to_string),
         ErrorKind::Message(_) | ErrorKind::Std(_) => None,
     }
+}
+
+fn ensure_trailing_newline(mut rendered: String) -> String {
+    if !rendered.ends_with('\n') {
+        rendered.push('\n');
+    }
+
+    rendered
 }
