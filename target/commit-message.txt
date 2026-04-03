@@ -1,13 +1,18 @@
-refactor(cli): parse arguments through the PAL
+refactor(cli): inline command dispatch
 
-Add an `args` method to the platform abstraction layer and implement it for the
-real, mock, and capturing PAL variants. Update the CLI entrypoint to construct
-one real PAL handle up front, parse arguments through that PAL, and reuse the
-same handle for execution so argument parsing can be covered by tests with
-`PalMock`.
+Simplify the CLI entrypoint by inlining command dispatch into `run_command`
+and removing the intermediate command types and helper function. The CLI now
+parses PAL-provided arguments with `pico-args`, dispatches directly to script
+or test execution, and keeps the tests focused on the PAL-backed execution
+path.
 
 User Prompts:
-- add an args method to the pal, and instantiate a real_pal in the cli code, the args parsing should use that pal method so it can be tested
+- remove the CliCommand env and use the pico-args subcommand method to determine what subcommand to run
+- do not use a struct, instead of parsing the command, determine the correct command, and then execute the correct function directly
+- put the usage path into run_command as well
+- put it in run_command_inner
+- run_command_inner should not take closures as arguments, just the pal, then simplify the call
+- inline run_command_inner
 - commit
 
 Model:

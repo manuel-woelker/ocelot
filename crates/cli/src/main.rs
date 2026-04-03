@@ -1,6 +1,3 @@
-mod cli_command;
-
-use crate::cli_command::CliCommand;
 use ocelot_base::cli::format_cli_error;
 use ocelot_base::result::OcelotResult;
 use ocelot_engine::engine::Engine;
@@ -10,7 +7,6 @@ use ocelot_pal::pal::Pal;
 use ocelot_pal::pal::PalHandle;
 use ocelot_pal::pal_real::PalReal;
 use pico_args::Arguments;
-use std::ffi::OsString;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
@@ -22,15 +18,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let Some(command) = parse_command(&*pal) else {
-        print_usage();
-        return ExitCode::FAILURE;
-    };
-
-    match command {
-        CliCommand::Run { script_path } => run_cli(pal, script_path.as_str()),
-        CliCommand::Test { script_path } => run_test_cli(pal, script_path.as_str()),
-    }
+    run_command(&*pal, pal.clone())
 }
 
 fn run_cli(pal: PalHandle, script_path: &str) -> ExitCode {
@@ -68,8 +56,30 @@ fn run_tests(pal: PalHandle, script_path: &str) -> OcelotResult<TestRunSummary> 
     Engine::new(pal).run_tests(script_path)
 }
 
-fn parse_command(pal: &dyn Pal) -> Option<CliCommand> {
-    parse_command_inner(pal.args())
+fn run_command(args_pal: &dyn Pal, execution_pal: PalHandle) -> ExitCode {
+    let mut args = Arguments::from_vec(args_pal.args());
+    let Some(subcommand) = args.subcommand().ok().flatten() else {
+        print_usage();
+        return ExitCode::FAILURE;
+    };
+
+    let exit_code = match subcommand.as_str() {
+        "test" => {
+            let Some(script_path): Option<String> = args.free_from_str().ok() else {
+                print_usage();
+                return ExitCode::FAILURE;
+            };
+            run_test_cli(execution_pal, script_path.as_str())
+        }
+        _ => run_cli(execution_pal, subcommand.as_str()),
+    };
+
+    if args.finish().is_empty() {
+        exit_code
+    } else {
+        print_usage();
+        ExitCode::FAILURE
+    }
 }
 
 fn print_usage() {
@@ -79,26 +89,6 @@ fn print_usage() {
 fn report_test_summary(summary: &TestRunSummary) {
     for line in render_test_summary_lines(summary) {
         println!("{line}");
-    }
-}
-
-fn parse_command_inner(args: Vec<OsString>) -> Option<CliCommand> {
-    let mut args = Arguments::from_vec(args);
-    let first_argument: String = args.opt_free_from_str().ok()??;
-
-    let command = match first_argument.as_str() {
-        "test" => CliCommand::Test {
-            script_path: args.free_from_str().ok()?,
-        },
-        _ => CliCommand::Run {
-            script_path: first_argument,
-        },
-    };
-
-    if args.finish().is_empty() {
-        Some(command)
-    } else {
-        None
     }
 }
 
@@ -135,35 +125,37 @@ fn render_failed_test_detail_lines(failed_test: &FailedTestResult) -> Vec<String
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_command, parse_command_inner, render_test_summary_lines};
-    use crate::cli_command::CliCommand;
+    use super::{render_test_summary_lines, run_command};
     use ocelot_engine::failed_test_result::FailedTestResult;
     use ocelot_engine::test_run_summary::TestRunSummary;
-    use ocelot_pal::pal::Pal;
+    use ocelot_pal::pal::PalHandle;
     use ocelot_pal::pal_mock::PalMock;
-    use std::ffi::OsString;
-
-    fn parse_command_from(args: &[&str]) -> Option<CliCommand> {
-        parse_command_inner(args.iter().map(OsString::from).collect())
-    }
+    use std::process::ExitCode;
 
     #[test]
     fn parses_plain_script_execution() {
+        let pal = PalMock::new();
+        pal.set_file("examples/hello.ocelot", "println(\"hello\");");
+        pal.set_args(["examples/hello.ocelot"]);
+
         assert_eq!(
-            parse_command_from(&["examples/hello.ocelot"]),
-            Some(CliCommand::Run {
-                script_path: String::from("examples/hello.ocelot"),
-            })
+            run_command(&pal, PalHandle::new(pal.clone())),
+            ExitCode::SUCCESS
         );
     }
 
     #[test]
     fn parses_test_execution() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/tests.ocelot",
+            "test \"passes\" { println(\"ok\"); }",
+        );
+        pal.set_args(["test", "examples/tests.ocelot"]);
+
         assert_eq!(
-            parse_command_from(&["test", "examples/tests.ocelot"]),
-            Some(CliCommand::Test {
-                script_path: String::from("examples/tests.ocelot"),
-            })
+            run_command(&pal, PalHandle::new(pal.clone())),
+            ExitCode::SUCCESS
         );
     }
 
@@ -171,12 +163,11 @@ mod tests {
     fn parses_arguments_from_pal() {
         let pal = PalMock::new();
         pal.set_args(["examples/hello.ocelot"]);
+        pal.set_file("examples/hello.ocelot", "println(\"hello\");");
 
         assert_eq!(
-            parse_command(&pal as &dyn Pal),
-            Some(CliCommand::Run {
-                script_path: String::from("examples/hello.ocelot"),
-            })
+            run_command(&pal, PalHandle::new(pal.clone())),
+            ExitCode::SUCCESS
         );
     }
 
