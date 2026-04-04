@@ -1,9 +1,9 @@
 use crate::interpreter::Interpreter;
-use ocelot_ast::program_environment::ProgramEnvironment;
 use ocelot_ast::script::Script;
 use ocelot_base::result::OcelotResult;
 use ocelot_base::source_file::SourceFile;
 use ocelot_pal::pal::Pal;
+use ocelot_semantic::program_environment::ProgramEnvironment;
 
 /// Executes a parsed script.
 pub fn interpret_script(
@@ -29,7 +29,6 @@ mod tests {
     use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
     use ocelot_ast::not_expression::NotExpression;
-    use ocelot_ast::program_environment::ProgramEnvironment;
     use ocelot_ast::script::Script;
     use ocelot_ast::statement::Statement;
     use ocelot_ast::statement_kind::StatementKind;
@@ -42,6 +41,7 @@ mod tests {
     use ocelot_base::span::Span;
     use ocelot_pal::pal_mock::PalMock;
     use ocelot_resolver::resolve;
+    use ocelot_semantic::program_environment::ProgramEnvironment;
 
     fn test_program_environment() -> ProgramEnvironment {
         ProgramEnvironment::new()

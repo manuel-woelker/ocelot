@@ -1,5 +1,4 @@
-use crate::runtime_value::RuntimeValue;
-use crate::type_kind::TypeKind;
+use ocelot_ast::type_kind::TypeKind;
 use ocelot_base::assertion_error::AssertionError;
 use ocelot_base::error::OcelotError;
 use ocelot_base::result::OcelotResult;
@@ -8,6 +7,8 @@ use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 use ocelot_pal::pal::Pal;
 use std::fmt::Debug;
+
+use crate::runtime_value::RuntimeValue;
 
 /// One native function implementation signature.
 #[derive(Debug, Clone, PartialEq, Eq)]

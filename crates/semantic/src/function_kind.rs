@@ -1,6 +1,7 @@
-use crate::function_item::FunctionItem;
-use crate::native_function::NativeFunction;
+use ocelot_ast::function_item::FunctionItem;
 use ocelot_base::source_file::SourceFile;
+
+use crate::native_function::NativeFunction;
 
 /// Runtime-facing classification of one function definition.
 #[derive(Debug, Clone)]

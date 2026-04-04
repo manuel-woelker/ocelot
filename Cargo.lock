@@ -380,7 +380,6 @@ name = "ocelot-ast"
 version = "0.1.2"
 dependencies = [
  "ocelot-base",
- "ocelot-pal",
 ]
 
 [[package]]
@@ -409,6 +408,7 @@ dependencies = [
  "ocelot-pal",
  "ocelot-parser",
  "ocelot-resolver",
+ "ocelot-semantic",
 ]
 
 [[package]]
@@ -419,6 +419,7 @@ dependencies = [
  "ocelot-base",
  "ocelot-pal",
  "ocelot-resolver",
+ "ocelot-semantic",
 ]
 
 [[package]]
@@ -448,6 +449,16 @@ dependencies = [
  "ocelot-ast",
  "ocelot-base",
  "ocelot-parser",
+ "ocelot-semantic",
+]
+
+[[package]]
+name = "ocelot-semantic"
+version = "0.1.2"
+dependencies = [
+ "ocelot-ast",
+ "ocelot-base",
+ "ocelot-pal",
 ]
 
 [[package]]

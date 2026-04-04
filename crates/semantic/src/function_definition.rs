@@ -1,12 +1,15 @@
-use crate::effect_index::EffectIndex;
-use crate::function_index::FunctionIndex;
-use crate::function_kind::FunctionKind;
-use crate::type_index::TypeIndex;
+use ocelot_ast::effect_index::EffectIndex;
+use ocelot_ast::function_index::FunctionIndex;
+use ocelot_ast::function_item::FunctionItem;
+use ocelot_ast::type_index::TypeIndex;
 use ocelot_base::shared_string::SharedString;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
+
+use crate::function_kind::FunctionKind;
+use crate::native_function::NativeFunction;
 
 /// Definition record for one function entry in the program environment.
 #[derive(Debug, Clone)]
@@ -31,7 +34,7 @@ impl FunctionDefinition {
         module_name: impl Into<SharedString>,
         qualified_name: impl Into<SharedString>,
         argument_types: Vec<TypeIndex>,
-        native_function: Box<dyn crate::native_function::NativeFunction>,
+        native_function: Box<dyn NativeFunction>,
         can_effects: BTreeSet<EffectIndex>,
         cannot_effects: BTreeSet<EffectIndex>,
     ) -> Self {
@@ -55,7 +58,7 @@ impl FunctionDefinition {
     pub fn user_defined(
         module_name: impl Into<SharedString>,
         qualified_name: impl Into<SharedString>,
-        function: crate::function_item::FunctionItem,
+        function: FunctionItem,
         argument_types: Vec<TypeIndex>,
         can_effects: BTreeSet<EffectIndex>,
         cannot_effects: BTreeSet<EffectIndex>,

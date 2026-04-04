@@ -8,6 +8,7 @@ members = [
     "crates/pal",
     "crates/parser",
     "crates/resolver",
+    "crates/semantic",
     "crates/spec_validation",
 ]
 default-members = ["crates/cli"]

@@ -1,21 +1,22 @@
-use crate::effect::Effect;
-use crate::effect_index::EffectIndex;
-use crate::function_definition::FunctionDefinition;
-use crate::function_index::FunctionIndex;
-use crate::function_item::FunctionItem;
-use crate::function_kind::FunctionKind;
-use crate::identifier::Identifier;
-use crate::imported_function_symbols::ImportedFunctionSymbols;
-use crate::native_function::NativeFunction;
-use crate::native_function::native_function_by_name;
-use crate::ty::Ty;
-use crate::type_index::TypeIndex;
-use crate::type_kind::TypeKind;
+use ocelot_ast::effect::Effect;
+use ocelot_ast::effect_index::EffectIndex;
+use ocelot_ast::function_index::FunctionIndex;
+use ocelot_ast::function_item::FunctionItem;
+use ocelot_ast::identifier::Identifier;
+use ocelot_ast::imported_function_symbols::ImportedFunctionSymbols;
+use ocelot_ast::ty::Ty;
+use ocelot_ast::type_index::TypeIndex;
+use ocelot_ast::type_kind::TypeKind;
 use ocelot_base::file_path::FilePath;
 use ocelot_base::result::{OcelotResult, OptionExt};
 use ocelot_base::shared_string::SharedString;
 use std::collections::HashMap;
 use std::collections::HashSet;
+
+use crate::function_definition::FunctionDefinition;
+use crate::function_kind::FunctionKind;
+use crate::native_function::NativeFunction;
+use crate::native_function::native_function_by_name;
 
 /// Shared program-level data needed by resolution and interpretation.
 #[derive(Debug, Clone)]
@@ -336,19 +337,21 @@ impl ProgramEnvironment {
 #[cfg(test)]
 mod tests {
     use super::ProgramEnvironment;
-    use crate::effect::Effect;
-    use crate::function_definition::FunctionDefinition;
-    use crate::function_index::FunctionIndex;
-    use crate::function_item::FunctionItem;
-    use crate::function_kind::FunctionKind;
-    use crate::identifier::Identifier;
-    use crate::native_function::native_function_by_name;
-    use crate::type_index::TypeIndex;
-    use crate::type_kind::TypeKind;
+    use ocelot_ast::effect::Effect;
+    use ocelot_ast::function_index::FunctionIndex;
+    use ocelot_ast::function_item::FunctionItem;
+    use ocelot_ast::identifier::Identifier;
+    use ocelot_ast::type_index::TypeIndex;
+    use ocelot_ast::type_kind::TypeKind;
     use ocelot_base::file_path::FilePath;
     use ocelot_base::source_file::SourceFile;
     use ocelot_base::span::Span;
     use std::collections::BTreeSet;
+
+    use crate::function_definition::FunctionDefinition;
+    use crate::function_kind::FunctionKind;
+    use crate::native_function::native_function_by_name;
+
     #[test]
     fn program_environment_indexes_native_function_implementations_by_name() {
         let environment = ProgramEnvironment::new();

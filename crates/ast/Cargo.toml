@@ -8,4 +8,3 @@ repository = "https://github.com/manuel-woelker/ocelot"
 
 [dependencies]
 ocelot-base = { path = "../base", version = "0.1.2" }
-ocelot-pal = { path = "../pal", version = "0.1.2" }

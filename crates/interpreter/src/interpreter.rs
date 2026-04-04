@@ -4,13 +4,9 @@ use ocelot_ast::expression::Expression;
 use ocelot_ast::expression_kind::ExpressionKind;
 use ocelot_ast::expression_statement::ExpressionStatement;
 use ocelot_ast::function_item::FunctionItem;
-use ocelot_ast::function_kind::FunctionKind;
 use ocelot_ast::item_kind::ItemKind;
-use ocelot_ast::native_function::NativeFunctionContext;
 use ocelot_ast::not_expression::NotExpression;
-use ocelot_ast::program_environment::ProgramEnvironment;
 use ocelot_ast::qualified_identifier::QualifiedIdentifier;
-use ocelot_ast::runtime_value::RuntimeValue;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
 use ocelot_base::diagnostic_level::DiagnosticLevel;
@@ -23,6 +19,10 @@ use ocelot_base::source_excerpt::SourceExcerpt;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 use ocelot_pal::pal::Pal;
+use ocelot_semantic::function_kind::FunctionKind;
+use ocelot_semantic::native_function::NativeFunctionContext;
+use ocelot_semantic::program_environment::ProgramEnvironment;
+use ocelot_semantic::runtime_value::RuntimeValue;
 use std::collections::HashMap;
 
 /// Stateful AST-walking interpreter context.

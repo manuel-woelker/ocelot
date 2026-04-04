@@ -1,5 +1,5 @@
 use crate::loaded_module::LoadedModule;
-use ocelot_ast::program_environment::ProgramEnvironment;
+use ocelot_semantic::program_environment::ProgramEnvironment;
 
 /// Parsed multi-file program with one designated entry module.
 #[derive(Debug)]

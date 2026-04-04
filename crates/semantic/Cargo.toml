@@ -1,13 +1,12 @@
 [package]
-name = "ocelot-resolver"
+name = "ocelot-semantic"
 version = "0.1.2"
 edition = "2024"
-description = "Name resolution for the ocelot project"
+description = "Semantic model and runtime-facing definitions for the ocelot project"
 license = "MIT"
 repository = "https://github.com/manuel-woelker/ocelot"
 
 [dependencies]
 ocelot-ast = { path = "../ast", version = "0.1.2" }
 ocelot-base = { path = "../base", version = "0.1.2" }
-ocelot-parser = { path = "../parser", version = "0.1.2" }
-ocelot-semantic = { path = "../semantic", version = "0.1.2" }
+ocelot-pal = { path = "../pal", version = "0.1.2" }

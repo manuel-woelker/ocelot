@@ -1,14 +1,13 @@
 use ocelot_base::result::OcelotResult;
 use ocelot_base::shared_string::SharedString;
 
-/* 📖 # Why keep runtime values in `ocelot_ast`?
-Native function dispatch now lives behind a trait object stored in function
-definitions. That trait needs a stable value type without introducing a crate
-cycle between `ocelot_ast` and `ocelot_interpreter`.
+/* 📖 # Why keep runtime values in `ocelot_semantic`?
+Runtime values are no longer just an interpreter concern. Native function
+dispatch and semantic function definitions both need a shared value type, but
+that type does not belong in the syntax tree.
 
-For now the same small enum still works well: it keeps the runtime model easy
-to understand, while giving native functions and the interpreter one shared
-value representation.
+Keeping it in the semantic crate keeps `ocelot_ast` focused on syntax while
+still giving the interpreter and native functions one shared representation.
 */
 
 /// Runtime value used by the tree-walking interpreter and native functions.

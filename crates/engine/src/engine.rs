@@ -4,9 +4,7 @@ use crate::loaded_module::LoadedModule;
 use crate::loaded_program::LoadedProgram;
 use crate::source_file_kind::SourceFileKind;
 use crate::test_run_summary::TestRunSummary;
-use ocelot_ast::function_kind::FunctionKind;
 use ocelot_ast::item_kind::ItemKind;
-use ocelot_ast::program_environment::ProgramEnvironment;
 use ocelot_base::assertion_error::render_assertion_error;
 use ocelot_base::compilation_context::CompilationContext;
 use ocelot_base::diagnostic_level::DiagnosticLevel;
@@ -24,6 +22,8 @@ use ocelot_base::source_excerpt::SourceExcerpt;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 use ocelot_pal::pal::PalHandle;
+use ocelot_semantic::function_kind::FunctionKind;
+use ocelot_semantic::program_environment::ProgramEnvironment;
 
 const CORE_MODULE_NAME: &str = "core";
 const CORE_MODULE_PATH: &str = "crates/engine/resources/core.ocelot";

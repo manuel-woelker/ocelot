@@ -7,17 +7,13 @@ use ocelot_ast::effect_item::EffectItem;
 use ocelot_ast::expression::Expression;
 use ocelot_ast::expression_kind::ExpressionKind;
 use ocelot_ast::expression_statement::ExpressionStatement;
-use ocelot_ast::function_definition::FunctionDefinition;
 use ocelot_ast::function_effect_clause::FunctionEffectClause;
 use ocelot_ast::function_index::FunctionIndex;
 use ocelot_ast::function_item::FunctionItem;
-use ocelot_ast::function_kind::FunctionKind;
 use ocelot_ast::function_parameter::FunctionParameter;
 use ocelot_ast::identifier::Identifier;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
-use ocelot_ast::native_function::native_type_label;
-use ocelot_ast::program_environment::ProgramEnvironment;
 use ocelot_ast::qualified_identifier::QualifiedIdentifier;
 use ocelot_ast::script::Script;
 use ocelot_ast::statement::Statement;
@@ -37,6 +33,10 @@ use ocelot_base::source_diagnostic::SourceDiagnostic;
 use ocelot_base::source_excerpt::SourceExcerpt;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
+use ocelot_semantic::function_definition::FunctionDefinition;
+use ocelot_semantic::function_kind::FunctionKind;
+use ocelot_semantic::native_function::native_type_label;
+use ocelot_semantic::program_environment::ProgramEnvironment;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 
@@ -1240,12 +1240,10 @@ mod tests {
     use ocelot_ast::expression_statement::ExpressionStatement;
     use ocelot_ast::function_effect_clause::FunctionEffectClause;
     use ocelot_ast::function_item::FunctionItem;
-    use ocelot_ast::function_kind::FunctionKind;
     use ocelot_ast::function_parameter::FunctionParameter;
     use ocelot_ast::identifier::Identifier;
     use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
-    use ocelot_ast::program_environment::ProgramEnvironment;
     use ocelot_ast::qualified_identifier::QualifiedIdentifier;
     use ocelot_ast::script::Script;
     use ocelot_ast::statement::Statement;
@@ -1258,6 +1256,8 @@ mod tests {
     use ocelot_base::compilation_stage::CompilationStage;
     use ocelot_base::source_file::SourceFile;
     use ocelot_base::span::Span;
+    use ocelot_semantic::function_kind::FunctionKind;
+    use ocelot_semantic::program_environment::ProgramEnvironment;
 
     fn identifier(name: &str, span: Span) -> Expression {
         Expression::new(
