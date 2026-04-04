@@ -6,6 +6,7 @@ use ocelot_base::shared_string::SharedString;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 use ocelot_pal::pal::Pal;
+use std::collections::HashMap;
 use std::fmt::Debug;
 
 use crate::runtime_value::RuntimeValue;
@@ -172,6 +173,43 @@ pub fn native_function_by_name(name: &str) -> Option<Box<dyn NativeFunction>> {
         "core::assert_eq" => Some(Box::new(AssertEqNativeFunction)),
         _ => None,
     }
+}
+
+/// Compiler-provided registry of native implementations keyed by fully qualified name.
+#[derive(Debug, Clone, Default)]
+pub struct NativeFunctionRegistry {
+    functions: HashMap<SharedString, Box<dyn NativeFunction>>,
+}
+
+impl NativeFunctionRegistry {
+    /// Creates an empty native function registry.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Registers one native implementation under its fully qualified name.
+    pub fn register(
+        &mut self,
+        qualified_name: impl Into<SharedString>,
+        native_function: Box<dyn NativeFunction>,
+    ) {
+        self.functions
+            .insert(qualified_name.into(), native_function);
+    }
+
+    /// Resolves one native implementation by fully qualified name.
+    pub fn resolve(&self, qualified_name: &str) -> Option<Box<dyn NativeFunction>> {
+        self.functions.get(qualified_name).cloned()
+    }
+}
+
+/// Creates the default compiler-provided native registry for the core module.
+pub fn default_native_function_registry() -> NativeFunctionRegistry {
+    let mut registry = NativeFunctionRegistry::new();
+    registry.register("core::println", Box::new(PrintlnNativeFunction));
+    registry.register("core::assert", Box::new(AssertNativeFunction));
+    registry.register("core::assert_eq", Box::new(AssertEqNativeFunction));
+    registry
 }
 
 /// Converts one native signature type into a user-facing type label.

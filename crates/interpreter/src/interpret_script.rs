@@ -41,6 +41,7 @@ mod tests {
     use ocelot_base::span::Span;
     use ocelot_pal::pal_mock::PalMock;
     use ocelot_resolver::resolve;
+    use ocelot_semantic::native_function::default_native_function_registry;
     use ocelot_semantic::program_environment::ProgramEnvironment;
 
     fn test_program_environment() -> ProgramEnvironment {
@@ -53,10 +54,17 @@ mod tests {
         pal: &PalMock,
     ) -> OcelotResult<()> {
         let environment = test_program_environment();
+        let native_function_registry = default_native_function_registry();
         let mut script = script.clone();
         let mut context = CompilationContext::default();
         let mut environment = environment;
-        resolve(&mut script, source_file, &mut context, &mut environment)?;
+        resolve(
+            &mut script,
+            source_file,
+            &mut context,
+            &mut environment,
+            &native_function_registry,
+        )?;
         interpret_resolved_script(&script, source_file, &environment, pal)
     }
 

@@ -35,6 +35,7 @@ use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 use ocelot_semantic::function_definition::FunctionDefinition;
 use ocelot_semantic::function_kind::FunctionKind;
+use ocelot_semantic::native_function::NativeFunctionRegistry;
 use ocelot_semantic::native_function::native_type_label;
 use ocelot_semantic::program_environment::ProgramEnvironment;
 use std::collections::BTreeSet;
@@ -50,8 +51,9 @@ pub fn resolve(
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
     environment: &mut ProgramEnvironment,
+    native_function_registry: &NativeFunctionRegistry,
 ) -> OcelotResult<()> {
-    register_core_module(compilation_context, environment)?;
+    register_core_module(compilation_context, environment, native_function_registry)?;
     let module_name = default_module_name(source_file);
     environment.add_module(module_name.clone());
     register_module_effects(script, source_file, compilation_context, environment)?;
@@ -61,6 +63,7 @@ pub fn resolve(
         source_file,
         compilation_context,
         environment,
+        native_function_registry,
     )?;
     register_module_imports(
         script,
@@ -75,8 +78,13 @@ pub fn resolve(
         source_file,
         compilation_context,
         environment,
+        native_function_registry,
     )?;
-    resolve_user_defined_function_definitions(compilation_context, environment)?;
+    resolve_user_defined_function_definitions(
+        compilation_context,
+        environment,
+        native_function_registry,
+    )?;
     finish_resolution(compilation_context)
 }
 
@@ -84,6 +92,7 @@ pub fn resolve(
 pub fn register_core_module(
     compilation_context: &mut CompilationContext,
     environment: &mut ProgramEnvironment,
+    native_function_registry: &NativeFunctionRegistry,
 ) -> OcelotResult<()> {
     if environment.has_module(CORE_MODULE_NAME) {
         return Ok(());
@@ -100,6 +109,7 @@ pub fn register_core_module(
         &source_file,
         compilation_context,
         environment,
+        native_function_registry,
     )?;
     Ok(())
 }
@@ -111,8 +121,16 @@ pub fn register_module_effects(
     compilation_context: &mut CompilationContext,
     environment: &mut ProgramEnvironment,
 ) -> OcelotResult<()> {
-    Resolver::new(source_file, "", compilation_context, environment, None)
-        .register_effect_items(script);
+    let empty_registry = NativeFunctionRegistry::new();
+    Resolver::new(
+        source_file,
+        "",
+        compilation_context,
+        environment,
+        &empty_registry,
+        None,
+    )
+    .register_effect_items(script);
     Ok(())
 }
 
@@ -123,12 +141,14 @@ pub fn register_module_functions(
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
     environment: &mut ProgramEnvironment,
+    native_function_registry: &NativeFunctionRegistry,
 ) -> OcelotResult<()> {
     Resolver::new(
         source_file,
         module_name,
         compilation_context,
         environment,
+        native_function_registry,
         None,
     )
     .register_function_items(script)?;
@@ -143,11 +163,13 @@ pub fn register_module_imports(
     compilation_context: &mut CompilationContext,
     environment: &mut ProgramEnvironment,
 ) -> OcelotResult<()> {
+    let empty_registry = NativeFunctionRegistry::new();
     Resolver::new(
         source_file,
         module_name,
         compilation_context,
         environment,
+        &empty_registry,
         None,
     )
     .register_use_items(script);
@@ -161,12 +183,14 @@ pub fn resolve_module_items(
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
     environment: &mut ProgramEnvironment,
+    native_function_registry: &NativeFunctionRegistry,
 ) -> OcelotResult<()> {
     let mut resolver = Resolver::new(
         source_file,
         module_name,
         compilation_context,
         environment,
+        native_function_registry,
         None,
     );
     for item in &mut script.items {
@@ -179,6 +203,7 @@ pub fn resolve_module_items(
 pub fn resolve_user_defined_function_definitions(
     compilation_context: &mut CompilationContext,
     environment: &mut ProgramEnvironment,
+    native_function_registry: &NativeFunctionRegistry,
 ) -> OcelotResult<()> {
     let function_indices = environment.user_defined_function_indices();
 
@@ -202,6 +227,7 @@ pub fn resolve_user_defined_function_definitions(
             module_name.as_str(),
             compilation_context,
             environment,
+            native_function_registry,
             Some(function_index),
         )
         .resolve_function_item(&mut function);
@@ -236,6 +262,7 @@ struct Resolver<'a> {
     module_name: &'a str,
     compilation_context: &'a mut CompilationContext,
     environment: &'a mut ProgramEnvironment,
+    native_function_registry: &'a NativeFunctionRegistry,
     current_function_index: Option<FunctionIndex>,
     local_value_types: HashMap<SharedString, TypeIndex>,
 }
@@ -246,6 +273,7 @@ impl<'a> Resolver<'a> {
         module_name: &'a str,
         compilation_context: &'a mut CompilationContext,
         environment: &'a mut ProgramEnvironment,
+        native_function_registry: &'a NativeFunctionRegistry,
         current_function_index: Option<FunctionIndex>,
     ) -> Self {
         Self {
@@ -253,6 +281,7 @@ impl<'a> Resolver<'a> {
             module_name,
             compilation_context,
             environment,
+            native_function_registry,
             current_function_index,
             local_value_types: HashMap::new(),
         }
@@ -423,8 +452,8 @@ impl<'a> Resolver<'a> {
             }
 
             let Some(native_function) = self
-                .environment
-                .resolve_native_function_implementation(qualified_name.as_str())
+                .native_function_registry
+                .resolve(qualified_name.as_str())
             else {
                 ocelot_base::bail!(
                     "internal error: native function `{qualified_name}` has no registered implementation"
@@ -1257,6 +1286,7 @@ mod tests {
     use ocelot_base::source_file::SourceFile;
     use ocelot_base::span::Span;
     use ocelot_semantic::function_kind::FunctionKind;
+    use ocelot_semantic::native_function::default_native_function_registry;
     use ocelot_semantic::program_environment::ProgramEnvironment;
 
     fn identifier(name: &str, span: Span) -> Expression {
@@ -1308,6 +1338,10 @@ mod tests {
         )
     }
 
+    fn native_function_registry() -> ocelot_semantic::native_function::NativeFunctionRegistry {
+        default_native_function_registry()
+    }
+
     #[test]
     fn resolves_native_call_expressions() {
         let mut script = Script::new(
@@ -1326,13 +1360,26 @@ mod tests {
         );
         let source_file = SourceFile::new("examples/hello.ocelot", "println(\"hello\");");
         let mut environment = ProgramEnvironment::new();
+        let native_function_registry = native_function_registry();
         let println_index = {
-            register_core_module(&mut CompilationContext::default(), &mut environment).unwrap();
+            register_core_module(
+                &mut CompilationContext::default(),
+                &mut environment,
+                &native_function_registry,
+            )
+            .unwrap();
             environment.resolve_function("core::println").unwrap()
         };
         let mut context = CompilationContext::default();
 
-        resolve(&mut script, &source_file, &mut context, &mut environment).unwrap();
+        resolve(
+            &mut script,
+            &source_file,
+            &mut context,
+            &mut environment,
+            &native_function_registry,
+        )
+        .unwrap();
 
         let ItemKind::Statement(statement) = &script.items[0].kind else {
             panic!("expected statement");
@@ -1386,9 +1433,17 @@ mod tests {
             "fun greet(name: string) { println(name); } greet(\"hello\");",
         );
         let mut environment = ProgramEnvironment::new();
+        let native_function_registry = native_function_registry();
         let mut context = CompilationContext::default();
 
-        resolve(&mut script, &source_file, &mut context, &mut environment).unwrap();
+        resolve(
+            &mut script,
+            &source_file,
+            &mut context,
+            &mut environment,
+            &native_function_registry,
+        )
+        .unwrap();
 
         let function_definition = environment
             .function_definition(environment.resolve_function("functions::greet").unwrap())
@@ -1435,6 +1490,7 @@ mod tests {
             "fun greet(name: string, name: bool) {}",
         );
         let mut environment = ProgramEnvironment::new();
+        let native_function_registry = native_function_registry();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -1443,6 +1499,7 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
 
@@ -1473,6 +1530,7 @@ mod tests {
         let source_file =
             SourceFile::new("examples/functions.ocelot", "fun greet(name: number) {}");
         let mut environment = ProgramEnvironment::new();
+        let native_function_registry = native_function_registry();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -1481,6 +1539,7 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
 
@@ -1506,6 +1565,7 @@ mod tests {
         );
         let source_file = SourceFile::new("examples/functions.ocelot", "fun greet(value: any) {}");
         let mut environment = ProgramEnvironment::new();
+        let native_function_registry = native_function_registry();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -1514,6 +1574,7 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
 
@@ -1543,6 +1604,7 @@ mod tests {
         let source_file =
             SourceFile::new("examples/helper.ocelot", "native fun println(value: any);");
         let mut environment = ProgramEnvironment::new();
+        let native_function_registry = native_function_registry();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -1551,6 +1613,7 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
 
@@ -1596,9 +1659,17 @@ mod tests {
             "fun greet(name: string) {} greet();",
         );
         let mut environment = ProgramEnvironment::new();
+        let native_function_registry = native_function_registry();
         let mut context = CompilationContext::default();
 
-        resolve(&mut script, &source_file, &mut context, &mut environment).unwrap_err();
+        resolve(
+            &mut script,
+            &source_file,
+            &mut context,
+            &mut environment,
+            &native_function_registry,
+        )
+        .unwrap_err();
 
         let error = finish_resolution(&context).unwrap_err();
         assert!(
@@ -1642,9 +1713,17 @@ mod tests {
             "fun greet(excited: bool) {} greet(\"hello\");",
         );
         let mut environment = ProgramEnvironment::new();
+        let native_function_registry = native_function_registry();
         let mut context = CompilationContext::default();
 
-        resolve(&mut script, &source_file, &mut context, &mut environment).unwrap_err();
+        resolve(
+            &mut script,
+            &source_file,
+            &mut context,
+            &mut environment,
+            &native_function_registry,
+        )
+        .unwrap_err();
 
         let error = finish_resolution(&context).unwrap_err();
         assert!(
@@ -1692,6 +1771,7 @@ mod tests {
         let mut environment = ProgramEnvironment::new();
         environment.add_module("main");
         environment.add_module("math::greet");
+        let native_function_registry = native_function_registry();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -1700,6 +1780,7 @@ mod tests {
             &module_source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
         resolve_module_items(
@@ -1708,9 +1789,15 @@ mod tests {
             &main_source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
-        resolve_user_defined_function_definitions(&mut context, &mut environment).unwrap();
+        resolve_user_defined_function_definitions(
+            &mut context,
+            &mut environment,
+            &native_function_registry,
+        )
+        .unwrap();
         finish_resolution(&context).unwrap();
 
         let ItemKind::Statement(statement) = &main_script.items[0].kind else {
@@ -1772,6 +1859,7 @@ mod tests {
         let mut environment = ProgramEnvironment::new();
         environment.add_module("main");
         environment.add_module("helper");
+        let native_function_registry = native_function_registry();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -1780,6 +1868,7 @@ mod tests {
             &helper_source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
         register_module_imports(
@@ -1796,9 +1885,15 @@ mod tests {
             &main_source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
-        resolve_user_defined_function_definitions(&mut context, &mut environment).unwrap();
+        resolve_user_defined_function_definitions(
+            &mut context,
+            &mut environment,
+            &native_function_registry,
+        )
+        .unwrap();
         finish_resolution(&context).unwrap();
 
         let ItemKind::Statement(statement) = &main_script.items[0].kind else {
@@ -1867,6 +1962,7 @@ mod tests {
         let mut environment = ProgramEnvironment::new();
         environment.add_module("main");
         environment.add_module("helper");
+        let native_function_registry = native_function_registry();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -1875,6 +1971,7 @@ mod tests {
             &main_source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
         register_module_functions(
@@ -1883,6 +1980,7 @@ mod tests {
             &helper_source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
         register_module_imports(
@@ -1899,9 +1997,15 @@ mod tests {
             &main_source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
-        resolve_user_defined_function_definitions(&mut context, &mut environment).unwrap();
+        resolve_user_defined_function_definitions(
+            &mut context,
+            &mut environment,
+            &native_function_registry,
+        )
+        .unwrap();
         finish_resolution(&context).unwrap();
 
         let run = environment
@@ -1979,6 +2083,7 @@ mod tests {
         let mut environment = ProgramEnvironment::new();
         environment.add_module("main");
         environment.add_module("helper");
+        let native_function_registry = native_function_registry();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -1987,6 +2092,7 @@ mod tests {
             &main_source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
         register_module_functions(
@@ -1995,6 +2101,7 @@ mod tests {
             &helper_source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
         register_module_imports(
@@ -2062,6 +2169,7 @@ mod tests {
         let mut environment = ProgramEnvironment::new();
         environment.add_module("main");
         environment.add_module("helper");
+        let native_function_registry = native_function_registry();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -2070,6 +2178,7 @@ mod tests {
             &helper_source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
         register_module_imports(
@@ -2117,6 +2226,7 @@ mod tests {
         let mut environment = ProgramEnvironment::new();
         environment.add_module("main");
         environment.add_module("helper");
+        let native_function_registry = native_function_registry();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -2125,6 +2235,7 @@ mod tests {
             &helper_source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
         register_module_imports(
@@ -2166,6 +2277,7 @@ mod tests {
         let source_file = SourceFile::new("main.ocelot", "math::greet::hello();");
         let mut environment = ProgramEnvironment::new();
         environment.add_module("main");
+        let native_function_registry = native_function_registry();
         let mut context = CompilationContext::default();
 
         resolve_module_items(
@@ -2174,6 +2286,7 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
         let error = finish_resolution(&context).unwrap_err();
@@ -2213,6 +2326,7 @@ mod tests {
         );
         let source_file = SourceFile::new("main.ocelot", "fun helper() {} test \"works\" {}");
         let mut environment = ProgramEnvironment::new();
+        let native_function_registry = native_function_registry();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -2221,6 +2335,7 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
 
@@ -2305,6 +2420,7 @@ mod tests {
             "effect exec; fun child() can exec {} fun parent() { child(); }",
         );
         let mut environment = ProgramEnvironment::new();
+        let native_function_registry = native_function_registry();
         let mut context = CompilationContext::default();
 
         register_module_effects(&mut script, &source_file, &mut context, &mut environment).unwrap();
@@ -2314,6 +2430,7 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
         resolve_module_items(
@@ -2322,9 +2439,15 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
-        resolve_user_defined_function_definitions(&mut context, &mut environment).unwrap();
+        resolve_user_defined_function_definitions(
+            &mut context,
+            &mut environment,
+            &native_function_registry,
+        )
+        .unwrap();
         finish_resolution(&context).unwrap();
 
         let exec_effect = environment.resolve_effect("exec").unwrap();
@@ -2383,6 +2506,7 @@ mod tests {
             "effect exec; fun child() can exec {} fun parent() cannot exec { child(); }",
         );
         let mut environment = ProgramEnvironment::new();
+        let native_function_registry = native_function_registry();
         let mut context = CompilationContext::default();
 
         register_module_effects(&mut script, &source_file, &mut context, &mut environment).unwrap();
@@ -2392,6 +2516,7 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
         resolve_module_items(
@@ -2400,9 +2525,15 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
-        resolve_user_defined_function_definitions(&mut context, &mut environment).unwrap();
+        resolve_user_defined_function_definitions(
+            &mut context,
+            &mut environment,
+            &native_function_registry,
+        )
+        .unwrap();
 
         let error = finish_resolution(&context).unwrap_err();
 
@@ -2445,6 +2576,7 @@ mod tests {
             "fun quiet() cannot write_stdout { println(\"hello\"); }",
         );
         let mut environment = ProgramEnvironment::new();
+        let native_function_registry = native_function_registry();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -2453,9 +2585,15 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
-        resolve_user_defined_function_definitions(&mut context, &mut environment).unwrap();
+        resolve_user_defined_function_definitions(
+            &mut context,
+            &mut environment,
+            &native_function_registry,
+        )
+        .unwrap();
 
         let error = finish_resolution(&context).unwrap_err();
 
@@ -2480,6 +2618,7 @@ mod tests {
         );
         let source_file = SourceFile::new("main.ocelot", "fun quiet() can exec {}");
         let mut environment = ProgramEnvironment::new();
+        let native_function_registry = native_function_registry();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -2488,6 +2627,7 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &native_function_registry,
         )
         .unwrap();
 

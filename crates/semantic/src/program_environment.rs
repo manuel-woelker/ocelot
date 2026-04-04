@@ -15,9 +15,6 @@ use std::collections::HashSet;
 
 use crate::function_definition::FunctionDefinition;
 use crate::function_kind::FunctionKind;
-use crate::native_function::NativeFunction;
-use crate::native_function::native_function_by_name;
-
 /// Shared program-level data needed by resolution and interpretation.
 #[derive(Debug, Clone)]
 pub struct ProgramEnvironment {
@@ -27,7 +24,6 @@ pub struct ProgramEnvironment {
     pub module_symbols: HashSet<SharedString>,
     pub effects: Vec<Effect>,
     pub effect_symbols: HashMap<SharedString, EffectIndex>,
-    pub native_function_symbols: HashMap<SharedString, Box<dyn NativeFunction>>,
     pub types: Vec<Ty>,
     pub type_symbols: HashMap<SharedString, TypeIndex>,
 }
@@ -48,13 +44,11 @@ impl ProgramEnvironment {
             module_symbols: HashSet::new(),
             effects: vec![Effect::builtin("__reserved_effect_slot__")],
             effect_symbols: HashMap::new(),
-            native_function_symbols: HashMap::new(),
             types: vec![Ty::new("unresolved", TypeKind::Unresolved)],
             type_symbols: HashMap::new(),
         };
 
         environment.seed_builtin_types();
-        environment.seed_native_function_registry();
         environment
     }
 
@@ -62,12 +56,6 @@ impl ProgramEnvironment {
         self.add_type(Ty::new("any", TypeKind::Any));
         self.add_type(Ty::new("string", TypeKind::String));
         self.add_type(Ty::new("bool", TypeKind::Boolean));
-    }
-
-    fn seed_native_function_registry(&mut self) {
-        self.register_native_function_implementation("core::println");
-        self.register_native_function_implementation("core::assert");
-        self.register_native_function_implementation("core::assert_eq");
     }
 
     /// Resolves one effect name to its table handle.
@@ -208,26 +196,6 @@ impl ProgramEnvironment {
         self.module_symbols.insert(module_name.into());
     }
 
-    /// Registers one native function implementation keyed by fully qualified name.
-    pub fn register_native_function_implementation(
-        &mut self,
-        qualified_name: impl Into<SharedString>,
-    ) {
-        let qualified_name = qualified_name.into();
-        let native_function = native_function_by_name(qualified_name.as_str())
-            .expect("native function name should map to an implementation");
-        self.native_function_symbols
-            .insert(qualified_name, native_function);
-    }
-
-    /// Resolves one registered native function implementation by fully qualified name.
-    pub fn resolve_native_function_implementation(
-        &self,
-        qualified_name: &str,
-    ) -> Option<Box<dyn NativeFunction>> {
-        self.native_function_symbols.get(qualified_name).cloned()
-    }
-
     /// Returns whether one module name is known.
     pub fn has_module(&self, module_name: &str) -> bool {
         self.module_symbols.contains(module_name)
@@ -350,37 +318,6 @@ mod tests {
 
     use crate::function_definition::FunctionDefinition;
     use crate::function_kind::FunctionKind;
-    use crate::native_function::native_function_by_name;
-
-    #[test]
-    fn program_environment_indexes_native_function_implementations_by_name() {
-        let environment = ProgramEnvironment::new();
-
-        assert_eq!(
-            environment
-                .resolve_native_function_implementation("core::println")
-                .unwrap()
-                .signature()
-                .argument_types,
-            vec![TypeKind::Any]
-        );
-        assert_eq!(
-            environment
-                .resolve_native_function_implementation("core::assert")
-                .unwrap()
-                .signature()
-                .argument_types,
-            vec![TypeKind::Boolean]
-        );
-        assert_eq!(
-            environment
-                .resolve_native_function_implementation("core::assert_eq")
-                .unwrap()
-                .signature()
-                .argument_types,
-            vec![TypeKind::Any, TypeKind::Any]
-        );
-    }
 
     #[test]
     fn add_function_can_store_native_function_metadata() {
@@ -389,7 +326,9 @@ mod tests {
             "core",
             "core::println",
             vec![environment.any_type_index()],
-            native_function_by_name("core::println").unwrap(),
+            crate::native_function::default_native_function_registry()
+                .resolve("core::println")
+                .unwrap(),
             BTreeSet::new(),
             BTreeSet::new(),
         ));
