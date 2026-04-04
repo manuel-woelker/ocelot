@@ -106,4 +106,29 @@ mod tests {
             ))
         );
     }
+
+    #[test]
+    fn normalizes_unknown_function_resolver_failures_for_comparison() {
+        let inner_pal = PalMock::new();
+        let pal = CapturingPal::new(PalHandle::new(inner_pal));
+        let observed = execute_spec_example(
+            &pal,
+            Path::new("/tmp/spec-validation"),
+            &SpecExample {
+                chapter_path: FilePath::from("docs/spec/02.01 Expressions - Function calls.md"),
+                name: SharedString::from("calling an unknown function is a resolver error"),
+                source: SharedString::from("printline(\"hello\");"),
+                expected_outcome: ExpectedOutcome::Error(SharedString::from("unknown function")),
+                line_number: 24,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            observed,
+            ObservedOutcome::Error(SharedString::from(
+                "error: unknown function `printline`\n  ╭▸ spec-test.ocelot:1:1\n  │\n1 │ printline(\"hello\");\n  ╰╴━━━━━━━━━ unknown function\nat spec-test.ocelot:1:1"
+            ))
+        );
+    }
 }

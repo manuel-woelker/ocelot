@@ -123,7 +123,7 @@ impl<'a> Resolver<'a> {
             self.add_diagnostic(
                 format!("unknown function `{}`", identifier.name),
                 call_expression.callee.span.clone(),
-                "not found",
+                "unknown function",
             );
             return;
         };

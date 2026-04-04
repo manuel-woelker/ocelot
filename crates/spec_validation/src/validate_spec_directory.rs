@@ -192,8 +192,8 @@ mod tests {
 
         expect![[r#"
             11
-            23
-            23
+            24
+            24
             0
         "#]]
         .assert_eq(&format!(
