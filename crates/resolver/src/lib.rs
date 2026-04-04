@@ -198,10 +198,11 @@ impl<'a> Resolver<'a> {
             );
             return;
         };
+        let function_name = identifier.name.clone();
 
-        let Some(function_index) = self.environment.resolve_function(&identifier.name) else {
+        let Some(function_index) = self.environment.resolve_function(&function_name) else {
             self.add_diagnostic(
-                format!("unknown function `{}`", identifier.name),
+                format!("unknown function `{}`", function_name),
                 call_expression.callee.span.clone(),
                 "unknown function",
             );
@@ -209,6 +210,7 @@ impl<'a> Resolver<'a> {
         };
 
         call_expression.resolve_to(function_index);
+        self.validate_call_argument_types(function_name.as_str(), call_expression, function_index);
     }
 
     fn annotate_expression_type(&mut self, expression: &mut Expression) {
@@ -242,6 +244,69 @@ impl<'a> Resolver<'a> {
                 expression.ty = TypeIndex::unresolved();
             }
         }
+    }
+
+    fn validate_call_argument_types(
+        &mut self,
+        function_name: &str,
+        call_expression: &CallExpression,
+        function_index: ocelot_ast::function_index::FunctionIndex,
+    ) {
+        let Ok(function_definition) = self.environment.function_definition(function_index) else {
+            return;
+        };
+        let argument_types = function_definition.argument_types.clone();
+        let any_type_index = self.environment.any_type_index();
+
+        for (argument_index, (argument, expected_type)) in call_expression
+            .arguments
+            .iter()
+            .zip(argument_types.iter())
+            .enumerate()
+        {
+            if argument.ty.is_unresolved() || *expected_type == any_type_index {
+                continue;
+            }
+
+            if argument.ty == *expected_type {
+                continue;
+            }
+
+            self.add_diagnostic(
+                self.argument_type_error_message(function_name, argument_index, *expected_type),
+                argument.span.clone(),
+                format!("expected {}", self.type_label(*expected_type)),
+            );
+        }
+    }
+
+    fn argument_type_error_message(
+        &self,
+        function_name: &str,
+        argument_index: usize,
+        expected_type: TypeIndex,
+    ) -> SharedString {
+        if argument_index == 0
+            && function_name == "assert"
+            && expected_type == self.environment.boolean_type_index()
+        {
+            return "type error: `assert` expects a boolean argument".into();
+        }
+
+        format!(
+            "type error: argument {} to `{}` must be {}",
+            argument_index + 1,
+            function_name,
+            self.type_label(expected_type)
+        )
+        .into()
+    }
+
+    fn type_label(&self, type_index: TypeIndex) -> SharedString {
+        self.environment
+            .type_definition(type_index)
+            .map(|ty| ty.name.clone())
+            .unwrap_or_else(|_| "unknown".into())
     }
 
     fn add_diagnostic(
@@ -321,13 +386,11 @@ mod tests {
     use ocelot_ast::expression::Expression;
     use ocelot_ast::expression_kind::ExpressionKind;
     use ocelot_ast::expression_statement::ExpressionStatement;
-    use ocelot_ast::function_definition::FunctionDefinition;
     use ocelot_ast::function_item::FunctionItem;
     use ocelot_ast::function_kind::FunctionKind;
     use ocelot_ast::identifier::Identifier;
     use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
-    use ocelot_ast::native_function::NativeFunction;
     use ocelot_ast::program_environment::ProgramEnvironment;
     use ocelot_ast::script::Script;
     use ocelot_ast::statement::Statement;
@@ -378,11 +441,7 @@ mod tests {
     }
 
     fn test_program_environment() -> ProgramEnvironment {
-        ProgramEnvironment::new(vec![
-            FunctionDefinition::native("println", NativeFunction::Println),
-            FunctionDefinition::native("assert", NativeFunction::Assert),
-            FunctionDefinition::native("assert_eq", NativeFunction::AssertEq),
-        ])
+        ProgramEnvironment::new()
     }
 
     #[test]
@@ -689,6 +748,78 @@ mod tests {
                 .contains("operator `not` expects a boolean operand")
         );
         assert!(error.to_test_string().contains("boolean operand required"));
+    }
+
+    #[test]
+    fn reports_assert_argument_type_mismatches_as_resolver_errors() {
+        let mut script = Script::new(
+            vec![Item::new(
+                ItemKind::Statement(Statement::new(
+                    StatementKind::Expression(ExpressionStatement::new(call(
+                        identifier("assert", Span::new(0, 6)),
+                        vec![string_literal("hello", Span::new(7, 14))],
+                        Span::new(0, 15),
+                    ))),
+                    Span::new(0, 16),
+                )),
+                Span::new(0, 16),
+            )],
+            Span::new(0, 16),
+        );
+        let source_file = SourceFile::new("examples/assertions.ocelot", "assert(\"hello\");");
+        let mut environment = test_program_environment();
+        let mut context = CompilationContext::default();
+
+        let error = resolve(&mut script, &source_file, &mut context, &mut environment).unwrap_err();
+
+        assert!(
+            error
+                .to_test_string()
+                .contains("type error: `assert` expects a boolean argument")
+        );
+        assert!(error.to_test_string().contains("expected boolean"));
+    }
+
+    #[test]
+    fn any_typed_function_arguments_do_not_report_type_mismatches() {
+        let mut script = Script::new(
+            vec![
+                Item::new(
+                    ItemKind::Statement(Statement::new(
+                        StatementKind::Expression(ExpressionStatement::new(call(
+                            identifier("println", Span::new(0, 7)),
+                            vec![boolean_literal(true, Span::new(8, 12))],
+                            Span::new(0, 13),
+                        ))),
+                        Span::new(0, 14),
+                    )),
+                    Span::new(0, 14),
+                ),
+                Item::new(
+                    ItemKind::Statement(Statement::new(
+                        StatementKind::Expression(ExpressionStatement::new(call(
+                            identifier("assert_eq", Span::new(15, 24)),
+                            vec![
+                                string_literal("hello", Span::new(25, 32)),
+                                boolean_literal(false, Span::new(34, 39)),
+                            ],
+                            Span::new(15, 40),
+                        ))),
+                        Span::new(15, 41),
+                    )),
+                    Span::new(15, 41),
+                ),
+            ],
+            Span::new(0, 41),
+        );
+        let source_file = SourceFile::new(
+            "examples/assertions.ocelot",
+            "println(true); assert_eq(\"hello\", false);",
+        );
+        let mut environment = test_program_environment();
+        let mut context = CompilationContext::default();
+
+        resolve(&mut script, &source_file, &mut context, &mut environment).unwrap();
     }
 
     #[test]

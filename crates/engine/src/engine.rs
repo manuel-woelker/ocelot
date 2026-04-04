@@ -1,9 +1,7 @@
 use crate::discovered_test::DiscoveredTest;
 use crate::failed_test_result::FailedTestResult;
 use crate::test_run_summary::TestRunSummary;
-use ocelot_ast::function_definition::FunctionDefinition;
 use ocelot_ast::item_kind::ItemKind;
-use ocelot_ast::native_function::NativeFunction;
 use ocelot_ast::program_environment::ProgramEnvironment;
 use ocelot_base::assertion_error::render_assertion_error;
 use ocelot_base::error::ErrorKind;
@@ -169,11 +167,7 @@ impl Engine {
     }
 
     fn create_program_environment(&self) -> ProgramEnvironment {
-        ProgramEnvironment::new(vec![
-            FunctionDefinition::native("println", NativeFunction::Println),
-            FunctionDefinition::native("assert", NativeFunction::Assert),
-            FunctionDefinition::native("assert_eq", NativeFunction::AssertEq),
-        ])
+        ProgramEnvironment::new()
     }
 }
 
@@ -520,6 +514,26 @@ mod tests {
                 .contains("type error: `println` expects a string or boolean argument")
         );
         assert_eq!(pal.take_printed_output(), "hello\n");
+    }
+
+    #[test]
+    fn run_script_reports_assert_argument_type_mismatches_during_resolution() {
+        let pal = PalMock::new();
+        pal.set_file("examples/broken.ocelot", "assert(\"hello\");");
+
+        let engine = Engine::new(PalHandle::new(pal));
+
+        let error = engine.run_script("examples/broken.ocelot").unwrap_err();
+
+        assert!(matches!(
+            error.kind(),
+            ErrorKind::CompilationError(CompilationStage::Resolver)
+        ));
+        assert!(
+            error
+                .to_test_string()
+                .contains("type error: `assert` expects a boolean argument")
+        );
     }
 
     #[test]

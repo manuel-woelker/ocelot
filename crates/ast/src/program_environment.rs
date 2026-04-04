@@ -3,6 +3,7 @@ use crate::function_index::FunctionIndex;
 use crate::function_item::FunctionItem;
 use crate::function_kind::FunctionKind;
 use crate::identifier::Identifier;
+use crate::native_function::NativeFunction;
 use crate::ty::Ty;
 use crate::type_index::TypeIndex;
 use crate::type_kind::TypeKind;
@@ -19,35 +20,49 @@ pub struct ProgramEnvironment {
     pub type_symbols: HashMap<SharedString, TypeIndex>,
 }
 
-impl ProgramEnvironment {
-    /// Creates a program environment from the provided function definitions.
-    pub fn new(functions: Vec<FunctionDefinition>) -> Self {
-        let function_symbols = functions
-            .iter()
-            .enumerate()
-            .map(|(index, function)| {
-                (
-                    function.name.clone(),
-                    FunctionIndex::new((index + 1) as u32),
-                )
-            })
-            .collect();
+impl Default for ProgramEnvironment {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
+impl ProgramEnvironment {
+    /// Creates a program environment seeded with builtin types and native functions.
+    pub fn new() -> Self {
         let mut environment = Self {
-            functions: {
-                let mut table = vec![None];
-                table.extend(functions.into_iter().map(Some));
-                table
-            },
-            function_symbols,
+            functions: vec![None],
+            function_symbols: HashMap::new(),
             types: vec![Ty::new("unresolved", TypeKind::Unresolved)],
             type_symbols: HashMap::new(),
         };
 
-        environment.add_type(Ty::new("string", TypeKind::String));
-        environment.add_type(Ty::new("boolean", TypeKind::Boolean));
-
+        environment.seed_builtin_types();
+        environment.seed_native_functions();
         environment
+    }
+
+    fn seed_builtin_types(&mut self) {
+        self.add_type(Ty::new("any", TypeKind::Any));
+        self.add_type(Ty::new("string", TypeKind::String));
+        self.add_type(Ty::new("boolean", TypeKind::Boolean));
+    }
+
+    fn seed_native_functions(&mut self) {
+        self.add_function(FunctionDefinition::native(
+            "println",
+            vec![self.any_type_index()],
+            NativeFunction::Println,
+        ));
+        self.add_function(FunctionDefinition::native(
+            "assert",
+            vec![self.boolean_type_index()],
+            NativeFunction::Assert,
+        ));
+        self.add_function(FunctionDefinition::native(
+            "assert_eq",
+            vec![self.any_type_index(), self.any_type_index()],
+            NativeFunction::AssertEq,
+        ));
     }
 
     /// Resolves one type name to its table handle.
@@ -74,6 +89,12 @@ impl ProgramEnvironment {
     pub fn string_type_index(&self) -> TypeIndex {
         self.resolve_type("string")
             .expect("string type should always be seeded")
+    }
+
+    /// Returns the canonical any type handle.
+    pub fn any_type_index(&self) -> TypeIndex {
+        self.resolve_type("any")
+            .expect("any type should always be seeded")
     }
 
     /// Returns the canonical boolean type handle.
@@ -194,11 +215,7 @@ mod tests {
     use ocelot_base::span::Span;
     #[test]
     fn program_environment_indexes_functions_by_name() {
-        let environment = ProgramEnvironment::new(vec![
-            FunctionDefinition::native("println", NativeFunction::Println),
-            FunctionDefinition::native("assert", NativeFunction::Assert),
-            FunctionDefinition::native("assert_eq", NativeFunction::AssertEq),
-        ]);
+        let environment = ProgramEnvironment::new();
 
         assert!(environment.resolve_function("println").is_some());
         assert!(environment.resolve_function("assert").is_some());
@@ -207,14 +224,12 @@ mod tests {
 
     #[test]
     fn function_definition_looks_up_native_function_metadata() {
-        let environment = ProgramEnvironment::new(vec![FunctionDefinition::native(
-            "println",
-            NativeFunction::Println,
-        )]);
+        let environment = ProgramEnvironment::new();
         let function_index = environment.resolve_function("println").unwrap();
         let function = environment.function_definition(function_index).unwrap();
 
         assert_eq!(function.name, "println");
+        assert_eq!(function.argument_types, vec![environment.any_type_index()]);
         assert_eq!(
             function.kind,
             FunctionKind::Native {
@@ -225,17 +240,14 @@ mod tests {
 
     #[test]
     fn program_environment_reserves_table_entry_zero() {
-        let environment = ProgramEnvironment::new(vec![FunctionDefinition::native(
-            "println",
-            NativeFunction::Println,
-        )]);
+        let environment = ProgramEnvironment::new();
 
         assert!(environment.functions[0].is_none());
     }
 
     #[test]
     fn program_environment_seeds_primitive_types() {
-        let environment = ProgramEnvironment::new(Vec::new());
+        let environment = ProgramEnvironment::new();
 
         assert_eq!(
             environment
@@ -243,6 +255,13 @@ mod tests {
                 .unwrap()
                 .kind,
             TypeKind::Unresolved
+        );
+        assert_eq!(
+            environment
+                .type_definition(environment.resolve_type("any").unwrap())
+                .unwrap()
+                .kind,
+            TypeKind::Any
         );
         assert_eq!(
             environment
@@ -262,18 +281,16 @@ mod tests {
 
     #[test]
     fn program_environment_indexes_types_by_name() {
-        let environment = ProgramEnvironment::new(Vec::new());
+        let environment = ProgramEnvironment::new();
 
-        assert_eq!(environment.resolve_type("string"), Some(TypeIndex::new(1)));
-        assert_eq!(environment.resolve_type("boolean"), Some(TypeIndex::new(2)));
+        assert_eq!(environment.resolve_type("any"), Some(TypeIndex::new(1)));
+        assert_eq!(environment.resolve_type("string"), Some(TypeIndex::new(2)));
+        assert_eq!(environment.resolve_type("boolean"), Some(TypeIndex::new(3)));
     }
 
     #[test]
     fn add_function_appends_user_defined_entries() {
-        let mut environment = ProgramEnvironment::new(vec![FunctionDefinition::native(
-            "println",
-            NativeFunction::Println,
-        )]);
+        let mut environment = ProgramEnvironment::new();
 
         let function_index =
             environment.add_function(FunctionDefinition::user_defined(FunctionItem::new(
@@ -294,31 +311,28 @@ mod tests {
 
     #[test]
     fn user_defined_function_indices_returns_only_user_defined_entries() {
-        let environment = ProgramEnvironment::new(vec![
-            FunctionDefinition::native("println", NativeFunction::Println),
-            FunctionDefinition::user_defined(FunctionItem::new(
-                Identifier::new("greet", Span::new(4, 9)),
-                Vec::new(),
-                Span::new(0, 13),
-            )),
-            FunctionDefinition::native("assert", NativeFunction::Assert),
-        ]);
+        let mut environment = ProgramEnvironment::new();
+        let _ = environment.add_function(FunctionDefinition::user_defined(FunctionItem::new(
+            Identifier::new("greet", Span::new(4, 9)),
+            Vec::new(),
+            Span::new(0, 13),
+        )));
 
         assert_eq!(
             environment.user_defined_function_indices(),
-            vec![FunctionIndex::new(2)]
+            vec![FunctionIndex::new(4)]
         );
     }
 
     #[test]
     fn take_and_put_user_defined_function_round_trips() {
-        let mut environment =
-            ProgramEnvironment::new(vec![FunctionDefinition::user_defined(FunctionItem::new(
+        let mut environment = ProgramEnvironment::new();
+        let function_index =
+            environment.add_function(FunctionDefinition::user_defined(FunctionItem::new(
                 Identifier::new("greet", Span::new(4, 9)),
                 Vec::new(),
                 Span::new(0, 13),
-            ))]);
-        let function_index = FunctionIndex::new(1);
+            )));
 
         let function = environment
             .take_user_defined_function(function_index)

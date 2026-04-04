@@ -23,12 +23,10 @@ mod tests {
     use ocelot_ast::expression::Expression;
     use ocelot_ast::expression_kind::ExpressionKind;
     use ocelot_ast::expression_statement::ExpressionStatement;
-    use ocelot_ast::function_definition::FunctionDefinition;
     use ocelot_ast::function_item::FunctionItem;
     use ocelot_ast::identifier::Identifier;
     use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
-    use ocelot_ast::native_function::NativeFunction;
     use ocelot_ast::not_expression::NotExpression;
     use ocelot_ast::program_environment::ProgramEnvironment;
     use ocelot_ast::script::Script;
@@ -45,11 +43,7 @@ mod tests {
     use ocelot_resolver::resolve;
 
     fn test_program_environment() -> ProgramEnvironment {
-        ProgramEnvironment::new(vec![
-            FunctionDefinition::native("println", NativeFunction::Println),
-            FunctionDefinition::native("assert", NativeFunction::Assert),
-            FunctionDefinition::native("assert_eq", NativeFunction::AssertEq),
-        ])
+        ProgramEnvironment::new()
     }
 
     fn interpret_script(
@@ -697,6 +691,10 @@ mod tests {
 
         let error = interpret_script(&script, &source_file, &pal).unwrap_err();
 
+        assert!(matches!(
+            error.kind(),
+            ErrorKind::CompilationError(ocelot_base::compilation_stage::CompilationStage::Resolver)
+        ));
         assert!(
             error
                 .to_test_string()
