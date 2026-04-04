@@ -266,11 +266,11 @@ mod tests {
     fn loads_numbered_spec_chapters_in_filename_order() {
         let pal = PalMock::new();
         pal.set_file(
-            "docs/spec/09.01 Standard library - println.md",
+            "docs/spec/30.01 Standard library - println.md",
             chapter("later"),
         );
         pal.set_file(
-            "docs/spec/08.01 Runtime behavior - Scripts.md",
+            "docs/spec/28.01 Runtime behavior - Scripts.md",
             chapter("earlier"),
         );
         pal.set_file("docs/spec/README.md", "# ignored");
@@ -284,8 +284,8 @@ mod tests {
                 .map(|chapter| chapter.path.as_str())
                 .collect::<Vec<_>>(),
             vec![
-                "docs/spec/08.01 Runtime behavior - Scripts.md",
-                "docs/spec/09.01 Standard library - println.md",
+                "docs/spec/28.01 Runtime behavior - Scripts.md",
+                "docs/spec/30.01 Standard library - println.md",
             ]
         );
         assert_eq!(chapters[0].examples[0].name.as_str(), "earlier");
@@ -299,7 +299,7 @@ mod tests {
     fn reports_malformed_examples() {
         let pal = PalMock::new();
         pal.set_file(
-            "docs/spec/08.01 Runtime behavior - Scripts.md",
+            "docs/spec/28.01 Runtime behavior - Scripts.md",
             r#"
 ## Example: broken
 
@@ -321,7 +321,7 @@ println("hello");
     fn extracts_error_expectations() {
         let pal = PalMock::new();
         pal.set_file(
-            "docs/spec/09.01 Standard library - println.md",
+            "docs/spec/30.01 Standard library - println.md",
             r#"
 ## Example: fails
 
@@ -349,7 +349,7 @@ type error
     fn reports_examples_with_both_expectation_sections_as_malformed() {
         let pal = PalMock::new();
         pal.set_file(
-            "docs/spec/09.01 Standard library - println.md",
+            "docs/spec/30.01 Standard library - println.md",
             r#"
 ## Example: ambiguous
 

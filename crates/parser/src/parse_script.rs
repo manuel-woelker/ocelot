@@ -93,6 +93,20 @@ mod tests {
     }
 
     #[test]
+    fn parses_scripts_with_comments_without_changing_the_item_shape() {
+        let source_file = SourceFile::new(
+            "examples/comments.ocelot",
+            "// setup\nprintln(/* callee gap */\"first\"); /* between */ println(\"second\");",
+        );
+        let mut context = CompilationContext::default();
+
+        let script = parse_script(&source_file, &mut context).unwrap();
+
+        assert_eq!(script.items.len(), 2);
+        assert!(!context.has_errors());
+    }
+
+    #[test]
     fn parses_test_items_alongside_script_statements() {
         let source_file = SourceFile::new(
             "examples/tests.ocelot",
@@ -106,6 +120,28 @@ mod tests {
         assert!(!context.has_errors());
 
         match &script.items[1].kind {
+            ItemKind::Test(test_item) => {
+                assert_eq!(test_item.name, "prints one line");
+                assert_eq!(test_item.body.len(), 1);
+            }
+            other => panic!("expected test item, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_test_items_with_comments_around_the_name_and_body() {
+        let source_file = SourceFile::new(
+            "examples/tests.ocelot",
+            "test /* name */ \"prints one line\" /* body */ { // enter body\n println(\"hello\"); /* done */ }",
+        );
+        let mut context = CompilationContext::default();
+
+        let script = parse_script(&source_file, &mut context).unwrap();
+
+        assert_eq!(script.items.len(), 1);
+        assert!(!context.has_errors());
+
+        match &script.items[0].kind {
             ItemKind::Test(test_item) => {
                 assert_eq!(test_item.name, "prints one line");
                 assert_eq!(test_item.body.len(), 1);
@@ -208,6 +244,24 @@ mod tests {
         assert_eq!(
             context.source_diagnostics.diagnostics[0].message,
             "unterminated string literal"
+        );
+    }
+
+    #[test]
+    fn surfaces_unterminated_block_comment_diagnostics_through_the_shared_compilation_context() {
+        let source_file = SourceFile::new("examples/invalid.ocelot", "println(/* hello");
+        let mut context = CompilationContext::default();
+
+        parse_script(&source_file, &mut context).unwrap_err();
+        assert!(context.has_errors());
+        assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
+        assert_eq!(
+            context.source_diagnostics.diagnostics[0].level,
+            DiagnosticLevel::Error
+        );
+        assert_eq!(
+            context.source_diagnostics.diagnostics[0].message,
+            "unterminated block comment"
         );
     }
 

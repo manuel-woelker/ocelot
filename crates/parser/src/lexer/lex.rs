@@ -16,10 +16,20 @@ pub fn lex(source_file: &SourceFile, context: &mut CompilationContext) -> Vec<To
     let mut index = 0;
 
     while index < bytes.len() {
-        match bytes[index] {
-            b' ' | b'\t' | b'\n' | b'\r' => {
-                index += 1;
+        match skip_trivia(source_file, index) {
+            Ok(next_index) => index = next_index,
+            Err(diagnostic) => {
+                context.add_diagnostic(diagnostic);
+                index = bytes.len();
+                break;
             }
+        }
+
+        if index >= bytes.len() {
+            break;
+        }
+
+        match bytes[index] {
             b'(' => {
                 tokens.push(Token::new(TokenType::LeftParen, index, index + 1));
                 index += 1;
@@ -93,6 +103,66 @@ pub fn lex(source_file: &SourceFile, context: &mut CompilationContext) -> Vec<To
     tokens
 }
 
+fn skip_trivia(source_file: &SourceFile, mut index: usize) -> Result<usize, SourceDiagnostic> {
+    let bytes = source_file.source().as_bytes();
+
+    loop {
+        if index >= bytes.len() {
+            return Ok(index);
+        }
+
+        match bytes[index] {
+            b' ' | b'\t' | b'\n' | b'\r' => {
+                index += 1;
+            }
+            b'/' if index + 1 < bytes.len() && bytes[index + 1] == b'/' => {
+                index += 2;
+
+                while index < bytes.len() && bytes[index] != b'\n' && bytes[index] != b'\r' {
+                    index += 1;
+                }
+            }
+            b'/' if index + 1 < bytes.len() && bytes[index + 1] == b'*' => {
+                index = skip_block_comment(source_file, index)?;
+            }
+            _ => return Ok(index),
+        }
+    }
+}
+
+fn skip_block_comment(source_file: &SourceFile, start: usize) -> Result<usize, SourceDiagnostic> {
+    let bytes = source_file.source().as_bytes();
+    let mut index = start + 2;
+    let mut depth = 1usize;
+
+    while index < bytes.len() {
+        if index + 1 < bytes.len() && bytes[index] == b'/' && bytes[index + 1] == b'*' {
+            depth += 1;
+            index += 2;
+            continue;
+        }
+
+        if index + 1 < bytes.len() && bytes[index] == b'*' && bytes[index + 1] == b'/' {
+            depth -= 1;
+            index += 2;
+
+            if depth == 0 {
+                return Ok(index);
+            }
+
+            continue;
+        }
+
+        index += 1;
+    }
+
+    Err(unterminated_block_comment_diagnostic(
+        source_file,
+        start,
+        source_file.source().len(),
+    ))
+}
+
 fn is_identifier_start(byte: u8) -> bool {
     byte.is_ascii_alphabetic() || byte == b'_'
 }
@@ -106,16 +176,8 @@ fn unterminated_string_diagnostic(
     start: usize,
     end: usize,
 ) -> SourceDiagnostic {
-    let (line_number, line_start, line_end) = line_bounds(source_file.source(), start);
-    let excerpt = SourceExcerpt::new(
-        &source_file.path,
-        line_number,
-        &source_file.source()[line_start..line_end],
-    )
-    .with_annotation(SourceAnnotation::new(
-        Span::new(start - line_start, end - line_start),
-        "string is missing a closing quote",
-    ));
+    let excerpt =
+        excerpt_with_annotation(source_file, start, end, "string is missing a closing quote");
 
     SourceDiagnostic::new(
         DiagnosticLevel::Error,
@@ -123,6 +185,46 @@ fn unterminated_string_diagnostic(
         "unterminated string literal",
     )
     .with_excerpt(excerpt)
+}
+
+fn unterminated_block_comment_diagnostic(
+    source_file: &SourceFile,
+    start: usize,
+    end: usize,
+) -> SourceDiagnostic {
+    let excerpt = excerpt_with_annotation(
+        source_file,
+        start,
+        end,
+        "block comment is missing a closing `*/`",
+    );
+
+    SourceDiagnostic::new(
+        DiagnosticLevel::Error,
+        &source_file.path,
+        "unterminated block comment",
+    )
+    .with_excerpt(excerpt)
+}
+
+fn excerpt_with_annotation(
+    source_file: &SourceFile,
+    start: usize,
+    end: usize,
+    annotation_message: &str,
+) -> SourceExcerpt {
+    let (line_number, line_start, line_end) = line_bounds(source_file.source(), start);
+    let annotation_end = end.min(line_end).max(start + 1);
+
+    SourceExcerpt::new(
+        &source_file.path,
+        line_number,
+        &source_file.source()[line_start..line_end],
+    )
+    .with_annotation(SourceAnnotation::new(
+        Span::new(start - line_start, annotation_end - line_start),
+        annotation_message,
+    ))
 }
 
 fn line_bounds(source: &str, index: usize) -> (usize, usize, usize) {
@@ -219,6 +321,128 @@ mod tests {
                 TokenType::Semicolon,
                 TokenType::EndOfFile,
             ]
+        );
+        assert!(!context.has_errors());
+    }
+
+    #[test]
+    fn skips_line_comments_between_tokens() {
+        let source_file = SourceFile::new(
+            "examples/comments.ocelot",
+            "// heading comment\nprintln(\"hello\"); // trailing comment",
+        );
+        let mut context = CompilationContext::default();
+        let token_types: Vec<_> = lex(&source_file, &mut context)
+            .into_iter()
+            .map(|token| token.token_type)
+            .collect();
+
+        assert_eq!(
+            token_types,
+            vec![
+                TokenType::Identifier,
+                TokenType::LeftParen,
+                TokenType::String,
+                TokenType::RightParen,
+                TokenType::Semicolon,
+                TokenType::EndOfFile,
+            ]
+        );
+        assert!(!context.has_errors());
+    }
+
+    #[test]
+    fn skips_block_comments_between_tokens() {
+        let source_file = SourceFile::new(
+            "examples/comments.ocelot",
+            "println/* call */(\"hello\"/* value */);",
+        );
+        let mut context = CompilationContext::default();
+        let token_types: Vec<_> = lex(&source_file, &mut context)
+            .into_iter()
+            .map(|token| token.token_type)
+            .collect();
+
+        assert_eq!(
+            token_types,
+            vec![
+                TokenType::Identifier,
+                TokenType::LeftParen,
+                TokenType::String,
+                TokenType::RightParen,
+                TokenType::Semicolon,
+                TokenType::EndOfFile,
+            ]
+        );
+        assert!(!context.has_errors());
+    }
+
+    #[test]
+    fn skips_nested_block_comments() {
+        let source_file = SourceFile::new(
+            "examples/comments.ocelot",
+            "/* outer /* inner */ still outer */ println(\"hello\");",
+        );
+        let mut context = CompilationContext::default();
+        let token_types: Vec<_> = lex(&source_file, &mut context)
+            .into_iter()
+            .map(|token| token.token_type)
+            .collect();
+
+        assert_eq!(
+            token_types,
+            vec![
+                TokenType::Identifier,
+                TokenType::LeftParen,
+                TokenType::String,
+                TokenType::RightParen,
+                TokenType::Semicolon,
+                TokenType::EndOfFile,
+            ]
+        );
+        assert!(!context.has_errors());
+    }
+
+    #[test]
+    fn skips_multiline_block_comments() {
+        let source_file = SourceFile::new(
+            "examples/comments.ocelot",
+            "/* setup\n   before call */\nprintln(\"hello\");",
+        );
+        let mut context = CompilationContext::default();
+        let token_types: Vec<_> = lex(&source_file, &mut context)
+            .into_iter()
+            .map(|token| token.token_type)
+            .collect();
+
+        assert_eq!(
+            token_types,
+            vec![
+                TokenType::Identifier,
+                TokenType::LeftParen,
+                TokenType::String,
+                TokenType::RightParen,
+                TokenType::Semicolon,
+                TokenType::EndOfFile,
+            ]
+        );
+        assert!(!context.has_errors());
+    }
+
+    #[test]
+    fn keeps_comment_markers_inside_strings() {
+        let source_file = SourceFile::new(
+            "examples/comments.ocelot",
+            "println(\"// not a comment /* still text */\");",
+        );
+        let mut context = CompilationContext::default();
+        let tokens = lex(&source_file, &mut context);
+
+        assert_eq!(tokens.len(), 6);
+        assert_eq!(tokens[2].token_type, TokenType::String);
+        assert_eq!(
+            &source_file.source()[tokens[2].span.start()..tokens[2].span.end()],
+            "\"// not a comment /* still text */\""
         );
         assert!(!context.has_errors());
     }
@@ -326,6 +550,66 @@ mod tests {
         assert_eq!(
             diagnostic.excerpts[0].annotations[0].message,
             "string is missing a closing quote"
+        );
+    }
+
+    #[test]
+    fn reports_unterminated_block_comments_as_source_diagnostics() {
+        let source_file = SourceFile::new("examples/broken.ocelot", "println(/* hello");
+        let mut context = CompilationContext::default();
+        let token_types: Vec<_> = lex(&source_file, &mut context)
+            .into_iter()
+            .map(|token| token.token_type)
+            .collect();
+
+        assert_eq!(
+            token_types,
+            vec![
+                TokenType::Identifier,
+                TokenType::LeftParen,
+                TokenType::EndOfFile
+            ]
+        );
+        assert!(context.has_errors());
+        assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
+
+        let diagnostic = &context.source_diagnostics.diagnostics[0];
+
+        assert_eq!(diagnostic.level, DiagnosticLevel::Error);
+        assert_eq!(diagnostic.file_path.as_str(), "examples/broken.ocelot");
+        assert_eq!(diagnostic.message, "unterminated block comment");
+        assert_eq!(diagnostic.excerpts.len(), 1);
+        assert_eq!(diagnostic.excerpts[0].line_number, 1);
+        assert_eq!(diagnostic.excerpts[0].source_line, "println(/* hello");
+        assert_eq!(diagnostic.excerpts[0].annotations.len(), 1);
+        assert_eq!(
+            diagnostic.excerpts[0].annotations[0].span,
+            ocelot_base::span::Span::new(8, 16)
+        );
+        assert_eq!(
+            diagnostic.excerpts[0].annotations[0].message,
+            "block comment is missing a closing `*/`"
+        );
+    }
+
+    #[test]
+    fn reports_unterminated_multiline_block_comments_from_the_opening_line() {
+        let source_file = SourceFile::new("examples/broken.ocelot", "/* hello\nprintln(\"x\");");
+        let mut context = CompilationContext::default();
+
+        lex(&source_file, &mut context);
+
+        assert!(context.has_errors());
+        assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
+
+        let diagnostic = &context.source_diagnostics.diagnostics[0];
+
+        assert_eq!(diagnostic.message, "unterminated block comment");
+        assert_eq!(diagnostic.excerpts[0].line_number, 1);
+        assert_eq!(diagnostic.excerpts[0].source_line, "/* hello");
+        assert_eq!(
+            diagnostic.excerpts[0].annotations[0].span,
+            ocelot_base::span::Span::new(0, 8)
         );
     }
 

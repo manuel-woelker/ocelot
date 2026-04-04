@@ -62,7 +62,7 @@ mod tests {
             &pal,
             Path::new("/tmp/spec-validation"),
             &SpecExample {
-                chapter_path: FilePath::from("docs/spec/09.01 Standard library - println.md"),
+                chapter_path: FilePath::from("docs/spec/30.01 Standard library - println.md"),
                 name: SharedString::from("writes one line"),
                 source: SharedString::from("println(\"hello\");"),
                 expected_outcome: ExpectedOutcome::Output(SharedString::from("hello")),
@@ -90,7 +90,7 @@ mod tests {
             &pal,
             Path::new("/tmp/spec-validation"),
             &SpecExample {
-                chapter_path: FilePath::from("docs/spec/09.01 Standard library - println.md"),
+                chapter_path: FilePath::from("docs/spec/30.01 Standard library - println.md"),
                 name: SharedString::from("requires one argument"),
                 source: SharedString::from("println();"),
                 expected_outcome: ExpectedOutcome::Error(SharedString::from("type error")),

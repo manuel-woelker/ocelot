@@ -1,9 +1,11 @@
+// Script statements still run normally.
 println("setup");
 
 test "prints one line" {
     println("hello");
 }
 
+/* Test items can sit next to block comments. */
 test "prints another line" {
     println("goodbye");
 }

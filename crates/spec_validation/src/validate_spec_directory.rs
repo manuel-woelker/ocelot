@@ -112,28 +112,42 @@ mod tests {
         let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
         let inner_pal = PalMock::new();
         inner_pal.set_file(
-            "docs/spec/08.01 Runtime behavior - Scripts.md",
+            "docs/spec/01.01 Lexical structure - Comments.md",
             std::fs::read_to_string(
-                repo_root.join("docs/spec/08.01 Runtime behavior - Scripts.md"),
+                repo_root.join("docs/spec/01.01 Lexical structure - Comments.md"),
             )
             .unwrap(),
         );
         inner_pal.set_file(
-            "docs/spec/09.01 Standard library - println.md",
+            "docs/spec/02.01 Expressions - Function calls.md",
             std::fs::read_to_string(
-                repo_root.join("docs/spec/09.01 Standard library - println.md"),
+                repo_root.join("docs/spec/02.01 Expressions - Function calls.md"),
             )
             .unwrap(),
         );
         inner_pal.set_file(
-            "docs/spec/04.01 Declarations - Test items.md",
-            std::fs::read_to_string(repo_root.join("docs/spec/04.01 Declarations - Test items.md"))
+            "docs/spec/15.01 Declarations - Test items.md",
+            std::fs::read_to_string(repo_root.join("docs/spec/15.01 Declarations - Test items.md"))
                 .unwrap(),
         );
         inner_pal.set_file(
-            "docs/spec/08.02 Runtime behavior - Test items.md",
+            "docs/spec/28.01 Runtime behavior - Scripts.md",
             std::fs::read_to_string(
-                repo_root.join("docs/spec/08.02 Runtime behavior - Test items.md"),
+                repo_root.join("docs/spec/28.01 Runtime behavior - Scripts.md"),
+            )
+            .unwrap(),
+        );
+        inner_pal.set_file(
+            "docs/spec/28.02 Runtime behavior - Test items.md",
+            std::fs::read_to_string(
+                repo_root.join("docs/spec/28.02 Runtime behavior - Test items.md"),
+            )
+            .unwrap(),
+        );
+        inner_pal.set_file(
+            "docs/spec/30.01 Standard library - println.md",
+            std::fs::read_to_string(
+                repo_root.join("docs/spec/30.01 Standard library - println.md"),
             )
             .unwrap(),
         );
@@ -141,6 +155,13 @@ mod tests {
             "docs/spec/91.01 Lexer errors - Unterminated strings.md",
             std::fs::read_to_string(
                 repo_root.join("docs/spec/91.01 Lexer errors - Unterminated strings.md"),
+            )
+            .unwrap(),
+        );
+        inner_pal.set_file(
+            "docs/spec/91.02 Lexer errors - Unterminated block comments.md",
+            std::fs::read_to_string(
+                repo_root.join("docs/spec/91.02 Lexer errors - Unterminated block comments.md"),
             )
             .unwrap(),
         );
@@ -154,9 +175,9 @@ mod tests {
         .unwrap();
 
         expect![[r#"
-            5
-            10
-            10
+            8
+            15
+            15
             0
         "#]]
         .assert_eq(&format!(
@@ -172,7 +193,7 @@ mod tests {
     fn reports_output_mismatches() {
         let inner_pal = PalMock::new();
         inner_pal.set_file(
-            "docs/spec/08.01 Runtime behavior - Scripts.md",
+            "docs/spec/28.01 Runtime behavior - Scripts.md",
             r#"
 ## Example: mismatch
 
@@ -211,7 +232,7 @@ goodbye
     fn reports_error_mismatches() {
         let inner_pal = PalMock::new();
         inner_pal.set_file(
-            "docs/spec/09.01 Standard library - println.md",
+            "docs/spec/30.01 Standard library - println.md",
             r#"
 ## Example: requires one argument
 
@@ -247,7 +268,7 @@ different error
     fn reports_success_when_error_was_expected() {
         let inner_pal = PalMock::new();
         inner_pal.set_file(
-            "docs/spec/09.01 Standard library - println.md",
+            "docs/spec/30.01 Standard library - println.md",
             r#"
 ## Example: should fail
 
@@ -281,7 +302,7 @@ some error
     fn reports_failure_when_output_was_expected() {
         let inner_pal = PalMock::new();
         inner_pal.set_file(
-            "docs/spec/09.01 Standard library - println.md",
+            "docs/spec/30.01 Standard library - println.md",
             r#"
 ## Example: should print
 

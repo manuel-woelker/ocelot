@@ -1,0 +1,7 @@
+// Comments are ignored like whitespace.
+println(/* greeting */ "hello");
+
+/* Nested block comments also work.
+   /* This inner comment closes first. */
+*/
+println("world");

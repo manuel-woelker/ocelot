@@ -34,7 +34,7 @@ mod tests {
     fn returns_an_error_when_validation_fails() {
         let inner_pal = PalMock::new();
         inner_pal.set_file(
-            "docs/spec/08.01 Runtime behavior - Scripts.md",
+            "docs/spec/28.01 Runtime behavior - Scripts.md",
             r#"
 ## Example: mismatch
 

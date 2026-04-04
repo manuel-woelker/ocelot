@@ -68,16 +68,16 @@ If comment support requires meaningful parser changes, the lexer design is proba
 # How should the spec account for comments?
 
 Comments need both a positive syntax chapter and an error chapter.
-Right now [`docs/spec/README.md`](/data/projects/ocelot/docs/spec/README.md) does not reserve a top-level area for lexical structure, which is an actual documentation gap.
+This work updates [`docs/spec/README.md`](/data/projects/ocelot/docs/spec/README.md) so lexical structure becomes chapter `01` and the existing chapter list matches the renumbered files.
 
-The recommended documentation plan is:
+The implemented documentation work is:
 
 1. Update the top-level chapter numbering in [`docs/spec/README.md`](/data/projects/ocelot/docs/spec/README.md) so lexical structure becomes chapter `01` and the existing chapter list is renumbered to match.
 2. Add a new spec chapter for comment syntax and behavior.
 3. Add a new lexer-error chapter for unterminated block comments.
 
-The numbering change should be explicit rather than implicit.
-Recommended top-level renumbering:
+The numbering change is explicit rather than implicit.
+Implemented top-level renumbering:
 
 - `01`: Lexical structure
 - `02`: Expressions
@@ -93,15 +93,15 @@ Recommended top-level renumbering:
 
 This gives comments a correct home at the front of the spec and leaves room for future chapters without immediately renumbering `30` again.
 
-That README update should include both:
+That README update includes both:
 
 - the numbered outline under "What top-level chapter numbers are planned?"
 - the concrete chapter links under "What chapters exist today?"
 
-Existing chapters should be renamed to match the new scheme rather than leaving the README with stale file names and stale numbers.
+Existing chapters are renamed to match the new scheme rather than leaving the README with stale file names and stale numbers.
 
-The comment syntax chapter should therefore be planned as `01.01 Lexical structure - Comments`.
-The unterminated block comment diagnostic should be planned as `91.02 Lexer errors - Unterminated block comments`.
+The comment syntax chapter is `01.01 Lexical structure - Comments`.
+The unterminated block comment diagnostic is `91.02 Lexer errors - Unterminated block comments`.
 
 The syntax chapter should specify:
 
@@ -118,7 +118,7 @@ The error chapter should lock down the rendered diagnostic for unterminated bloc
 The repository should not stop at spec prose.
 It should also include concrete user-facing examples that demonstrate comments in ordinary source files.
 
-Recommended example work:
+Implemented example work:
 
 - add a focused source example such as `examples/comments.ocelot`
 - update at least one existing example file to include a small comment in realistic context if that improves readability
@@ -127,7 +127,7 @@ Recommended example work:
 
 The dedicated example file should show both comment forms in a small script, not a contrived wall of trivia.
 
-# What tests should verify the feature?
+# What tests verified the feature?
 
 Verification should stay black-box and colocated with the affected code.
 
@@ -146,12 +146,12 @@ Parser tests in [`crates/parser/src/parse_script.rs`](/data/projects/ocelot/crat
 - test items still parse when comments appear around names, braces, and statements
 - lexer diagnostics from unterminated block comments surface through the shared compilation context
 
-Spec validation should cover:
+Spec validation now covers:
 
 - successful comment examples
 - the unterminated block comment diagnostic example
 
-# What implementation order keeps this small and honest?
+# What implementation order kept this small and honest?
 
 1. Extend the lexer's trivia scanning to skip line comments and nested block comments.
 2. Add unterminated-block-comment diagnostics in the lexer.
@@ -164,23 +164,31 @@ Spec validation should cover:
 
 This order keeps the language behavior real before documenting it, while still making spec and examples part of the planned work rather than follow-up cleanup.
 
-# What assumptions and open questions should stay explicit?
+# What assumptions and follow-up notes should stay explicit?
 
 - The current lexer is byte-oriented and ASCII-oriented. This is fine for `//`, `/*`, and `*/`, but span calculations for multiline diagnostics should still be checked carefully.
 - The first version should treat comments strictly as discarded trivia. Source-preserving tooling can revisit comment retention later if the language grows formatting or documentation tooling.
-- The plan assumes the repository will renumber existing spec chapters to make room for `01` lexical structure and `30` standard library.
+- The repository now renumbers existing spec chapters to make room for `01` lexical structure and `30` standard library.
 - The plan assumes nested block comments are part of the core language contract, not an implementation detail that can be relaxed later.
+
+# What verification was completed?
+
+Verification completed with:
+
+- `cargo test -p ocelot-parser`
+- `cargo test -p ocelot-spec-validation`
+- `nao check`
 
 # What concrete tasks should track this plan?
 
-- [ ] Extend the lexer trivia path to skip `//` line comments.
-- [ ] Extend the lexer trivia path to skip `/* ... */` block comments with nesting depth.
-- [ ] Report unterminated block comments as structured lexer diagnostics.
-- [ ] Add colocated lexer tests for line comments, block comments, nested block comments, and unterminated block comments.
-- [ ] Add parser tests proving comments do not affect script or test-item parsing.
-- [ ] Renumber the outline and existing chapter links in [`docs/spec/README.md`](/data/projects/ocelot/docs/spec/README.md).
-- [ ] Add a spec chapter for comment syntax and behavior.
-- [ ] Add a spec chapter for unterminated block comment diagnostics.
-- [ ] Rename existing spec chapter files as needed so their filenames match the new numbering.
-- [ ] Add or update example `.ocelot` files that demonstrate both line and block comments.
-- [ ] Run `nao check`.
+- [x] Extend the lexer trivia path to skip `//` line comments.
+- [x] Extend the lexer trivia path to skip `/* ... */` block comments with nesting depth.
+- [x] Report unterminated block comments as structured lexer diagnostics.
+- [x] Add colocated lexer tests for line comments, block comments, nested block comments, and unterminated block comments.
+- [x] Add parser tests proving comments do not affect script or test-item parsing.
+- [x] Renumber the outline and existing chapter links in [`docs/spec/README.md`](/data/projects/ocelot/docs/spec/README.md).
+- [x] Add a spec chapter for comment syntax and behavior.
+- [x] Add a spec chapter for unterminated block comment diagnostics.
+- [x] Rename existing spec chapter files as needed so their filenames match the new numbering.
+- [x] Add or update example `.ocelot` files that demonstrate both line and block comments.
+- [x] Run `nao check`.

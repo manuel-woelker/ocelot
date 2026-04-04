@@ -75,7 +75,7 @@ mod tests {
             example_count: 5,
             passed_example_count: 4,
             failures: vec![ValidationFailure {
-                chapter_path: FilePath::from("docs/spec/09.01 Standard library - println.md"),
+                chapter_path: FilePath::from("docs/spec/30.01 Standard library - println.md"),
                 example_name: SharedString::from("requires one argument"),
                 kind: ValidationFailureKind::ErrorMismatch,
                 message: SharedString::from("error mismatch"),
@@ -87,7 +87,7 @@ mod tests {
 
         expect![[r#"
             Validated 2 chapters and 5 examples: 4 passed, 1 failed.
-            docs/spec/09.01 Standard library - println.md:30: error mismatch in `requires one argument`
+            docs/spec/30.01 Standard library - println.md:30: error mismatch in `requires one argument`
               error mismatch
               expected:
                 expected
@@ -104,7 +104,7 @@ mod tests {
             example_count: 1,
             passed_example_count: 0,
             failures: vec![ValidationFailure {
-                chapter_path: FilePath::from("docs/spec/09.01 Standard library - println.md"),
+                chapter_path: FilePath::from("docs/spec/30.01 Standard library - println.md"),
                 example_name: SharedString::from("requires one argument"),
                 kind: ValidationFailureKind::ExpectedErrorButSucceeded,
                 message: SharedString::from("example succeeded but an error was expected"),
@@ -116,7 +116,7 @@ mod tests {
 
         expect![[r#"
             Validated 1 chapters and 1 examples: 0 passed, 1 failed.
-            docs/spec/09.01 Standard library - println.md:30: expected error but execution succeeded in `requires one argument`
+            docs/spec/30.01 Standard library - println.md:30: expected error but execution succeeded in `requires one argument`
               example succeeded but an error was expected
               expected:
                 type error

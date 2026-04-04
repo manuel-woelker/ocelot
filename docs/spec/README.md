@@ -13,22 +13,23 @@ NN.MM Topic.md
 
 The numbering is intended to mean:
 
-- `NN`: a major chapter such as expressions, statements, types, declarations, modules, effects, or runtime behavior
+- `NN`: a major chapter such as lexical structure, expressions, statements, types, declarations, modules, effects, or runtime behavior
 - `MM`: a subchapter within that major chapter
 
 # What top-level chapter numbers are planned?
 
 The exact outline may evolve, but the current intended top-level numbering is:
 
-- `01`: Expressions
-- `02`: Statements
-- `03`: Types
-- `04`: Declarations
-- `05`: Functions
-- `06`: Modules
-- `07`: Effects
-- `08`: Runtime behavior
-- `09`: Standard library
+- `01`: Lexical structure
+- `02`: Expressions
+- `05`: Statements
+- `10`: Types
+- `15`: Declarations
+- `20`: Functions
+- `25`: Modules
+- `27`: Effects
+- `28`: Runtime behavior
+- `30`: Standard library
 - `91`: Lexer errors
 
 # How should examples be written?
@@ -62,11 +63,13 @@ This keeps the spec readable for humans and makes it realistic to extract exampl
 
 The first numbered spec chapters are:
 
-- [01.01 Expressions - Function calls](./01.01%20Expressions%20-%20Function%20calls.md)
-- [04.01 Declarations - Test items](./04.01%20Declarations%20-%20Test%20items.md)
-- [08.01 Runtime behavior - Scripts](./08.01%20Runtime%20behavior%20-%20Scripts.md)
-- [08.02 Runtime behavior - Test items](./08.02%20Runtime%20behavior%20-%20Test%20items.md)
-- [09.01 Standard library - println](./09.01%20Standard%20library%20-%20println.md)
+- [01.01 Lexical structure - Comments](./01.01%20Lexical%20structure%20-%20Comments.md)
+- [02.01 Expressions - Function calls](./02.01%20Expressions%20-%20Function%20calls.md)
+- [15.01 Declarations - Test items](./15.01%20Declarations%20-%20Test%20items.md)
+- [28.01 Runtime behavior - Scripts](./28.01%20Runtime%20behavior%20-%20Scripts.md)
+- [28.02 Runtime behavior - Test items](./28.02%20Runtime%20behavior%20-%20Test%20items.md)
+- [30.01 Standard library - println](./30.01%20Standard%20library%20-%20println.md)
 - [91.01 Lexer errors - Unterminated strings](./91.01%20Lexer%20errors%20-%20Unterminated%20strings.md)
+- [91.02 Lexer errors - Unterminated block comments](./91.02%20Lexer%20errors%20-%20Unterminated%20block%20comments.md)
 
 Additional chapters can be added later without redesigning the format.
