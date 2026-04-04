@@ -211,7 +211,7 @@ impl Engine {
             validate_loaded_module(module, &mut compilation_context);
             validate_reserved_core_module_name(module, &mut compilation_context);
         }
-        ocelot_resolver::finish_resolution(&compilation_context)?;
+        ocelot_resolver::resolution::finish_resolution(&compilation_context)?;
 
         let compilation_session = self.create_compilation_session();
         let mut environment = self.create_program_environment();
@@ -225,7 +225,7 @@ impl Engine {
         }
 
         for module in &mut modules {
-            ocelot_resolver::register_module_effects(
+            ocelot_resolver::resolution::register_module_effects(
                 &mut module.script,
                 &module.source_file,
                 &mut compilation_context,
@@ -234,7 +234,7 @@ impl Engine {
         }
 
         for module in &mut modules {
-            ocelot_resolver::register_module_functions(
+            ocelot_resolver::resolution::register_module_functions(
                 &mut module.script,
                 module.module_name.as_str(),
                 &module.source_file,
@@ -248,7 +248,7 @@ impl Engine {
         }
 
         for module in &mut modules {
-            ocelot_resolver::register_module_imports(
+            ocelot_resolver::resolution::register_module_imports(
                 &mut module.script,
                 module.module_name.as_str(),
                 &module.source_file,
@@ -263,7 +263,7 @@ impl Engine {
         let program_index = ProgramIndex::from_environment(&environment);
 
         for module in &mut modules {
-            ocelot_resolver::resolve_module_items(
+            ocelot_resolver::resolution::resolve_module_items(
                 &mut module.script,
                 module.module_name.as_str(),
                 &module.source_file,
@@ -276,14 +276,15 @@ impl Engine {
             )?;
         }
 
-        let resolved_functions = ocelot_resolver::resolve_user_defined_function_definitions(
-            &mut compilation_context,
-            &program_index,
-            &module_environments,
-            &compilation_session,
-        )?;
+        let resolved_functions =
+            ocelot_resolver::resolution::resolve_user_defined_function_definitions(
+                &mut compilation_context,
+                &program_index,
+                &module_environments,
+                &compilation_session,
+            )?;
         environment.apply_resolved_functions(resolved_functions)?;
-        ocelot_resolver::finish_resolution(&compilation_context)?;
+        ocelot_resolver::resolution::finish_resolution(&compilation_context)?;
 
         Ok(LoadedProgram::new(entry_module_index, modules, environment))
     }

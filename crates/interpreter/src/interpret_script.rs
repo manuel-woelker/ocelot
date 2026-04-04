@@ -40,7 +40,7 @@ mod tests {
     use ocelot_base::source_file::SourceFile;
     use ocelot_base::span::Span;
     use ocelot_pal::pal_mock::PalMock;
-    use ocelot_resolver::resolve;
+    use ocelot_resolver::resolution::resolve;
     use ocelot_semantic::compilation_session::CompilationSession;
     use ocelot_semantic::program_environment::ProgramEnvironment;
 
