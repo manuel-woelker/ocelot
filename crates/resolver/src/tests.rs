@@ -93,6 +93,10 @@ fn create_module_environment() -> ModuleEnvironment {
     ModuleEnvironment::new()
 }
 
+fn create_program_index() -> ProgramIndex {
+    ProgramIndex::new()
+}
+
 #[test]
 fn resolves_native_call_expressions() {
     let mut script = Script::new(
@@ -110,18 +114,21 @@ fn resolves_native_call_expressions() {
         Span::new(0, 17),
     );
     let source_file = SourceFile::new("examples/hello.ocelot", "println(\"hello\");");
-    let mut environment = ProgramEnvironment::new();
+    let mut program_index = create_program_index();
     let compilation_session = compilation_session();
     let println_index = {
         register_core_module(
             &mut CompilationContext::default(),
-            &mut environment,
+            &mut program_index,
             &compilation_session,
         )
         .unwrap();
-        environment.resolve_function("core::println").unwrap()
+        program_index
+            .resolve_function_exact("core::println")
+            .unwrap()
     };
     let mut context = CompilationContext::default();
+    let mut environment = ProgramEnvironment::new();
 
     resolve(
         &mut script,
@@ -240,7 +247,7 @@ fn reports_duplicate_function_parameter_names() {
         "examples/functions.ocelot",
         "fun greet(name: string, name: bool) {}",
     );
-    let mut environment = ProgramEnvironment::new();
+    let mut program_index = create_program_index();
     let compilation_session = compilation_session();
     let mut module_environment = create_module_environment();
     let mut context = CompilationContext::default();
@@ -250,7 +257,7 @@ fn reports_duplicate_function_parameter_names() {
         "functions",
         &source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         &mut module_environment,
         &compilation_session,
     )
@@ -281,7 +288,7 @@ fn reports_unknown_function_parameter_types() {
         Span::new(0, 26),
     );
     let source_file = SourceFile::new("examples/functions.ocelot", "fun greet(name: number) {}");
-    let mut environment = ProgramEnvironment::new();
+    let mut program_index = create_program_index();
     let compilation_session = compilation_session();
     let mut module_environment = create_module_environment();
     let mut context = CompilationContext::default();
@@ -291,7 +298,7 @@ fn reports_unknown_function_parameter_types() {
         "functions",
         &source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         &mut module_environment,
         &compilation_session,
     )
@@ -318,7 +325,7 @@ fn reports_any_in_user_defined_function_signatures() {
         Span::new(0, 24),
     );
     let source_file = SourceFile::new("examples/functions.ocelot", "fun greet(value: any) {}");
-    let mut environment = ProgramEnvironment::new();
+    let mut program_index = create_program_index();
     let compilation_session = compilation_session();
     let mut module_environment = create_module_environment();
     let mut context = CompilationContext::default();
@@ -328,7 +335,7 @@ fn reports_any_in_user_defined_function_signatures() {
         "functions",
         &source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         &mut module_environment,
         &compilation_session,
     )
@@ -358,7 +365,7 @@ fn reports_native_functions_outside_core() {
         Span::new(0, 30),
     );
     let source_file = SourceFile::new("examples/helper.ocelot", "native fun println(value: any);");
-    let mut environment = ProgramEnvironment::new();
+    let mut program_index = create_program_index();
     let compilation_session = compilation_session();
     let mut module_environment = create_module_environment();
     let mut context = CompilationContext::default();
@@ -368,7 +375,7 @@ fn reports_native_functions_outside_core() {
         "helper",
         &source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         &mut module_environment,
         &compilation_session,
     )
@@ -525,9 +532,9 @@ fn resolves_module_qualified_calls() {
     );
     let main_source_file = SourceFile::new("main.ocelot", "math::greet::hello();");
     let module_source_file = SourceFile::new("math/greet.ocelot", "fun hello() {}");
-    let mut environment = ProgramEnvironment::new();
-    environment.add_module("main");
-    environment.add_module("math::greet");
+    let mut program_index = create_program_index();
+    program_index.add_module("main");
+    program_index.add_module("math::greet");
     let compilation_session = compilation_session();
     let mut module_environment = create_module_environment();
     let mut module_environments = HashMap::from([
@@ -541,12 +548,11 @@ fn resolves_module_qualified_calls() {
         "math::greet",
         &module_source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         &mut module_environment,
         &compilation_session,
     )
     .unwrap();
-    let program_index = ProgramIndex::from_environment(&environment);
     resolve_module_items(
         &mut main_script,
         "main",
@@ -566,6 +572,7 @@ fn resolves_module_qualified_calls() {
         &compilation_session,
     )
     .unwrap();
+    let mut environment = ProgramEnvironment::from_program_index(&program_index);
     environment
         .apply_resolved_functions(resolved_functions)
         .unwrap();
@@ -626,9 +633,9 @@ fn resolves_imported_function_calls() {
     );
     let main_source_file = SourceFile::new("main.ocelot-script", "use helper::greet;\ngreet();");
     let helper_source_file = SourceFile::new("helper.ocelot", "fun greet() {}");
-    let mut environment = ProgramEnvironment::new();
-    environment.add_module("main");
-    environment.add_module("helper");
+    let mut program_index = create_program_index();
+    program_index.add_module("main");
+    program_index.add_module("helper");
     let compilation_session = compilation_session();
     let mut helper_module_environment = create_module_environment();
     let mut module_environments = HashMap::from([
@@ -642,7 +649,7 @@ fn resolves_imported_function_calls() {
         "helper",
         &helper_source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         &mut helper_module_environment,
         &compilation_session,
     )
@@ -652,13 +659,12 @@ fn resolves_imported_function_calls() {
         "main",
         &main_source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         module_environments
             .get_mut(&main_source_file.path)
             .expect("module environment should exist"),
     )
     .unwrap();
-    let program_index = ProgramIndex::from_environment(&environment);
     resolve_module_items(
         &mut main_script,
         "main",
@@ -678,6 +684,7 @@ fn resolves_imported_function_calls() {
         &compilation_session,
     )
     .unwrap();
+    let mut environment = ProgramEnvironment::from_program_index(&program_index);
     environment
         .apply_resolved_functions(resolved_functions)
         .unwrap();
@@ -746,9 +753,9 @@ fn imported_names_are_available_inside_function_bodies() {
     let main_source_file =
         SourceFile::new("main.ocelot", "use helper::greet;\nfun run() { greet(); }");
     let helper_source_file = SourceFile::new("helper.ocelot", "fun greet() {}");
-    let mut environment = ProgramEnvironment::new();
-    environment.add_module("main");
-    environment.add_module("helper");
+    let mut program_index = create_program_index();
+    program_index.add_module("main");
+    program_index.add_module("helper");
     let compilation_session = compilation_session();
     let mut main_module_environment = create_module_environment();
     let mut helper_module_environment = create_module_environment();
@@ -769,7 +776,7 @@ fn imported_names_are_available_inside_function_bodies() {
         "main",
         &main_source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         &mut main_module_environment,
         &compilation_session,
     )
@@ -779,7 +786,7 @@ fn imported_names_are_available_inside_function_bodies() {
         "helper",
         &helper_source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         &mut helper_module_environment,
         &compilation_session,
     )
@@ -789,13 +796,12 @@ fn imported_names_are_available_inside_function_bodies() {
         "main",
         &main_source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         module_environments
             .get_mut(&main_source_file.path)
             .expect("module environment should exist"),
     )
     .unwrap();
-    let program_index = ProgramIndex::from_environment(&environment);
     resolve_module_items(
         &mut main_script,
         "main",
@@ -815,6 +821,7 @@ fn imported_names_are_available_inside_function_bodies() {
         &compilation_session,
     )
     .unwrap();
+    let mut environment = ProgramEnvironment::from_program_index(&program_index);
     environment
         .apply_resolved_functions(resolved_functions)
         .unwrap();
@@ -892,9 +899,9 @@ fn local_functions_win_over_imported_names() {
         "use helper::greet;\nfun greet() {}\ngreet();",
     );
     let helper_source_file = SourceFile::new("helper.ocelot", "fun greet() {}");
-    let mut environment = ProgramEnvironment::new();
-    environment.add_module("main");
-    environment.add_module("helper");
+    let mut program_index = create_program_index();
+    program_index.add_module("main");
+    program_index.add_module("helper");
     let compilation_session = compilation_session();
     let mut main_module_environment = create_module_environment();
     let mut helper_module_environment = create_module_environment();
@@ -905,7 +912,7 @@ fn local_functions_win_over_imported_names() {
         "main",
         &main_source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         &mut main_module_environment,
         &compilation_session,
     )
@@ -915,7 +922,7 @@ fn local_functions_win_over_imported_names() {
         "helper",
         &helper_source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         &mut helper_module_environment,
         &compilation_session,
     )
@@ -925,7 +932,7 @@ fn local_functions_win_over_imported_names() {
         "main",
         &main_source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         &mut main_module_environment,
     )
     .unwrap();
@@ -980,9 +987,9 @@ fn reports_duplicate_imports() {
         "use helper::greet;\nuse helper::greet;",
     );
     let helper_source_file = SourceFile::new("helper.ocelot", "fun greet() {}");
-    let mut environment = ProgramEnvironment::new();
-    environment.add_module("main");
-    environment.add_module("helper");
+    let mut program_index = create_program_index();
+    program_index.add_module("main");
+    program_index.add_module("helper");
     let compilation_session = compilation_session();
     let mut helper_module_environment = create_module_environment();
     let mut main_module_environment = create_module_environment();
@@ -993,7 +1000,7 @@ fn reports_duplicate_imports() {
         "helper",
         &helper_source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         &mut helper_module_environment,
         &compilation_session,
     )
@@ -1003,7 +1010,7 @@ fn reports_duplicate_imports() {
         "main",
         &main_source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         &mut main_module_environment,
     )
     .unwrap();
@@ -1041,9 +1048,9 @@ fn reports_unknown_functions_in_use_items() {
     );
     let main_source_file = SourceFile::new("main.ocelot-script", "use helper::greet;");
     let helper_source_file = SourceFile::new("helper.ocelot", "fun wave() {}");
-    let mut environment = ProgramEnvironment::new();
-    environment.add_module("main");
-    environment.add_module("helper");
+    let mut program_index = create_program_index();
+    program_index.add_module("main");
+    program_index.add_module("helper");
     let compilation_session = compilation_session();
     let mut helper_module_environment = create_module_environment();
     let mut main_module_environment = create_module_environment();
@@ -1054,7 +1061,7 @@ fn reports_unknown_functions_in_use_items() {
         "helper",
         &helper_source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         &mut helper_module_environment,
         &compilation_session,
     )
@@ -1064,7 +1071,7 @@ fn reports_unknown_functions_in_use_items() {
         "main",
         &main_source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         &mut main_module_environment,
     )
     .unwrap();
@@ -1097,13 +1104,11 @@ fn reports_unknown_modules() {
         Span::new(0, 21),
     );
     let source_file = SourceFile::new("main.ocelot", "math::greet::hello();");
-    let mut environment = ProgramEnvironment::new();
-    environment.add_module("main");
+    let mut program_index = create_program_index();
+    program_index.add_module("main");
     let compilation_session = compilation_session();
     let module_environment = create_module_environment();
     let mut context = CompilationContext::default();
-    let program_index = ProgramIndex::from_environment(&environment);
-
     resolve_module_items(
         &mut script,
         "main",
@@ -1150,7 +1155,7 @@ fn lowers_function_items_before_resolving_tests() {
         Span::new(0, 30),
     );
     let source_file = SourceFile::new("main.ocelot", "fun helper() {} test \"works\" {}");
-    let mut environment = ProgramEnvironment::new();
+    let mut program_index = create_program_index();
     let compilation_session = compilation_session();
     let mut module_environment = create_module_environment();
     let mut context = CompilationContext::default();
@@ -1160,7 +1165,7 @@ fn lowers_function_items_before_resolving_tests() {
         "main",
         &source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         &mut module_environment,
         &compilation_session,
     )
@@ -1169,8 +1174,12 @@ fn lowers_function_items_before_resolving_tests() {
     assert_eq!(script.items.len(), 1);
     assert!(matches!(script.items[0].kind, ItemKind::Test(_)));
     assert!(matches!(
-        environment
-            .function_definition(environment.resolve_function("main::helper").unwrap())
+        program_index
+            .function_definition(
+                program_index
+                    .resolve_function_exact("main::helper")
+                    .unwrap()
+            )
             .unwrap()
             .kind,
         FunctionKind::UserDefined { .. }
@@ -1190,13 +1199,13 @@ fn registers_effect_items_before_function_resolution() {
         Span::new(0, 12),
     );
     let source_file = SourceFile::new("main.ocelot", "effect exec;");
-    let mut environment = ProgramEnvironment::new();
+    let mut program_index = create_program_index();
     let mut context = CompilationContext::default();
 
-    register_module_effects(&mut script, &source_file, &mut context, &mut environment).unwrap();
+    register_module_effects(&mut script, &source_file, &mut context, &mut program_index).unwrap();
 
     assert!(script.items.is_empty());
-    assert!(environment.resolve_effect("exec").is_some());
+    assert!(program_index.resolve_effect("exec").is_some());
 }
 
 #[test]
@@ -1246,25 +1255,24 @@ fn propagates_explicit_can_effects_to_callers() {
         "main.ocelot",
         "effect exec; fun child() can exec {} fun parent() { child(); }",
     );
-    let mut environment = ProgramEnvironment::new();
+    let mut program_index = create_program_index();
     let compilation_session = compilation_session();
     let mut module_environment = create_module_environment();
     let mut module_environments =
         HashMap::from([(source_file.path.clone(), create_module_environment())]);
     let mut context = CompilationContext::default();
 
-    register_module_effects(&mut script, &source_file, &mut context, &mut environment).unwrap();
+    register_module_effects(&mut script, &source_file, &mut context, &mut program_index).unwrap();
     register_module_functions(
         &mut script,
         "main",
         &source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         &mut module_environment,
         &compilation_session,
     )
     .unwrap();
-    let program_index = ProgramIndex::from_environment(&environment);
     resolve_module_items(
         &mut script,
         "main",
@@ -1284,6 +1292,7 @@ fn propagates_explicit_can_effects_to_callers() {
         &compilation_session,
     )
     .unwrap();
+    let mut environment = ProgramEnvironment::from_program_index(&program_index);
     environment
         .apply_resolved_functions(resolved_functions)
         .unwrap();
@@ -1344,25 +1353,24 @@ fn reports_transitive_forbidden_effects() {
         "main.ocelot",
         "effect exec; fun child() can exec {} fun parent() cannot exec { child(); }",
     );
-    let mut environment = ProgramEnvironment::new();
+    let mut program_index = create_program_index();
     let compilation_session = compilation_session();
     let mut module_environment = create_module_environment();
     let mut module_environments =
         HashMap::from([(source_file.path.clone(), create_module_environment())]);
     let mut context = CompilationContext::default();
 
-    register_module_effects(&mut script, &source_file, &mut context, &mut environment).unwrap();
+    register_module_effects(&mut script, &source_file, &mut context, &mut program_index).unwrap();
     register_module_functions(
         &mut script,
         "main",
         &source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         &mut module_environment,
         &compilation_session,
     )
     .unwrap();
-    let program_index = ProgramIndex::from_environment(&environment);
     resolve_module_items(
         &mut script,
         "main",
@@ -1382,6 +1390,7 @@ fn reports_transitive_forbidden_effects() {
         &compilation_session,
     )
     .unwrap();
+    let mut environment = ProgramEnvironment::from_program_index(&program_index);
     environment
         .apply_resolved_functions(resolved_functions)
         .unwrap();
@@ -1426,7 +1435,7 @@ fn reports_direct_builtin_effect_violations_at_the_call_site() {
         "main.ocelot",
         "fun quiet() cannot write_stdout { println(\"hello\"); }",
     );
-    let mut environment = ProgramEnvironment::new();
+    let mut program_index = create_program_index();
     let compilation_session = compilation_session();
     let mut module_environment = create_module_environment();
     let module_environments =
@@ -1438,12 +1447,11 @@ fn reports_direct_builtin_effect_violations_at_the_call_site() {
         "main",
         &source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         &mut module_environment,
         &compilation_session,
     )
     .unwrap();
-    let program_index = ProgramIndex::from_environment(&environment);
     let resolved_functions = resolve_user_defined_function_definitions(
         &mut context,
         &program_index,
@@ -1451,6 +1459,7 @@ fn reports_direct_builtin_effect_violations_at_the_call_site() {
         &compilation_session,
     )
     .unwrap();
+    let mut environment = ProgramEnvironment::from_program_index(&program_index);
     environment
         .apply_resolved_functions(resolved_functions)
         .unwrap();
@@ -1477,7 +1486,7 @@ fn reports_unknown_effect_names_in_function_annotations() {
         Span::new(0, 23),
     );
     let source_file = SourceFile::new("main.ocelot", "fun quiet() can exec {}");
-    let mut environment = ProgramEnvironment::new();
+    let mut program_index = create_program_index();
     let compilation_session = compilation_session();
     let mut module_environment = create_module_environment();
     let mut context = CompilationContext::default();
@@ -1487,7 +1496,7 @@ fn reports_unknown_effect_names_in_function_annotations() {
         "main",
         &source_file,
         &mut context,
-        &mut environment,
+        &mut program_index,
         &mut module_environment,
         &compilation_session,
     )
@@ -1520,10 +1529,10 @@ fn reports_duplicate_effect_declarations() {
         Span::new(0, 25),
     );
     let source_file = SourceFile::new("main.ocelot", "effect exec;\neffect exec;");
-    let mut environment = ProgramEnvironment::new();
+    let mut program_index = create_program_index();
     let mut context = CompilationContext::default();
 
-    register_module_effects(&mut script, &source_file, &mut context, &mut environment).unwrap();
+    register_module_effects(&mut script, &source_file, &mut context, &mut program_index).unwrap();
 
     let error = finish_resolution(&context).unwrap_err();
 
