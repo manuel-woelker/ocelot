@@ -1,18 +1,17 @@
 use ocelot_base::result::OcelotResult;
 use ocelot_base::shared_string::SharedString;
 
-/* 📖 # Why keep interpreter values as a Rust enum for now?
-The current interpreter is still a simple tree-walking implementation with
-strings as the only real data payload. A plain enum keeps the code easy to
-read, test, and extend while hiding representation details inside one module.
+/* 📖 # Why keep runtime values in `ocelot_ast`?
+Native function dispatch now lives behind a trait object stored in function
+definitions. That trait needs a stable value type without introducing a crate
+cycle between `ocelot_ast` and `ocelot_interpreter`.
 
-If profiling later shows that value tagging is a real hotspot in a lower-level
-runtime, the internal representation can change without forcing a broad
-interpreter rewrite. Until then, NaN-boxing would be clever in all the wrong
-ways.
+For now the same small enum still works well: it keeps the runtime model easy
+to understand, while giving native functions and the interpreter one shared
+value representation.
 */
 
-/// Runtime value used by the tree-walking interpreter.
+/// Runtime value used by the tree-walking interpreter and native functions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeValue {
     Boolean(bool),

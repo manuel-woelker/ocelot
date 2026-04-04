@@ -380,6 +380,7 @@ name = "ocelot-ast"
 version = "0.1.2"
 dependencies = [
  "ocelot-base",
+ "ocelot-pal",
 ]
 
 [[package]]

@@ -2,7 +2,7 @@ use crate::loaded_module::LoadedModule;
 use ocelot_ast::program_environment::ProgramEnvironment;
 
 /// Parsed multi-file program with one designated entry module.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct LoadedProgram {
     pub entry_module_index: usize,
     pub modules: Vec<LoadedModule>,

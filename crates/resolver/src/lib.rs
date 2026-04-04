@@ -16,6 +16,7 @@ use ocelot_ast::function_parameter::FunctionParameter;
 use ocelot_ast::identifier::Identifier;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
+use ocelot_ast::native_function::native_type_label;
 use ocelot_ast::program_environment::ProgramEnvironment;
 use ocelot_ast::qualified_identifier::QualifiedIdentifier;
 use ocelot_ast::script::Script;
@@ -381,7 +382,7 @@ impl<'a> Resolver<'a> {
                 .function_definition(function_index)
                 .expect("resolved function index should point at a definition");
             let duplicate_with_original = match &existing_function.kind {
-                FunctionKind::Native { .. } => None,
+                FunctionKind::NativeFunction { .. } => None,
                 FunctionKind::UserDefined {
                     function,
                     source_file,
@@ -429,6 +430,26 @@ impl<'a> Resolver<'a> {
                     "internal error: native function `{qualified_name}` has no registered implementation"
                 );
             };
+
+            let signature = native_function.signature();
+            if signature.argument_types.len() != argument_types.len() {
+                ocelot_base::bail!(
+                    "internal error: native function `{qualified_name}` declaration does not match its registered signature"
+                );
+            }
+
+            for (declared_type, expected_type) in
+                argument_types.iter().zip(signature.argument_types.iter())
+            {
+                let declared_kind = self.environment.type_definition(*declared_type)?.kind;
+                if declared_kind != *expected_type {
+                    ocelot_base::bail!(
+                        "internal error: native function `{qualified_name}` declaration type `{}` does not match registered type `{}`",
+                        self.type_label(*declared_type),
+                        native_type_label(*expected_type)
+                    );
+                }
+            }
 
             self.environment.add_function(FunctionDefinition::native(
                 self.module_name,
@@ -755,7 +776,7 @@ impl<'a> Resolver<'a> {
         };
 
         match called_kind {
-            FunctionKind::Native { .. } => {
+            FunctionKind::NativeFunction { .. } => {
                 for effect_index in called_effects {
                     current_function.direct_effects.insert(effect_index);
                     current_function

@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 /// Definition record for one function entry in the program environment.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct FunctionDefinition {
     pub name: SharedString,
     pub module_name: SharedString,
@@ -31,7 +31,7 @@ impl FunctionDefinition {
         module_name: impl Into<SharedString>,
         qualified_name: impl Into<SharedString>,
         argument_types: Vec<TypeIndex>,
-        native_function: crate::native_function::NativeFunction,
+        native_function: Box<dyn crate::native_function::NativeFunction>,
         can_effects: BTreeSet<EffectIndex>,
         cannot_effects: BTreeSet<EffectIndex>,
     ) -> Self {
@@ -47,7 +47,7 @@ impl FunctionDefinition {
             called_functions: BTreeMap::new(),
             can_clause_span: None,
             cannot_clause_span: None,
-            kind: FunctionKind::Native { native_function },
+            kind: FunctionKind::NativeFunction { native_function },
         }
     }
 
