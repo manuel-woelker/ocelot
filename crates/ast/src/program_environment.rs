@@ -3,6 +3,9 @@ use crate::function_index::FunctionIndex;
 use crate::function_item::FunctionItem;
 use crate::function_kind::FunctionKind;
 use crate::identifier::Identifier;
+use crate::ty::Ty;
+use crate::type_index::TypeIndex;
+use crate::type_kind::TypeKind;
 use ocelot_base::result::{OcelotResult, OptionExt};
 use ocelot_base::shared_string::SharedString;
 use std::collections::HashMap;
@@ -12,6 +15,8 @@ use std::collections::HashMap;
 pub struct ProgramEnvironment {
     pub functions: Vec<Option<FunctionDefinition>>,
     pub function_symbols: HashMap<SharedString, FunctionIndex>,
+    pub types: Vec<Ty>,
+    pub type_symbols: HashMap<SharedString, TypeIndex>,
 }
 
 impl ProgramEnvironment {
@@ -28,13 +33,58 @@ impl ProgramEnvironment {
             })
             .collect();
 
-        let mut table = vec![None];
-        table.extend(functions.into_iter().map(Some));
-
-        Self {
-            functions: table,
+        let mut environment = Self {
+            functions: {
+                let mut table = vec![None];
+                table.extend(functions.into_iter().map(Some));
+                table
+            },
             function_symbols,
-        }
+            types: vec![Ty::new("unresolved", TypeKind::Unresolved)],
+            type_symbols: HashMap::new(),
+        };
+
+        environment.add_type(Ty::new("string", TypeKind::String));
+        environment.add_type(Ty::new("boolean", TypeKind::Boolean));
+
+        environment
+    }
+
+    /// Resolves one type name to its table handle.
+    pub fn resolve_type(&self, name: &str) -> Option<TypeIndex> {
+        self.type_symbols.get(name).copied()
+    }
+
+    /// Returns the definition for one type index.
+    pub fn type_definition(&self, type_index: TypeIndex) -> OcelotResult<&Ty> {
+        self.types
+            .get(type_index.as_usize())
+            .context("internal error: type index points outside the type table")
+    }
+
+    /// Appends one new type definition and returns its table handle.
+    pub fn add_type(&mut self, ty: Ty) -> TypeIndex {
+        let type_index = TypeIndex::new(self.types.len() as u32);
+        self.type_symbols.insert(ty.name.clone(), type_index);
+        self.types.push(ty);
+        type_index
+    }
+
+    /// Returns the canonical string type handle.
+    pub fn string_type_index(&self) -> TypeIndex {
+        self.resolve_type("string")
+            .expect("string type should always be seeded")
+    }
+
+    /// Returns the canonical boolean type handle.
+    pub fn boolean_type_index(&self) -> TypeIndex {
+        self.resolve_type("boolean")
+            .expect("boolean type should always be seeded")
+    }
+
+    /// Returns the canonical unresolved type handle.
+    pub fn unresolved_type_index(&self) -> TypeIndex {
+        TypeIndex::unresolved()
     }
 
     /// Resolves one function name to its table handle.
@@ -139,6 +189,8 @@ mod tests {
     use crate::function_kind::FunctionKind;
     use crate::identifier::Identifier;
     use crate::native_function::NativeFunction;
+    use crate::type_index::TypeIndex;
+    use crate::type_kind::TypeKind;
     use ocelot_base::span::Span;
     #[test]
     fn program_environment_indexes_functions_by_name() {
@@ -179,6 +231,41 @@ mod tests {
         )]);
 
         assert!(environment.functions[0].is_none());
+    }
+
+    #[test]
+    fn program_environment_seeds_primitive_types() {
+        let environment = ProgramEnvironment::new(Vec::new());
+
+        assert_eq!(
+            environment
+                .type_definition(TypeIndex::unresolved())
+                .unwrap()
+                .kind,
+            TypeKind::Unresolved
+        );
+        assert_eq!(
+            environment
+                .type_definition(environment.resolve_type("string").unwrap())
+                .unwrap()
+                .kind,
+            TypeKind::String
+        );
+        assert_eq!(
+            environment
+                .type_definition(environment.resolve_type("boolean").unwrap())
+                .unwrap()
+                .kind,
+            TypeKind::Boolean
+        );
+    }
+
+    #[test]
+    fn program_environment_indexes_types_by_name() {
+        let environment = ProgramEnvironment::new(Vec::new());
+
+        assert_eq!(environment.resolve_type("string"), Some(TypeIndex::new(1)));
+        assert_eq!(environment.resolve_type("boolean"), Some(TypeIndex::new(2)));
     }
 
     #[test]

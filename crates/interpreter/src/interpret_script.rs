@@ -733,10 +733,14 @@ mod tests {
 
         let error = interpret_script(&script, &source_file, &pal).unwrap_err();
 
+        assert!(matches!(
+            error.kind(),
+            ErrorKind::CompilationError(ocelot_base::compilation_stage::CompilationStage::Resolver)
+        ));
         assert!(
             error
                 .to_test_string()
-                .contains("type error: `not` expects a boolean operand")
+                .contains("operator `not` expects a boolean operand")
         );
     }
 }

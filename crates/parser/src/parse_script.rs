@@ -36,6 +36,7 @@ mod tests {
     use ocelot_ast::item_kind::ItemKind;
     use ocelot_ast::not_expression::NotExpression;
     use ocelot_ast::statement_kind::StatementKind;
+    use ocelot_ast::type_index::TypeIndex;
     use ocelot_base::compilation_context::CompilationContext;
     use ocelot_base::diagnostic_level::DiagnosticLevel;
     use ocelot_base::source_file::SourceFile;
@@ -142,6 +143,25 @@ mod tests {
             },
             other => panic!("expected statement item, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parsed_expressions_start_with_unresolved_type_metadata() {
+        let source_file = SourceFile::new("examples/types.ocelot", "not false;");
+        let mut context = CompilationContext::default();
+
+        let script = parse_script(&source_file, &mut context).unwrap();
+
+        let ItemKind::Statement(statement) = &script.items[0].kind else {
+            panic!("expected statement item");
+        };
+        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+        let ExpressionKind::Not(NotExpression { operand }) = &expression.kind else {
+            panic!("expected not expression");
+        };
+
+        assert_eq!(expression.ty, TypeIndex::unresolved());
+        assert_eq!(operand.ty, TypeIndex::unresolved());
     }
 
     #[test]

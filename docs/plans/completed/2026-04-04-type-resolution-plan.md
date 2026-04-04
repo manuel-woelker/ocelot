@@ -159,13 +159,25 @@ Verification should include:
 - If the resolver continues to own both function resolution and type resolution, its responsibilities are growing. That is acceptable for this slice, but if name resolution, type checking, and future flow analysis all pile into one file, it will get ugly fast.
 - Adding `ty` to [`Expression`](/data/projects/ocelot/crates/ast/src/expression.rs) will fan out through many parser and interpreter tests because structural equality on expressions will now include the new field. That churn is expected and should be handled deliberately instead of papered over.
 
+# What landed from this plan?
+
+This change introduced the first explicit type metadata path in the compiler pipeline:
+
+- [`Ty`](/data/projects/ocelot/crates/ast/src/ty.rs), [`TypeKind`](/data/projects/ocelot/crates/ast/src/type_kind.rs), and [`TypeIndex`](/data/projects/ocelot/crates/ast/src/type_index.rs) now model canonical types in the AST layer
+- [`ProgramEnvironment`](/data/projects/ocelot/crates/ast/src/program_environment.rs) now owns a seeded type table, with slot `0` initialized to `TypeKind::Unresolved` and primitive `string` and `boolean` entries indexed through `type_symbols`
+- [`Expression`](/data/projects/ocelot/crates/ast/src/expression.rs) now carries a `ty` field that defaults to unresolved at parse time
+- [`ocelot_resolver::resolve()`](/data/projects/ocelot/crates/resolver/src/lib.rs) now annotates string literals, boolean literals, and `not` expressions with concrete type indices
+- invalid `not` operands such as `not "hello"` now fail during resolution instead of surfacing later as runtime type errors
+- identifier and call expressions intentionally remain unresolved in this slice because the current function metadata does not yet expose return types
+- `cargo test` and `nao check` pass
+
 # What concrete tasks should track this plan?
 
-- [ ] Add AST modules for `Ty`, `TypeKind`, and `TypeIndex`.
-- [ ] Seed an unresolved type entry at slot `0`, plus primitive `string` and `boolean` entries in the program environment, and expose a `type_symbols` lookup.
-- [ ] Extend `Expression` with a `ty: TypeIndex` field that defaults to unresolved.
-- [ ] Update parser and AST tests for the new expression shape and unresolved default.
-- [ ] Extend the resolver to annotate string literals, boolean literals, and `not` expressions with concrete type indices.
-- [ ] Add resolver diagnostics and tests for invalid boolean negation operands.
-- [ ] Leave identifiers and call expressions unresolved unless callable type metadata is added in the same slice.
-- [ ] Run `nao check`.
+- [x] Add AST modules for `Ty`, `TypeKind`, and `TypeIndex`.
+- [x] Seed an unresolved type entry at slot `0`, plus primitive `string` and `boolean` entries in the program environment, and expose a `type_symbols` lookup.
+- [x] Extend `Expression` with a `ty: TypeIndex` field that defaults to unresolved.
+- [x] Update parser and AST tests for the new expression shape and unresolved default.
+- [x] Extend the resolver to annotate string literals, boolean literals, and `not` expressions with concrete type indices.
+- [x] Add resolver diagnostics and tests for invalid boolean negation operands.
+- [x] Leave identifiers and call expressions unresolved unless callable type metadata is added in the same slice.
+- [x] Run `nao check`.

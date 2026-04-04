@@ -14,6 +14,7 @@ use ocelot_ast::script::Script;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
 use ocelot_ast::test_item::TestItem;
+use ocelot_ast::type_index::TypeIndex;
 use ocelot_base::compilation_context::CompilationContext;
 use ocelot_base::compilation_stage::CompilationStage;
 use ocelot_base::diagnostic_level::DiagnosticLevel;
@@ -179,6 +180,8 @@ impl<'a> Resolver<'a> {
             }
             ExpressionKind::Call(call_expression) => self.resolve_call_expression(call_expression),
         }
+
+        self.annotate_expression_type(expression);
     }
 
     fn resolve_call_expression(&mut self, call_expression: &mut CallExpression) {
@@ -206,6 +209,39 @@ impl<'a> Resolver<'a> {
         };
 
         call_expression.resolve_to(function_index);
+    }
+
+    fn annotate_expression_type(&mut self, expression: &mut Expression) {
+        let boolean_type_index = self.environment.boolean_type_index();
+        let string_type_index = self.environment.string_type_index();
+
+        match &expression.kind {
+            ExpressionKind::BooleanLiteral(_) => {
+                expression.ty = boolean_type_index;
+            }
+            ExpressionKind::StringLiteral(_) => {
+                expression.ty = string_type_index;
+            }
+            ExpressionKind::Identifier(_) | ExpressionKind::Call(_) => {
+                expression.ty = TypeIndex::unresolved();
+            }
+            ExpressionKind::Not(not_expression) => {
+                if not_expression.operand.ty == boolean_type_index {
+                    expression.ty = boolean_type_index;
+                    return;
+                }
+
+                if !not_expression.operand.ty.is_unresolved() {
+                    self.add_diagnostic(
+                        "operator `not` expects a boolean operand",
+                        not_expression.operand.span.clone(),
+                        "boolean operand required",
+                    );
+                }
+
+                expression.ty = TypeIndex::unresolved();
+            }
+        }
     }
 
     fn add_diagnostic(
@@ -298,6 +334,7 @@ mod tests {
     use ocelot_ast::statement_kind::StatementKind;
     use ocelot_ast::string_literal_expression::StringLiteralExpression;
     use ocelot_ast::test_item::TestItem;
+    use ocelot_ast::type_index::TypeIndex;
     use ocelot_base::compilation_context::CompilationContext;
     use ocelot_base::compilation_stage::CompilationStage;
     use ocelot_base::source_file::SourceFile;
@@ -313,6 +350,22 @@ mod tests {
     fn string_literal(value: &str, span: Span) -> Expression {
         Expression::new(
             ExpressionKind::StringLiteral(StringLiteralExpression::new(value)),
+            span,
+        )
+    }
+
+    fn boolean_literal(value: bool, span: Span) -> Expression {
+        Expression::new(
+            ExpressionKind::BooleanLiteral(
+                ocelot_ast::boolean_literal_expression::BooleanLiteralExpression::new(value),
+            ),
+            span,
+        )
+    }
+
+    fn not_expression(operand: Expression, span: Span) -> Expression {
+        Expression::new(
+            ExpressionKind::Not(ocelot_ast::not_expression::NotExpression::new(operand)),
             span,
         )
     }
@@ -363,6 +416,102 @@ mod tests {
             panic!("expected call expression");
         };
         assert_eq!(call_expression.function_index().unwrap(), println_index);
+        assert_eq!(expression.ty, TypeIndex::unresolved());
+    }
+
+    #[test]
+    fn resolves_string_literal_expression_types() {
+        let mut script = Script::new(
+            vec![Item::new(
+                ItemKind::Statement(Statement::new(
+                    StatementKind::Expression(ExpressionStatement::new(string_literal(
+                        "hello",
+                        Span::new(0, 7),
+                    ))),
+                    Span::new(0, 8),
+                )),
+                Span::new(0, 8),
+            )],
+            Span::new(0, 8),
+        );
+        let source_file = SourceFile::new("examples/types.ocelot", "\"hello\";");
+        let mut environment = test_program_environment();
+        let mut context = CompilationContext::default();
+
+        resolve(&mut script, &source_file, &mut context, &mut environment).unwrap();
+
+        let ItemKind::Statement(statement) = &script.items[0].kind else {
+            panic!("expected statement");
+        };
+        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+
+        assert_eq!(expression.ty, environment.string_type_index());
+    }
+
+    #[test]
+    fn resolves_boolean_literal_expression_types() {
+        let mut script = Script::new(
+            vec![Item::new(
+                ItemKind::Statement(Statement::new(
+                    StatementKind::Expression(ExpressionStatement::new(boolean_literal(
+                        true,
+                        Span::new(0, 4),
+                    ))),
+                    Span::new(0, 5),
+                )),
+                Span::new(0, 5),
+            )],
+            Span::new(0, 5),
+        );
+        let source_file = SourceFile::new("examples/types.ocelot", "true;");
+        let mut environment = test_program_environment();
+        let mut context = CompilationContext::default();
+
+        resolve(&mut script, &source_file, &mut context, &mut environment).unwrap();
+
+        let ItemKind::Statement(statement) = &script.items[0].kind else {
+            panic!("expected statement");
+        };
+        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+
+        assert_eq!(expression.ty, environment.boolean_type_index());
+    }
+
+    #[test]
+    fn resolves_not_expression_types() {
+        let mut script = Script::new(
+            vec![Item::new(
+                ItemKind::Statement(Statement::new(
+                    StatementKind::Expression(ExpressionStatement::new(not_expression(
+                        not_expression(boolean_literal(false, Span::new(8, 13)), Span::new(4, 13)),
+                        Span::new(0, 13),
+                    ))),
+                    Span::new(0, 14),
+                )),
+                Span::new(0, 14),
+            )],
+            Span::new(0, 14),
+        );
+        let source_file = SourceFile::new("examples/types.ocelot", "not not false;");
+        let mut environment = test_program_environment();
+        let mut context = CompilationContext::default();
+
+        resolve(&mut script, &source_file, &mut context, &mut environment).unwrap();
+
+        let ItemKind::Statement(statement) = &script.items[0].kind else {
+            panic!("expected statement");
+        };
+        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+        let ExpressionKind::Not(outer_not) = &expression.kind else {
+            panic!("expected not expression");
+        };
+        let ExpressionKind::Not(inner_not) = &outer_not.operand.kind else {
+            panic!("expected nested not expression");
+        };
+
+        assert_eq!(expression.ty, environment.boolean_type_index());
+        assert_eq!(outer_not.operand.ty, environment.boolean_type_index());
+        assert_eq!(inner_not.operand.ty, environment.boolean_type_index());
     }
 
     #[test]
@@ -511,6 +660,69 @@ mod tests {
                 .to_test_string()
                 .contains("only identifier calls are supported")
         );
+    }
+
+    #[test]
+    fn reports_invalid_not_operands_as_resolver_errors() {
+        let mut script = Script::new(
+            vec![Item::new(
+                ItemKind::Statement(Statement::new(
+                    StatementKind::Expression(ExpressionStatement::new(not_expression(
+                        string_literal("hello", Span::new(4, 11)),
+                        Span::new(0, 11),
+                    ))),
+                    Span::new(0, 12),
+                )),
+                Span::new(0, 12),
+            )],
+            Span::new(0, 12),
+        );
+        let source_file = SourceFile::new("examples/types.ocelot", "not \"hello\";");
+        let mut environment = test_program_environment();
+        let mut context = CompilationContext::default();
+
+        let error = resolve(&mut script, &source_file, &mut context, &mut environment).unwrap_err();
+
+        assert!(
+            error
+                .to_test_string()
+                .contains("operator `not` expects a boolean operand")
+        );
+        assert!(error.to_test_string().contains("boolean operand required"));
+    }
+
+    #[test]
+    fn leaves_identifier_and_call_expression_types_unresolved() {
+        let mut script = Script::new(
+            vec![Item::new(
+                ItemKind::Statement(Statement::new(
+                    StatementKind::Expression(ExpressionStatement::new(call(
+                        identifier("println", Span::new(0, 7)),
+                        vec![identifier("value", Span::new(8, 13))],
+                        Span::new(0, 14),
+                    ))),
+                    Span::new(0, 15),
+                )),
+                Span::new(0, 15),
+            )],
+            Span::new(0, 15),
+        );
+        let source_file = SourceFile::new("examples/types.ocelot", "println(value);");
+        let mut environment = test_program_environment();
+        let mut context = CompilationContext::default();
+
+        resolve(&mut script, &source_file, &mut context, &mut environment).unwrap();
+
+        let ItemKind::Statement(statement) = &script.items[0].kind else {
+            panic!("expected statement");
+        };
+        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+        let ExpressionKind::Call(call_expression) = &expression.kind else {
+            panic!("expected call expression");
+        };
+
+        assert_eq!(expression.ty, TypeIndex::unresolved());
+        assert_eq!(call_expression.arguments[0].ty, TypeIndex::unresolved());
     }
 
     #[test]
