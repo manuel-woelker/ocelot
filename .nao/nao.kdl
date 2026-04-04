@@ -75,6 +75,13 @@ recipe "default" {
     """
   }
 
+  task "otest" description="Run `cargo run -- test`" {
+    depends-on "build"
+    run shell="""
+      cargo run -- test
+    """
+  }
+
   task "check" description="Run all repository verification tasks" {
     depends-on "fmt"
     depends-on "clippy"
