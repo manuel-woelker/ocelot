@@ -67,6 +67,7 @@ impl<'a> Interpreter<'a> {
             ItemKind::Function(_) => Ok(()),
             ItemKind::Statement(statement) => self.interpret_statement(statement),
             ItemKind::Test(_) => Ok(()),
+            ItemKind::Use(_) => Ok(()),
         }
     }
 

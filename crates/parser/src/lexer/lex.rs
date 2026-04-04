@@ -99,6 +99,7 @@ pub fn lex(source_file: &SourceFile, context: &mut CompilationContext) -> Vec<To
                     "not" => TokenType::Not,
                     "test" => TokenType::Test,
                     "true" => TokenType::True,
+                    "use" => TokenType::Use,
                     _ => TokenType::Identifier,
                 };
                 tokens.push(Token::new(token_type, start, index));
@@ -818,5 +819,37 @@ mod tests {
                 TokenType::EndOfFile,
             ]
         );
+    }
+
+    #[test]
+    fn lexes_use_items_and_grouped_imports() {
+        let source_file = SourceFile::new(
+            "examples/imports.ocelot-script",
+            "use math::trig::{sin, cos};",
+        );
+        let mut context = CompilationContext::default();
+        let token_types: Vec<_> = lex(&source_file, &mut context)
+            .into_iter()
+            .map(|token| token.token_type)
+            .collect();
+
+        assert_eq!(
+            token_types,
+            vec![
+                TokenType::Use,
+                TokenType::Identifier,
+                TokenType::DoubleColon,
+                TokenType::Identifier,
+                TokenType::DoubleColon,
+                TokenType::LeftBrace,
+                TokenType::Identifier,
+                TokenType::Comma,
+                TokenType::Identifier,
+                TokenType::RightBrace,
+                TokenType::Semicolon,
+                TokenType::EndOfFile,
+            ]
+        );
+        assert!(!context.has_errors());
     }
 }

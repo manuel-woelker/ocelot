@@ -12,6 +12,7 @@ use ocelot_ast::function_effect_clause::FunctionEffectClause;
 use ocelot_ast::function_index::FunctionIndex;
 use ocelot_ast::function_item::FunctionItem;
 use ocelot_ast::function_kind::FunctionKind;
+use ocelot_ast::identifier::Identifier;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_ast::program_environment::ProgramEnvironment;
@@ -21,6 +22,7 @@ use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
 use ocelot_ast::test_item::TestItem;
 use ocelot_ast::type_index::TypeIndex;
+use ocelot_ast::use_item::UseItem;
 use ocelot_base::compilation_context::CompilationContext;
 use ocelot_base::compilation_stage::CompilationStage;
 use ocelot_base::diagnostic_level::DiagnosticLevel;
@@ -46,6 +48,13 @@ pub fn resolve(
     environment.add_module(module_name.clone());
     register_module_effects(script, source_file, compilation_context, environment)?;
     register_module_functions(
+        script,
+        &module_name,
+        source_file,
+        compilation_context,
+        environment,
+    )?;
+    register_module_imports(
         script,
         &module_name,
         source_file,
@@ -91,6 +100,25 @@ pub fn register_module_functions(
         None,
     )
     .register_function_items(script);
+    Ok(())
+}
+
+/// Registers all import declarations for one module and lowers them out of the item list.
+pub fn register_module_imports(
+    script: &mut Script,
+    module_name: &str,
+    source_file: &SourceFile,
+    compilation_context: &mut CompilationContext,
+    environment: &mut ProgramEnvironment,
+) -> OcelotResult<()> {
+    Resolver::new(
+        source_file,
+        module_name,
+        compilation_context,
+        environment,
+        None,
+    )
+    .register_use_items(script);
     Ok(())
 }
 
@@ -223,6 +251,19 @@ impl<'a> Resolver<'a> {
         script.items = retained_items;
     }
 
+    fn register_use_items(&mut self, script: &mut Script) {
+        let mut retained_items = Vec::with_capacity(script.items.len());
+
+        for item in std::mem::take(&mut script.items) {
+            match item.kind {
+                ItemKind::Use(use_item) => self.register_use_item(use_item),
+                _ => retained_items.push(item),
+            }
+        }
+
+        script.items = retained_items;
+    }
+
     fn resolve_item(&mut self, item: &mut Item) {
         match &mut item.kind {
             ItemKind::Effect(_) => {
@@ -232,6 +273,9 @@ impl<'a> Resolver<'a> {
             ItemKind::Test(test_item) => self.resolve_test_item(test_item),
             ItemKind::Function(_) => {
                 unreachable!("function items should be lowered before item resolution")
+            }
+            ItemKind::Use(_) => {
+                unreachable!("use items should be lowered before item resolution")
             }
         }
     }
@@ -343,6 +387,81 @@ impl<'a> Resolver<'a> {
             ));
     }
 
+    fn register_use_item(&mut self, use_item: UseItem) {
+        let module_name = use_item.module_path.render();
+
+        if !self.environment.has_module(module_name.as_str()) {
+            self.add_diagnostic(
+                format!("unknown module `{module_name}`"),
+                use_item.module_path.span(),
+                "unknown module",
+            );
+            return;
+        }
+
+        for imported_name in use_item.imported_names {
+            self.register_imported_name(&module_name, imported_name);
+        }
+    }
+
+    fn register_imported_name(&mut self, module_name: &str, imported_name: Identifier) {
+        let local_name = imported_name.name.clone();
+        let qualified_name = self
+            .environment
+            .qualify_function_name(module_name, local_name.as_str());
+
+        let Some(function_index) = self
+            .environment
+            .resolve_function_exact(qualified_name.as_str())
+        else {
+            self.add_diagnostic(
+                format!("module `{module_name}` has no function `{local_name}`"),
+                imported_name.span,
+                "unknown function",
+            );
+            return;
+        };
+
+        if self
+            .environment
+            .resolve_function_exact(
+                self.environment
+                    .qualify_function_name(self.module_name, local_name.as_str())
+                    .as_str(),
+            )
+            .is_some()
+        {
+            self.add_diagnostic(
+                format!(
+                    "imported function `{local_name}` conflicts with local function `{}`",
+                    self.module_name
+                ),
+                imported_name.span,
+                "conflicting import",
+            );
+            return;
+        }
+
+        if self
+            .environment
+            .resolve_imported_function(&self.source_file.path, local_name.as_str())
+            .is_some()
+        {
+            self.add_diagnostic(
+                format!("duplicate import `{local_name}`"),
+                imported_name.span,
+                "duplicate import",
+            );
+            return;
+        }
+
+        self.environment.add_imported_function(
+            self.source_file.path.clone(),
+            local_name,
+            function_index,
+        );
+    }
+
     fn resolve_function_item(&mut self, function_item: &mut FunctionItem) {
         for statement in &mut function_item.body {
             self.resolve_statement(statement);
@@ -386,10 +505,11 @@ impl<'a> Resolver<'a> {
 
         let resolved = match &call_expression.callee.kind {
             ExpressionKind::Identifier(identifier) => {
-                let Some(function_index) = self
-                    .environment
-                    .resolve_local_function(self.module_name, identifier.name.as_str())
-                else {
+                let Some(function_index) = self.environment.resolve_local_function(
+                    &self.source_file.path,
+                    self.module_name,
+                    identifier.name.as_str(),
+                ) else {
                     self.add_diagnostic(
                         format!("unknown function `{}`", identifier.name),
                         identifier.span.clone(),
@@ -861,6 +981,7 @@ mod tests {
     use super::finish_resolution;
     use super::register_module_effects;
     use super::register_module_functions;
+    use super::register_module_imports;
     use super::resolve;
     use super::resolve_module_items;
     use super::resolve_user_defined_function_definitions;
@@ -883,6 +1004,7 @@ mod tests {
     use ocelot_ast::string_literal_expression::StringLiteralExpression;
     use ocelot_ast::test_item::TestItem;
     use ocelot_ast::type_index::TypeIndex;
+    use ocelot_ast::use_item::UseItem;
     use ocelot_base::compilation_context::CompilationContext;
     use ocelot_base::compilation_stage::CompilationStage;
     use ocelot_base::source_file::SourceFile;
@@ -1028,6 +1150,417 @@ mod tests {
         assert_eq!(
             call_expression.function_index().unwrap(),
             environment.resolve_function("math::greet::hello").unwrap()
+        );
+    }
+
+    #[test]
+    fn resolves_imported_function_calls() {
+        let mut main_script = Script::new(
+            vec![
+                Item::new(
+                    ItemKind::Use(UseItem::new(
+                        QualifiedIdentifier::new(vec![Identifier::new("helper", Span::new(4, 10))]),
+                        vec![Identifier::new("greet", Span::new(12, 17))],
+                        Span::new(0, 18),
+                    )),
+                    Span::new(0, 18),
+                ),
+                Item::new(
+                    ItemKind::Statement(Statement::new(
+                        StatementKind::Expression(ExpressionStatement::new(call(
+                            identifier("greet", Span::new(19, 24)),
+                            Vec::new(),
+                            Span::new(19, 26),
+                        ))),
+                        Span::new(19, 27),
+                    )),
+                    Span::new(19, 27),
+                ),
+            ],
+            Span::new(0, 27),
+        );
+        let mut helper_script = Script::new(
+            vec![Item::new(
+                ItemKind::Function(FunctionItem::new(
+                    Identifier::new("greet", Span::new(4, 9)),
+                    None,
+                    None,
+                    Vec::new(),
+                    Span::new(0, 14),
+                )),
+                Span::new(0, 14),
+            )],
+            Span::new(0, 14),
+        );
+        let main_source_file =
+            SourceFile::new("main.ocelot-script", "use helper::greet;\ngreet();");
+        let helper_source_file = SourceFile::new("helper.ocelot", "fun greet() {}");
+        let mut environment = ProgramEnvironment::new();
+        environment.add_module("main");
+        environment.add_module("helper");
+        let mut context = CompilationContext::default();
+
+        register_module_functions(
+            &mut helper_script,
+            "helper",
+            &helper_source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+        register_module_imports(
+            &mut main_script,
+            "main",
+            &main_source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+        resolve_module_items(
+            &mut main_script,
+            "main",
+            &main_source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+        resolve_user_defined_function_definitions(&mut context, &mut environment).unwrap();
+        finish_resolution(&context).unwrap();
+
+        let ItemKind::Statement(statement) = &main_script.items[0].kind else {
+            panic!("expected statement");
+        };
+        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+        let ExpressionKind::Call(call_expression) = &expression.kind else {
+            panic!("expected call expression");
+        };
+        assert_eq!(
+            call_expression.function_index().unwrap(),
+            environment.resolve_function("helper::greet").unwrap()
+        );
+    }
+
+    #[test]
+    fn imported_names_are_available_inside_function_bodies() {
+        let mut main_script = Script::new(
+            vec![
+                Item::new(
+                    ItemKind::Use(UseItem::new(
+                        QualifiedIdentifier::new(vec![Identifier::new("helper", Span::new(4, 10))]),
+                        vec![Identifier::new("greet", Span::new(12, 17))],
+                        Span::new(0, 18),
+                    )),
+                    Span::new(0, 18),
+                ),
+                Item::new(
+                    ItemKind::Function(FunctionItem::new(
+                        Identifier::new("run", Span::new(23, 26)),
+                        None,
+                        None,
+                        vec![Statement::new(
+                            StatementKind::Expression(ExpressionStatement::new(call(
+                                identifier("greet", Span::new(33, 38)),
+                                Vec::new(),
+                                Span::new(33, 40),
+                            ))),
+                            Span::new(33, 41),
+                        )],
+                        Span::new(19, 43),
+                    )),
+                    Span::new(19, 43),
+                ),
+            ],
+            Span::new(0, 43),
+        );
+        let mut helper_script = Script::new(
+            vec![Item::new(
+                ItemKind::Function(FunctionItem::new(
+                    Identifier::new("greet", Span::new(4, 9)),
+                    None,
+                    None,
+                    Vec::new(),
+                    Span::new(0, 14),
+                )),
+                Span::new(0, 14),
+            )],
+            Span::new(0, 14),
+        );
+        let main_source_file =
+            SourceFile::new("main.ocelot", "use helper::greet;\nfun run() { greet(); }");
+        let helper_source_file = SourceFile::new("helper.ocelot", "fun greet() {}");
+        let mut environment = ProgramEnvironment::new();
+        environment.add_module("main");
+        environment.add_module("helper");
+        let mut context = CompilationContext::default();
+
+        register_module_functions(
+            &mut main_script,
+            "main",
+            &main_source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+        register_module_functions(
+            &mut helper_script,
+            "helper",
+            &helper_source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+        register_module_imports(
+            &mut main_script,
+            "main",
+            &main_source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+        resolve_module_items(
+            &mut main_script,
+            "main",
+            &main_source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+        resolve_user_defined_function_definitions(&mut context, &mut environment).unwrap();
+        finish_resolution(&context).unwrap();
+
+        let run = environment
+            .function_definition(environment.resolve_function("main::run").unwrap())
+            .unwrap();
+        let FunctionKind::UserDefined { function, .. } = &run.kind else {
+            panic!("expected user-defined function");
+        };
+        let StatementKind::Expression(ExpressionStatement { expression }) = &function.body[0].kind;
+        let ExpressionKind::Call(call_expression) = &expression.kind else {
+            panic!("expected call expression");
+        };
+        assert_eq!(
+            call_expression.function_index().unwrap(),
+            environment.resolve_function("helper::greet").unwrap()
+        );
+    }
+
+    #[test]
+    fn local_functions_win_over_imported_names() {
+        let mut main_script = Script::new(
+            vec![
+                Item::new(
+                    ItemKind::Use(UseItem::new(
+                        QualifiedIdentifier::new(vec![Identifier::new("helper", Span::new(4, 10))]),
+                        vec![Identifier::new("greet", Span::new(12, 17))],
+                        Span::new(0, 18),
+                    )),
+                    Span::new(0, 18),
+                ),
+                Item::new(
+                    ItemKind::Function(FunctionItem::new(
+                        Identifier::new("greet", Span::new(23, 28)),
+                        None,
+                        None,
+                        Vec::new(),
+                        Span::new(19, 31),
+                    )),
+                    Span::new(19, 31),
+                ),
+                Item::new(
+                    ItemKind::Statement(Statement::new(
+                        StatementKind::Expression(ExpressionStatement::new(call(
+                            identifier("greet", Span::new(32, 37)),
+                            Vec::new(),
+                            Span::new(32, 39),
+                        ))),
+                        Span::new(32, 40),
+                    )),
+                    Span::new(32, 40),
+                ),
+            ],
+            Span::new(0, 40),
+        );
+        let mut helper_script = Script::new(
+            vec![Item::new(
+                ItemKind::Function(FunctionItem::new(
+                    Identifier::new("greet", Span::new(4, 9)),
+                    None,
+                    None,
+                    Vec::new(),
+                    Span::new(0, 14),
+                )),
+                Span::new(0, 14),
+            )],
+            Span::new(0, 14),
+        );
+        let main_source_file = SourceFile::new(
+            "main.ocelot-script",
+            "use helper::greet;\nfun greet() {}\ngreet();",
+        );
+        let helper_source_file = SourceFile::new("helper.ocelot", "fun greet() {}");
+        let mut environment = ProgramEnvironment::new();
+        environment.add_module("main");
+        environment.add_module("helper");
+        let mut context = CompilationContext::default();
+
+        register_module_functions(
+            &mut main_script,
+            "main",
+            &main_source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+        register_module_functions(
+            &mut helper_script,
+            "helper",
+            &helper_source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+        register_module_imports(
+            &mut main_script,
+            "main",
+            &main_source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+
+        let error = finish_resolution(&context).unwrap_err();
+        assert!(
+            error
+                .to_test_string()
+                .contains("conflicts with local function")
+        );
+    }
+
+    #[test]
+    fn reports_duplicate_imports() {
+        let mut main_script = Script::new(
+            vec![
+                Item::new(
+                    ItemKind::Use(UseItem::new(
+                        QualifiedIdentifier::new(vec![Identifier::new("helper", Span::new(4, 10))]),
+                        vec![Identifier::new("greet", Span::new(12, 17))],
+                        Span::new(0, 18),
+                    )),
+                    Span::new(0, 18),
+                ),
+                Item::new(
+                    ItemKind::Use(UseItem::new(
+                        QualifiedIdentifier::new(vec![Identifier::new(
+                            "helper",
+                            Span::new(23, 29),
+                        )]),
+                        vec![Identifier::new("greet", Span::new(31, 36))],
+                        Span::new(19, 37),
+                    )),
+                    Span::new(19, 37),
+                ),
+            ],
+            Span::new(0, 37),
+        );
+        let mut helper_script = Script::new(
+            vec![Item::new(
+                ItemKind::Function(FunctionItem::new(
+                    Identifier::new("greet", Span::new(4, 9)),
+                    None,
+                    None,
+                    Vec::new(),
+                    Span::new(0, 14),
+                )),
+                Span::new(0, 14),
+            )],
+            Span::new(0, 14),
+        );
+        let main_source_file = SourceFile::new(
+            "main.ocelot-script",
+            "use helper::greet;\nuse helper::greet;",
+        );
+        let helper_source_file = SourceFile::new("helper.ocelot", "fun greet() {}");
+        let mut environment = ProgramEnvironment::new();
+        environment.add_module("main");
+        environment.add_module("helper");
+        let mut context = CompilationContext::default();
+
+        register_module_functions(
+            &mut helper_script,
+            "helper",
+            &helper_source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+        register_module_imports(
+            &mut main_script,
+            "main",
+            &main_source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+
+        let error = finish_resolution(&context).unwrap_err();
+        assert!(error.to_test_string().contains("duplicate import `greet`"));
+    }
+
+    #[test]
+    fn reports_unknown_functions_in_use_items() {
+        let mut main_script = Script::new(
+            vec![Item::new(
+                ItemKind::Use(UseItem::new(
+                    QualifiedIdentifier::new(vec![Identifier::new("helper", Span::new(4, 10))]),
+                    vec![Identifier::new("greet", Span::new(12, 17))],
+                    Span::new(0, 18),
+                )),
+                Span::new(0, 18),
+            )],
+            Span::new(0, 18),
+        );
+        let mut helper_script = Script::new(
+            vec![Item::new(
+                ItemKind::Function(FunctionItem::new(
+                    Identifier::new("wave", Span::new(4, 8)),
+                    None,
+                    None,
+                    Vec::new(),
+                    Span::new(0, 13),
+                )),
+                Span::new(0, 13),
+            )],
+            Span::new(0, 13),
+        );
+        let main_source_file = SourceFile::new("main.ocelot-script", "use helper::greet;");
+        let helper_source_file = SourceFile::new("helper.ocelot", "fun wave() {}");
+        let mut environment = ProgramEnvironment::new();
+        environment.add_module("main");
+        environment.add_module("helper");
+        let mut context = CompilationContext::default();
+
+        register_module_functions(
+            &mut helper_script,
+            "helper",
+            &helper_source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+        register_module_imports(
+            &mut main_script,
+            "main",
+            &main_source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+
+        let error = finish_resolution(&context).unwrap_err();
+        assert!(
+            error
+                .to_test_string()
+                .contains("module `helper` has no function `greet`")
         );
     }
 

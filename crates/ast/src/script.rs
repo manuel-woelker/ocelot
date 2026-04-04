@@ -23,6 +23,7 @@ impl Script {
             ItemKind::Function(_) => None,
             ItemKind::Statement(statement) => Some(statement),
             ItemKind::Test(_) => None,
+            ItemKind::Use(_) => None,
         })
     }
 }

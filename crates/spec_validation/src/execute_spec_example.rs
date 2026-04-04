@@ -152,6 +152,32 @@ mod tests {
     }
 
     #[test]
+    fn executes_import_examples_through_the_engine() {
+        let inner_pal = PalMock::new();
+        let pal = CapturingPal::new(PalHandle::new(inner_pal));
+        let observed = execute_spec_example(
+            &pal,
+            Path::new("/tmp/spec-validation"),
+            &SpecExample {
+                chapter_path: FilePath::from("docs/spec/25.02 Modules - Imports.md"),
+                name: SharedString::from("imports one sibling function"),
+                source_files: vec![
+                    SpecExampleFile::new("main.ocelot-script", "use helper::greet;\ngreet();"),
+                    SpecExampleFile::new("helper.ocelot", "fun greet() { println(\"hello\"); }"),
+                ],
+                expected_outcome: ExpectedOutcome::Output(SharedString::from("hello")),
+                line_number: 10,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            observed,
+            ObservedOutcome::Output(SharedString::from("hello"))
+        );
+    }
+
+    #[test]
     fn normalizes_engine_failures_for_comparison() {
         let inner_pal = PalMock::new();
         let pal = CapturingPal::new(PalHandle::new(inner_pal));
@@ -200,6 +226,37 @@ mod tests {
             observed,
             ObservedOutcome::Error(SharedString::from(
                 "error: unknown module `helper`\n  ╭▸ main.ocelot-script:1:1\n  │\n1 │ helper::greet();\n  ╰╴━━━━━━━━━━━━━ unknown module\nat main.ocelot-script:1:1"
+            ))
+        );
+    }
+
+    #[test]
+    fn normalizes_duplicate_import_failures_for_comparison() {
+        let inner_pal = PalMock::new();
+        let pal = CapturingPal::new(PalHandle::new(inner_pal));
+        let observed = execute_spec_example(
+            &pal,
+            Path::new("/tmp/spec-validation"),
+            &SpecExample {
+                chapter_path: FilePath::from("docs/spec/25.02 Modules - Imports.md"),
+                name: SharedString::from("duplicate imports are a resolver error"),
+                source_files: vec![
+                    SpecExampleFile::new(
+                        "main.ocelot-script",
+                        "use helper::greet;\nuse helper::greet;",
+                    ),
+                    SpecExampleFile::new("helper.ocelot", "fun greet() {}"),
+                ],
+                expected_outcome: ExpectedOutcome::Error(SharedString::from("duplicate import")),
+                line_number: 10,
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            observed,
+            ObservedOutcome::Error(SharedString::from(
+                "error: duplicate import `greet`\n  ╭▸ main.ocelot-script:2:13\n  │\n2 │ use helper::greet;\n  ╰╴            ━━━━━ duplicate import\nat main.ocelot-script:2:13"
             ))
         );
     }

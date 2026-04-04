@@ -68,6 +68,7 @@ impl Engine {
                     test_item.span.clone(),
                 )),
                 ItemKind::Statement(_) => None,
+                ItemKind::Use(_) => None,
             })
             .collect())
     }
@@ -217,6 +218,16 @@ impl Engine {
 
         for module in &mut modules {
             ocelot_resolver::register_module_functions(
+                &mut module.script,
+                module.module_name.as_str(),
+                &module.source_file,
+                &mut compilation_context,
+                &mut environment,
+            )?;
+        }
+
+        for module in &mut modules {
+            ocelot_resolver::register_module_imports(
                 &mut module.script,
                 module.module_name.as_str(),
                 &module.source_file,
@@ -432,6 +443,44 @@ mod tests {
     }
 
     #[test]
+    fn run_file_executes_imported_functions_from_sibling_modules() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/main.ocelot-script",
+            "use helper::greet;\ngreet();",
+        );
+        pal.set_file(
+            "examples/helper.ocelot",
+            "fun greet() { println(\"hello\"); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal.clone()));
+
+        engine.run_file("examples/main.ocelot-script").unwrap();
+
+        assert_eq!(pal.take_printed_output(), "hello\n");
+    }
+
+    #[test]
+    fn run_file_executes_grouped_imports() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/main.ocelot-script",
+            "use helper::{greet, wave};\ngreet();\nwave();",
+        );
+        pal.set_file(
+            "examples/helper.ocelot",
+            "fun greet() { println(\"hello\"); } fun wave() { println(\"bye\"); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal.clone()));
+
+        engine.run_file("examples/main.ocelot-script").unwrap();
+
+        assert_eq!(pal.take_printed_output(), "hello\nbye\n");
+    }
+
+    #[test]
     fn run_file_executes_functions_from_nested_modules() {
         let pal = PalMock::new();
         pal.set_file("examples/main.ocelot-script", "math::greet::hello();");
@@ -543,6 +592,26 @@ mod tests {
                 .to_test_string()
                 .contains("module `helper` has no function `greet`")
         );
+    }
+
+    #[test]
+    fn run_file_reports_duplicate_imports() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/main.ocelot-script",
+            "use helper::greet;\nuse helper::greet;",
+        );
+        pal.set_file("examples/helper.ocelot", "fun greet() {}");
+
+        let engine = Engine::new(PalHandle::new(pal));
+
+        let error = engine.run_file("examples/main.ocelot-script").unwrap_err();
+
+        assert!(matches!(
+            error.kind(),
+            ErrorKind::CompilationError(CompilationStage::Resolver)
+        ));
+        assert!(error.to_test_string().contains("duplicate import `greet`"));
     }
 
     #[test]

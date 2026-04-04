@@ -10,6 +10,7 @@ pub enum TokenType {
     Fun,
     Not,
     True,
+    Use,
     Comma,
     DoubleColon,
     LeftParen,

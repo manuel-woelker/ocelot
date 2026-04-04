@@ -19,6 +19,7 @@ use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
 use ocelot_ast::string_literal_expression::StringLiteralExpression;
 use ocelot_ast::test_item::TestItem;
+use ocelot_ast::use_item::UseItem;
 use ocelot_base::compilation_context::CompilationContext;
 use ocelot_base::compilation_stage::CompilationStage;
 use ocelot_base::diagnostic_level::DiagnosticLevel;
@@ -82,6 +83,7 @@ impl<'a> Parser<'a> {
             TokenType::Effect => self.parse_effect_item(),
             TokenType::Fun => self.parse_function_item(),
             TokenType::Test => self.parse_test_item(),
+            TokenType::Use => self.parse_use_item(),
             _ => Ok({
                 let statement = self.parse_statement()?;
                 let span = statement.span.clone();
@@ -204,6 +206,65 @@ impl<'a> Parser<'a> {
         ))
     }
 
+    fn parse_use_item(&mut self) -> OcelotResult<Item> {
+        let use_token = self.expect(TokenType::Use, "expected `use` item")?;
+        let mut module_segments = vec![self.parse_identifier_token("expected module name")?];
+
+        self.expect(
+            TokenType::DoubleColon,
+            "expected `::` after imported module path",
+        )?;
+
+        let (imported_names, end_span) = if self.at(TokenType::LeftBrace) {
+            self.parse_grouped_import_names()?
+        } else {
+            let final_segment = self.parse_identifier_token("expected imported name")?;
+
+            if !self.at(TokenType::DoubleColon) {
+                (vec![final_segment.clone()], final_segment.span.clone())
+            } else {
+                module_segments.push(final_segment);
+
+                loop {
+                    self.expect(
+                        TokenType::DoubleColon,
+                        "expected `::` after imported module path segment",
+                    )?;
+
+                    if self.at(TokenType::LeftBrace) {
+                        let (imported_names, end_span) = self.parse_grouped_import_names()?;
+                        break (imported_names, end_span);
+                    }
+
+                    let segment = self
+                        .parse_identifier_token("expected identifier after `::` in `use` item")?;
+                    if !self.at(TokenType::DoubleColon) {
+                        break (vec![segment.clone()], segment.span.clone());
+                    }
+
+                    module_segments.push(segment);
+                }
+            }
+        };
+
+        let semicolon = self.expect(TokenType::Semicolon, "expected `;` after `use` item")?;
+        let span = Span::new(use_token.span.start(), semicolon.span.end());
+        let module_path = QualifiedIdentifier::new(module_segments.clone());
+
+        if module_segments.is_empty() {
+            return self.emit_fatal_diagnostic(
+                "expected module path in `use` item",
+                end_span,
+                "module path expected here",
+            );
+        }
+
+        Ok(Item::new(
+            ItemKind::Use(UseItem::new(module_path, imported_names, span.clone())),
+            span,
+        ))
+    }
+
     fn parse_statement(&mut self) -> OcelotResult<Statement> {
         let expression = self.parse_expression()?;
         self.validate_native_call(&expression)?;
@@ -290,20 +351,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_identifier_expression(&mut self) -> OcelotResult<Expression> {
-        let first_token = self.expect(TokenType::Identifier, "expected identifier")?;
-        let mut segments = vec![Identifier::new(
-            self.source_text(&first_token.span),
-            first_token.span.clone(),
-        )];
+        let mut segments = vec![self.parse_identifier_token("expected identifier")?];
 
         while self.at(TokenType::DoubleColon) {
             self.position += 1;
-            let segment_token =
-                self.expect(TokenType::Identifier, "expected identifier after `::`")?;
-            segments.push(Identifier::new(
-                self.source_text(&segment_token.span),
-                segment_token.span.clone(),
-            ));
+            segments.push(self.parse_identifier_token("expected identifier after `::`")?);
         }
 
         if segments.len() == 1 {
@@ -373,6 +425,36 @@ impl<'a> Parser<'a> {
                 "extra argument",
             ),
         }
+    }
+
+    fn parse_grouped_import_names(&mut self) -> OcelotResult<(Vec<Identifier>, Span)> {
+        self.expect(
+            TokenType::LeftBrace,
+            "expected `{` before grouped import names",
+        )?;
+        let mut imported_names = Vec::new();
+
+        loop {
+            imported_names.push(self.parse_identifier_token("expected imported name inside `{}`")?);
+
+            if !self.at(TokenType::Comma) {
+                break;
+            }
+
+            self.position += 1;
+        }
+
+        let right_brace =
+            self.expect(TokenType::RightBrace, "expected `}` after grouped imports")?;
+        Ok((imported_names, right_brace.span))
+    }
+
+    fn parse_identifier_token(&mut self, message: &str) -> OcelotResult<Identifier> {
+        let token = self.expect(TokenType::Identifier, message)?;
+        Ok(Identifier::new(
+            self.source_text(&token.span),
+            token.span.clone(),
+        ))
     }
 
     fn expect(&mut self, token_type: TokenType, message: &str) -> OcelotResult<Token> {
@@ -459,6 +541,7 @@ mod tests {
     use ocelot_ast::expression_statement::ExpressionStatement;
     use ocelot_ast::item_kind::ItemKind;
     use ocelot_ast::statement_kind::StatementKind;
+    use ocelot_ast::use_item::UseItem;
     use ocelot_base::compilation_context::CompilationContext;
     use ocelot_base::source_file::SourceFile;
 
@@ -483,5 +566,55 @@ mod tests {
         };
 
         assert_eq!(qualified_identifier.render().as_str(), "math::greet::hello");
+    }
+
+    #[test]
+    fn parses_single_name_use_items() {
+        let source_file = SourceFile::new("examples/module.ocelot-script", "use helper::greet;");
+        let mut compilation_context = CompilationContext::default();
+        let mut parser = Parser::new(&source_file, &mut compilation_context);
+
+        let script = parser.parse_script().unwrap();
+        let ItemKind::Use(UseItem {
+            module_path,
+            imported_names,
+            ..
+        }) = &script.items[0].kind
+        else {
+            panic!("expected use item");
+        };
+
+        assert_eq!(module_path.render().as_str(), "helper");
+        assert_eq!(imported_names.len(), 1);
+        assert_eq!(imported_names[0].name.as_str(), "greet");
+    }
+
+    #[test]
+    fn parses_grouped_use_items() {
+        let source_file = SourceFile::new(
+            "examples/module.ocelot-script",
+            "use math::trig::{sin, cos};",
+        );
+        let mut compilation_context = CompilationContext::default();
+        let mut parser = Parser::new(&source_file, &mut compilation_context);
+
+        let script = parser.parse_script().unwrap();
+        let ItemKind::Use(UseItem {
+            module_path,
+            imported_names,
+            ..
+        }) = &script.items[0].kind
+        else {
+            panic!("expected use item");
+        };
+
+        assert_eq!(module_path.render().as_str(), "math::trig");
+        assert_eq!(
+            imported_names
+                .iter()
+                .map(|identifier| identifier.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["sin", "cos"]
+        );
     }
 }
