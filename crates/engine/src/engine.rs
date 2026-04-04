@@ -26,6 +26,7 @@ use ocelot_semantic::compilation_session::CompilationSession;
 use ocelot_semantic::function_kind::FunctionKind;
 use ocelot_semantic::module_environment::ModuleEnvironment;
 use ocelot_semantic::program_environment::ProgramEnvironment;
+use ocelot_semantic::program_index::ProgramIndex;
 use std::collections::HashMap;
 
 const CORE_MODULE_NAME: &str = "core";
@@ -259,13 +260,15 @@ impl Engine {
             )?;
         }
 
+        let program_index = ProgramIndex::from_environment(&environment);
+
         for module in &mut modules {
             ocelot_resolver::resolve_module_items(
                 &mut module.script,
                 module.module_name.as_str(),
                 &module.source_file,
                 &mut compilation_context,
-                &environment,
+                &program_index,
                 module_environments
                     .get_mut(&module.source_file.path)
                     .expect("module environment should exist for loaded module"),
@@ -275,7 +278,7 @@ impl Engine {
 
         let resolved_functions = ocelot_resolver::resolve_user_defined_function_definitions(
             &mut compilation_context,
-            &environment,
+            &program_index,
             &module_environments,
             &compilation_session,
         )?;

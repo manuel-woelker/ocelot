@@ -39,6 +39,7 @@ use ocelot_semantic::function_kind::FunctionKind;
 use ocelot_semantic::module_environment::ModuleEnvironment;
 use ocelot_semantic::native_function::native_type_label;
 use ocelot_semantic::program_environment::ProgramEnvironment;
+use ocelot_semantic::program_index::ProgramIndex;
 use ocelot_semantic::resolved_function::ResolvedFunction;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
@@ -77,18 +78,19 @@ pub fn resolve(
         environment,
         &mut module_environment,
     )?;
+    let program_index = ProgramIndex::from_environment(environment);
     resolve_module_items(
         script,
         &module_name,
         source_file,
         compilation_context,
-        environment,
-        &mut module_environment,
+        &program_index,
+        &module_environment,
         compilation_session,
     )?;
     let resolved_functions = resolve_user_defined_function_definitions(
         compilation_context,
-        environment,
+        &program_index,
         &HashMap::from([(source_file.path.clone(), module_environment)]),
         compilation_session,
     )?;
@@ -198,19 +200,16 @@ pub fn resolve_module_items(
     module_name: &str,
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
-    environment: &ProgramEnvironment,
-    module_environment: &mut ModuleEnvironment,
-    compilation_session: &CompilationSession,
+    program_index: &ProgramIndex,
+    module_environment: &ModuleEnvironment,
+    _compilation_session: &CompilationSession,
 ) -> OcelotResult<()> {
-    let mut working_environment = environment.clone();
-    let mut working_module_environment = module_environment.clone();
-    let mut resolver = DeclarationIndexer::new(
+    let mut resolver = Resolver::new(
         source_file,
         module_name,
         compilation_context,
-        &mut working_environment,
-        &mut working_module_environment,
-        compilation_session,
+        program_index,
+        module_environment,
         None,
     );
     for item in &mut script.items {
@@ -222,17 +221,16 @@ pub fn resolve_module_items(
 /// Resolves the bodies of all registered user-defined functions.
 pub fn resolve_user_defined_function_definitions(
     compilation_context: &mut CompilationContext,
-    environment: &ProgramEnvironment,
+    program_index: &ProgramIndex,
     module_environments: &HashMap<ocelot_base::file_path::FilePath, ModuleEnvironment>,
-    compilation_session: &CompilationSession,
+    _compilation_session: &CompilationSession,
 ) -> OcelotResult<Vec<ResolvedFunction>> {
-    let mut working_environment = environment.clone();
-    let mut working_module_environments = module_environments.clone();
-    let function_indices = working_environment.user_defined_function_indices();
+    let function_indices = program_index.user_defined_function_indices();
+    let mut resolved_functions = Vec::with_capacity(function_indices.len());
 
     for function_index in function_indices {
         let (module_name, source_file) = {
-            let function_definition = working_environment.function_definition(function_index)?;
+            let function_definition = program_index.function_definition(function_index)?;
             let FunctionKind::UserDefined { source_file, .. } = &function_definition.kind else {
                 ocelot_base::bail!(
                     "internal error: function index did not reference a user-defined function"
@@ -244,40 +242,45 @@ pub fn resolve_user_defined_function_definitions(
             )
         };
 
-        let mut function = working_environment.take_user_defined_function(function_index)?;
-        let module_environment = working_module_environments
-            .get_mut(&source_file.path)
+        let function_definition = program_index.function_definition(function_index)?;
+        let FunctionKind::UserDefined { function, .. } = &function_definition.kind else {
+            ocelot_base::bail!(
+                "internal error: function index did not reference a user-defined function"
+            );
+        };
+        let module_environment = module_environments
+            .get(&source_file.path)
             .expect("module environment should exist for resolved function source file");
-        DeclarationIndexer::new(
+        let mut resolved_function = ResolvedFunction::new(
+            function_index,
+            (**function).clone(),
+            function_definition.direct_effects.clone(),
+        );
+        let mut function = std::mem::replace(
+            &mut resolved_function.function,
+            Box::new(FunctionItem::new(
+                Identifier::new("", Span::default()),
+                Vec::new(),
+                None,
+                None,
+                Vec::new(),
+                Span::default(),
+            )),
+        );
+        Resolver::new(
             &source_file,
             module_name.as_str(),
             compilation_context,
-            &mut working_environment,
+            program_index,
             module_environment,
-            compilation_session,
-            Some(function_index),
+            Some(&mut resolved_function),
         )
         .resolve_function_item(&mut function);
-        working_environment.put_user_defined_function(function_index, function)?;
+        resolved_function.function = function;
+        resolved_functions.push(resolved_function);
     }
 
-    propagate_function_effects(compilation_context, &mut working_environment)?;
-    let mut resolved_functions = Vec::new();
-    for function_index in working_environment.user_defined_function_indices() {
-        let function_definition = working_environment.function_definition(function_index)?;
-        let FunctionKind::UserDefined { function, .. } = &function_definition.kind else {
-            continue;
-        };
-        resolved_functions.push(ResolvedFunction {
-            function_index,
-            function: function.clone(),
-            direct_effects: function_definition.direct_effects.clone(),
-            direct_effect_sources: function_definition.direct_effect_sources.clone(),
-            inferred_effects: function_definition.inferred_effects.clone(),
-            called_functions: function_definition.called_functions.clone(),
-        });
-    }
-
+    propagate_function_effects(compilation_context, program_index, &mut resolved_functions)?;
     Ok(resolved_functions)
 }
 
@@ -300,6 +303,412 @@ fn default_module_name(source_file: &SourceFile) -> SharedString {
     source_file.path.file_stem().unwrap_or_default().into()
 }
 
+struct Resolver<'a> {
+    source_file: &'a SourceFile,
+    module_name: &'a str,
+    compilation_context: &'a mut CompilationContext,
+    program_index: &'a ProgramIndex,
+    module_environment: &'a ModuleEnvironment,
+    resolved_function: Option<&'a mut ResolvedFunction>,
+    local_value_types: HashMap<SharedString, TypeIndex>,
+}
+
+impl<'a> Resolver<'a> {
+    fn new(
+        source_file: &'a SourceFile,
+        module_name: &'a str,
+        compilation_context: &'a mut CompilationContext,
+        program_index: &'a ProgramIndex,
+        module_environment: &'a ModuleEnvironment,
+        resolved_function: Option<&'a mut ResolvedFunction>,
+    ) -> Self {
+        Self {
+            source_file,
+            module_name,
+            compilation_context,
+            program_index,
+            module_environment,
+            resolved_function,
+            local_value_types: HashMap::new(),
+        }
+    }
+
+    fn resolve_item(&mut self, item: &mut Item) {
+        match &mut item.kind {
+            ItemKind::Effect(_) => {
+                unreachable!("effect items should be lowered before item resolution")
+            }
+            ItemKind::Statement(statement) => self.resolve_statement(statement),
+            ItemKind::Test(test_item) => self.resolve_test_item(test_item),
+            ItemKind::Function(_) => {
+                unreachable!("function items should be lowered before item resolution")
+            }
+            ItemKind::Use(_) => unreachable!("use items should be lowered before item resolution"),
+        }
+    }
+
+    fn resolve_function_item(&mut self, function_item: &mut FunctionItem) {
+        self.local_value_types.clear();
+
+        for parameter in &function_item.parameters {
+            self.local_value_types
+                .insert(parameter.identifier.name.clone(), parameter.ty);
+        }
+
+        for statement in &mut function_item.body {
+            self.resolve_statement(statement);
+        }
+
+        self.local_value_types.clear();
+    }
+
+    fn resolve_test_item(&mut self, test_item: &mut TestItem) {
+        for statement in &mut test_item.body {
+            self.resolve_statement(statement);
+        }
+    }
+
+    fn resolve_statement(&mut self, statement: &mut Statement) {
+        match &mut statement.kind {
+            StatementKind::Expression(ExpressionStatement { expression }) => {
+                self.resolve_expression(expression);
+            }
+        }
+    }
+
+    fn resolve_expression(&mut self, expression: &mut Expression) {
+        match &mut expression.kind {
+            ExpressionKind::BooleanLiteral(_)
+            | ExpressionKind::Identifier(_)
+            | ExpressionKind::QualifiedIdentifier(_)
+            | ExpressionKind::StringLiteral(_) => {}
+            ExpressionKind::Not(not_expression) => {
+                self.resolve_expression(&mut not_expression.operand);
+            }
+            ExpressionKind::Call(call_expression) => self.resolve_call_expression(call_expression),
+        }
+
+        self.annotate_expression_type(expression);
+    }
+
+    fn resolve_call_expression(&mut self, call_expression: &mut CallExpression) {
+        self.resolve_expression(&mut call_expression.callee);
+        for argument in &mut call_expression.arguments {
+            self.resolve_expression(argument);
+        }
+
+        let resolved = match &call_expression.callee.kind {
+            ExpressionKind::Identifier(identifier) => {
+                if self
+                    .local_value_types
+                    .contains_key(identifier.name.as_str())
+                {
+                    self.add_diagnostic(
+                        format!("`{}` is a value, not a function", identifier.name),
+                        identifier.span.clone(),
+                        "callable function required",
+                    );
+                    return;
+                }
+
+                let Some(function_index) = self.resolve_local_function(identifier.name.as_str())
+                else {
+                    self.add_diagnostic(
+                        format!("unknown function `{}`", identifier.name),
+                        identifier.span.clone(),
+                        "unknown function",
+                    );
+                    return;
+                };
+
+                Some((function_index, identifier.name.clone()))
+            }
+            ExpressionKind::QualifiedIdentifier(identifier) => {
+                self.resolve_qualified_call(identifier)
+            }
+            _ => {
+                self.add_diagnostic(
+                    "only identifier calls are supported",
+                    call_expression.callee.span.clone(),
+                    "callee must be an identifier",
+                );
+                None
+            }
+        };
+
+        let Some((function_index, function_name)) = resolved else {
+            return;
+        };
+
+        if !self.validate_call_arity(function_name.as_str(), call_expression, function_index) {
+            return;
+        }
+
+        call_expression.resolve_to(function_index);
+        self.record_effect_dependency(function_index, call_expression.callee.span.clone());
+        self.validate_call_argument_types(function_name.as_str(), call_expression, function_index);
+    }
+
+    fn resolve_qualified_call(
+        &mut self,
+        identifier: &QualifiedIdentifier,
+    ) -> Option<(FunctionIndex, SharedString)> {
+        let qualified_name = identifier.render();
+        let module_name = identifier
+            .module_segments()
+            .iter()
+            .map(|segment| segment.name.as_str())
+            .collect::<Vec<_>>()
+            .join("::");
+
+        if !self.program_index.has_module(&module_name) {
+            self.add_diagnostic(
+                format!("unknown module `{module_name}`"),
+                identifier.span(),
+                "unknown module",
+            );
+            return None;
+        }
+
+        let Some(function_index) = self
+            .program_index
+            .resolve_function_exact(qualified_name.as_str())
+        else {
+            let function_name = identifier
+                .last()
+                .map(|segment| segment.name.clone())
+                .unwrap_or_else(SharedString::empty);
+            self.add_diagnostic(
+                format!("module `{module_name}` has no function `{function_name}`"),
+                identifier.span(),
+                "unknown function",
+            );
+            return None;
+        };
+
+        Some((function_index, qualified_name))
+    }
+
+    fn resolve_local_function(&self, name: &str) -> Option<FunctionIndex> {
+        if !self.module_name.is_empty() {
+            let qualified_name = self
+                .program_index
+                .qualify_function_name(self.module_name, name);
+            if let Some(function_index) = self.program_index.resolve_function_exact(&qualified_name)
+            {
+                return Some(function_index);
+            }
+        }
+
+        if let Some(function_index) = self.module_environment.resolve_imported_function(name) {
+            return Some(function_index);
+        }
+
+        let core_function_name = self.program_index.qualify_function_name("core", name);
+        self.program_index
+            .resolve_function_exact(&core_function_name)
+    }
+
+    fn record_effect_dependency(&mut self, called_function_index: FunctionIndex, span: Span) {
+        let Some(current_function) = self.resolved_function.as_mut() else {
+            return;
+        };
+
+        let Ok(called_function) = self
+            .program_index
+            .function_definition(called_function_index)
+        else {
+            return;
+        };
+
+        match &called_function.kind {
+            FunctionKind::NativeFunction { .. } => {
+                for effect_index in &called_function.inferred_effects {
+                    current_function.direct_effects.insert(*effect_index);
+                    current_function
+                        .direct_effect_sources
+                        .entry(*effect_index)
+                        .or_insert(span.clone());
+                }
+            }
+            FunctionKind::UserDefined { .. } => {
+                current_function
+                    .called_functions
+                    .entry(called_function_index)
+                    .or_insert(span);
+            }
+        }
+    }
+
+    fn validate_call_argument_types(
+        &mut self,
+        function_name: &str,
+        call_expression: &CallExpression,
+        function_index: FunctionIndex,
+    ) {
+        let Ok(function_definition) = self.program_index.function_definition(function_index) else {
+            return;
+        };
+        let any_type_index = self.program_index.any_type_index();
+
+        for (argument_index, (argument, expected_type)) in call_expression
+            .arguments
+            .iter()
+            .zip(function_definition.argument_types.iter())
+            .enumerate()
+        {
+            if argument.ty.is_unresolved() || *expected_type == any_type_index {
+                continue;
+            }
+
+            if argument.ty == *expected_type {
+                continue;
+            }
+
+            self.add_diagnostic(
+                self.argument_type_error_message(function_name, argument_index, *expected_type),
+                argument.span.clone(),
+                format!("expected {}", self.type_label(*expected_type)),
+            );
+        }
+    }
+
+    fn validate_call_arity(
+        &mut self,
+        function_name: &str,
+        call_expression: &CallExpression,
+        function_index: FunctionIndex,
+    ) -> bool {
+        let Ok(function_definition) = self.program_index.function_definition(function_index) else {
+            return true;
+        };
+        let expected = function_definition.argument_types.len();
+        let actual = call_expression.arguments.len();
+
+        if expected == actual {
+            return true;
+        }
+
+        self.add_diagnostic(
+            self.argument_arity_error_message(function_name, expected),
+            self.call_arity_span(call_expression, actual, expected),
+            if actual < expected {
+                "missing argument"
+            } else {
+                "extra argument"
+            },
+        );
+        false
+    }
+
+    fn annotate_expression_type(&mut self, expression: &mut Expression) {
+        let boolean_type_index = self.program_index.boolean_type_index();
+        let string_type_index = self.program_index.string_type_index();
+
+        match &expression.kind {
+            ExpressionKind::BooleanLiteral(_) => expression.ty = boolean_type_index,
+            ExpressionKind::Identifier(identifier) => {
+                expression.ty = self
+                    .local_value_types
+                    .get(identifier.name.as_str())
+                    .copied()
+                    .unwrap_or_else(TypeIndex::unresolved);
+            }
+            ExpressionKind::StringLiteral(_) => expression.ty = string_type_index,
+            ExpressionKind::QualifiedIdentifier(_) | ExpressionKind::Call(_) => {
+                expression.ty = TypeIndex::unresolved();
+            }
+            ExpressionKind::Not(not_expression) => {
+                if not_expression.operand.ty == boolean_type_index {
+                    expression.ty = boolean_type_index;
+                    return;
+                }
+
+                if !not_expression.operand.ty.is_unresolved() {
+                    self.add_diagnostic(
+                        "operator `not` expects a bool operand",
+                        not_expression.operand.span.clone(),
+                        "bool operand required",
+                    );
+                }
+
+                expression.ty = TypeIndex::unresolved();
+            }
+        }
+    }
+
+    fn argument_type_error_message(
+        &self,
+        function_name: &str,
+        argument_index: usize,
+        expected_type: TypeIndex,
+    ) -> SharedString {
+        if argument_index == 0
+            && function_name == "assert"
+            && expected_type == self.program_index.boolean_type_index()
+        {
+            return "type error: `assert` expects a bool argument".into();
+        }
+
+        format!(
+            "type error: argument {} to `{}` must be {}",
+            argument_index + 1,
+            function_name,
+            self.type_label(expected_type)
+        )
+        .into()
+    }
+
+    fn argument_arity_error_message(
+        &self,
+        function_name: &str,
+        expected_argument_count: usize,
+    ) -> SharedString {
+        match expected_argument_count {
+            0 => format!("type error: `{function_name}` expects no arguments").into(),
+            1 => format!("type error: `{function_name}` expects exactly one argument").into(),
+            2 => format!("type error: `{function_name}` expects exactly two arguments").into(),
+            _ => format!(
+                "type error: `{function_name}` expects exactly {expected_argument_count} arguments"
+            )
+            .into(),
+        }
+    }
+
+    fn call_arity_span(
+        &self,
+        call_expression: &CallExpression,
+        actual_argument_count: usize,
+        expected_argument_count: usize,
+    ) -> Span {
+        if actual_argument_count > expected_argument_count {
+            return call_expression.arguments[expected_argument_count]
+                .span
+                .clone();
+        }
+
+        call_expression.callee.span.clone()
+    }
+
+    fn type_label(&self, type_index: TypeIndex) -> SharedString {
+        self.program_index
+            .type_definition(type_index)
+            .map(|ty| ty.name.clone())
+            .unwrap_or_else(|_| "unknown".into())
+    }
+
+    fn add_diagnostic(
+        &mut self,
+        message: impl Into<SharedString>,
+        span: Span,
+        annotation: impl Into<SharedString>,
+    ) {
+        let diagnostic = source_diagnostic_for_span(self.source_file, message, span, annotation);
+        self.compilation_context.add_diagnostic(diagnostic);
+    }
+}
+
+#[allow(dead_code)]
 struct DeclarationIndexer<'a> {
     source_file: &'a SourceFile,
     module_name: &'a str,
@@ -311,6 +720,7 @@ struct DeclarationIndexer<'a> {
     local_value_types: HashMap<SharedString, TypeIndex>,
 }
 
+#[allow(dead_code)]
 impl<'a> DeclarationIndexer<'a> {
     fn new(
         source_file: &'a SourceFile,
@@ -1141,58 +1551,71 @@ impl<'a> DeclarationIndexer<'a> {
 
 fn propagate_function_effects(
     compilation_context: &mut CompilationContext,
-    environment: &mut ProgramEnvironment,
+    program_index: &ProgramIndex,
+    resolved_functions: &mut [ResolvedFunction],
 ) -> OcelotResult<()> {
-    let function_indices = environment.user_defined_function_indices();
+    let resolved_function_map = resolved_functions
+        .iter()
+        .enumerate()
+        .map(|(index, function)| (function.function_index, index))
+        .collect::<HashMap<_, _>>();
 
     let mut changed = true;
     while changed {
         changed = false;
+        let inferred_effects_by_function = resolved_functions
+            .iter()
+            .map(|function| (function.function_index, function.inferred_effects.clone()))
+            .collect::<HashMap<_, _>>();
 
-        for function_index in &function_indices {
-            let (direct_effects, called_functions, current_inferred_effects) = {
-                let function = environment.function_definition(*function_index)?;
-                (
-                    function.direct_effects.clone(),
-                    function.called_functions.clone(),
-                    function.inferred_effects.clone(),
-                )
-            };
+        for function in resolved_functions.iter_mut() {
+            let current_inferred_effects = function.inferred_effects.clone();
+            let mut next_effects = function.direct_effects.clone();
 
-            let mut next_effects = direct_effects;
-            for called_function_index in called_functions.keys() {
-                let called_function = environment.function_definition(*called_function_index)?;
-                next_effects.extend(called_function.inferred_effects.iter().copied());
+            for called_function_index in function.called_functions.keys() {
+                if let Some(inferred_effects) =
+                    inferred_effects_by_function.get(called_function_index)
+                {
+                    next_effects.extend(inferred_effects.iter().copied());
+                } else {
+                    let called_function =
+                        program_index.function_definition(*called_function_index)?;
+                    next_effects.extend(called_function.inferred_effects.iter().copied());
+                }
             }
 
             if next_effects != current_inferred_effects {
-                environment
-                    .function_definition_mut(*function_index)?
-                    .inferred_effects = next_effects;
+                function.inferred_effects = next_effects;
                 changed = true;
             }
         }
     }
 
-    for function_index in function_indices {
-        let function = environment.function_definition(function_index)?.clone();
+    for function in resolved_functions.iter() {
+        let function_definition = program_index.function_definition(function.function_index)?;
 
-        for forbidden_effect in &function.cannot_effects {
+        for forbidden_effect in &function_definition.cannot_effects {
             if !function.inferred_effects.contains(forbidden_effect) {
                 continue;
             }
 
-            let effect_name = environment
+            let effect_name = program_index
                 .effect_definition(*forbidden_effect)?
                 .name
                 .clone();
-            let Some((span, annotation)) =
-                violation_source(environment, &function, *forbidden_effect)?
+            let Some((span, annotation)) = violation_source(
+                program_index,
+                function_definition,
+                function,
+                resolved_functions,
+                &resolved_function_map,
+                *forbidden_effect,
+            )?
             else {
                 continue;
             };
 
-            let FunctionKind::UserDefined { source_file, .. } = &function.kind else {
+            let FunctionKind::UserDefined { source_file, .. } = &function_definition.kind else {
                 continue;
             };
 
@@ -1200,13 +1623,13 @@ fn propagate_function_effects(
                 source_file,
                 format!(
                     "effect error: function `{}` cannot perform effect `{}`",
-                    function.name, effect_name
+                    function_definition.name, effect_name
                 ),
                 span,
                 annotation,
             );
 
-            if let Some(cannot_clause_span) = function.cannot_clause_span.clone() {
+            if let Some(cannot_clause_span) = function_definition.cannot_clause_span.clone() {
                 diagnostic = diagnostic.with_excerpt(source_excerpt_for_span(
                     source_file,
                     cannot_clause_span,
@@ -1222,42 +1645,55 @@ fn propagate_function_effects(
 }
 
 fn violation_source(
-    environment: &ProgramEnvironment,
-    function: &FunctionDefinition,
+    program_index: &ProgramIndex,
+    function_definition: &FunctionDefinition,
+    resolved_function: &ResolvedFunction,
+    resolved_functions: &[ResolvedFunction],
+    resolved_function_map: &HashMap<FunctionIndex, usize>,
     effect_index: EffectIndex,
 ) -> OcelotResult<Option<(Span, SharedString)>> {
-    if function.can_effects.contains(&effect_index)
-        && let Some(span) = function.can_clause_span.clone()
+    if function_definition.can_effects.contains(&effect_index)
+        && let Some(span) = function_definition.can_clause_span.clone()
     {
         return Ok(Some((span, "effect declared here".into())));
     }
 
-    for (called_function_index, span) in &function.called_functions {
-        let called_function = environment.function_definition(*called_function_index)?;
-        if called_function.inferred_effects.contains(&effect_index) {
+    for (called_function_index, span) in &resolved_function.called_functions {
+        let called_has_effect =
+            if let Some(resolved_index) = resolved_function_map.get(called_function_index) {
+                resolved_functions[*resolved_index]
+                    .inferred_effects
+                    .contains(&effect_index)
+            } else {
+                program_index
+                    .function_definition(*called_function_index)?
+                    .inferred_effects
+                    .contains(&effect_index)
+            };
+        if called_has_effect {
             return Ok(Some((
                 span.clone(),
                 format!(
                     "this has a `{}` effect",
-                    effect_label(environment, effect_index)?
+                    effect_label(program_index, effect_index)?
                 )
                 .into(),
             )));
         }
     }
 
-    if let Some(span) = function.direct_effect_sources.get(&effect_index) {
+    if let Some(span) = resolved_function.direct_effect_sources.get(&effect_index) {
         return Ok(Some((
             span.clone(),
             format!(
                 "this has a `{}` effect",
-                effect_label(environment, effect_index)?
+                effect_label(program_index, effect_index)?
             )
             .into(),
         )));
     }
 
-    if let Some(span) = function.cannot_clause_span.clone() {
+    if let Some(span) = function_definition.cannot_clause_span.clone() {
         return Ok(Some((span, "forbidden effect".into())));
     }
 
@@ -1265,10 +1701,10 @@ fn violation_source(
 }
 
 fn effect_label(
-    environment: &ProgramEnvironment,
+    program_index: &ProgramIndex,
     effect_index: EffectIndex,
 ) -> OcelotResult<SharedString> {
-    Ok(environment.effect_definition(effect_index)?.name.clone())
+    Ok(program_index.effect_definition(effect_index)?.name.clone())
 }
 
 fn source_diagnostic_for_span(
@@ -1349,6 +1785,7 @@ mod tests {
     use ocelot_semantic::function_kind::FunctionKind;
     use ocelot_semantic::module_environment::ModuleEnvironment;
     use ocelot_semantic::program_environment::ProgramEnvironment;
+    use ocelot_semantic::program_index::ProgramIndex;
     use std::collections::HashMap;
 
     fn identifier(name: &str, span: Span) -> Expression {
@@ -1863,12 +2300,13 @@ mod tests {
             &compilation_session,
         )
         .unwrap();
+        let program_index = ProgramIndex::from_environment(&environment);
         resolve_module_items(
             &mut main_script,
             "main",
             &main_source_file,
             &mut context,
-            &environment,
+            &program_index,
             module_environments
                 .get_mut(&main_source_file.path)
                 .expect("module environment should exist"),
@@ -1877,7 +2315,7 @@ mod tests {
         .unwrap();
         let resolved_functions = resolve_user_defined_function_definitions(
             &mut context,
-            &environment,
+            &program_index,
             &module_environments,
             &compilation_session,
         )
@@ -1975,12 +2413,13 @@ mod tests {
                 .expect("module environment should exist"),
         )
         .unwrap();
+        let program_index = ProgramIndex::from_environment(&environment);
         resolve_module_items(
             &mut main_script,
             "main",
             &main_source_file,
             &mut context,
-            &environment,
+            &program_index,
             module_environments
                 .get_mut(&main_source_file.path)
                 .expect("module environment should exist"),
@@ -1989,7 +2428,7 @@ mod tests {
         .unwrap();
         let resolved_functions = resolve_user_defined_function_definitions(
             &mut context,
-            &environment,
+            &program_index,
             &module_environments,
             &compilation_session,
         )
@@ -2111,12 +2550,13 @@ mod tests {
                 .expect("module environment should exist"),
         )
         .unwrap();
+        let program_index = ProgramIndex::from_environment(&environment);
         resolve_module_items(
             &mut main_script,
             "main",
             &main_source_file,
             &mut context,
-            &environment,
+            &program_index,
             module_environments
                 .get_mut(&main_source_file.path)
                 .expect("module environment should exist"),
@@ -2125,7 +2565,7 @@ mod tests {
         .unwrap();
         let resolved_functions = resolve_user_defined_function_definitions(
             &mut context,
-            &environment,
+            &program_index,
             &module_environments,
             &compilation_session,
         )
@@ -2418,16 +2858,17 @@ mod tests {
         let mut environment = ProgramEnvironment::new();
         environment.add_module("main");
         let compilation_session = compilation_session();
-        let mut module_environment = create_module_environment();
+        let module_environment = create_module_environment();
         let mut context = CompilationContext::default();
+        let program_index = ProgramIndex::from_environment(&environment);
 
         resolve_module_items(
             &mut script,
             "main",
             &source_file,
             &mut context,
-            &environment,
-            &mut module_environment,
+            &program_index,
+            &module_environment,
             &compilation_session,
         )
         .unwrap();
@@ -2581,12 +3022,13 @@ mod tests {
             &compilation_session,
         )
         .unwrap();
+        let program_index = ProgramIndex::from_environment(&environment);
         resolve_module_items(
             &mut script,
             "main",
             &source_file,
             &mut context,
-            &environment,
+            &program_index,
             module_environments
                 .get_mut(&source_file.path)
                 .expect("module environment should exist"),
@@ -2595,7 +3037,7 @@ mod tests {
         .unwrap();
         let resolved_functions = resolve_user_defined_function_definitions(
             &mut context,
-            &environment,
+            &program_index,
             &module_environments,
             &compilation_session,
         )
@@ -2678,12 +3120,13 @@ mod tests {
             &compilation_session,
         )
         .unwrap();
+        let program_index = ProgramIndex::from_environment(&environment);
         resolve_module_items(
             &mut script,
             "main",
             &source_file,
             &mut context,
-            &environment,
+            &program_index,
             module_environments
                 .get_mut(&source_file.path)
                 .expect("module environment should exist"),
@@ -2692,7 +3135,7 @@ mod tests {
         .unwrap();
         let resolved_functions = resolve_user_defined_function_definitions(
             &mut context,
-            &environment,
+            &program_index,
             &module_environments,
             &compilation_session,
         )
@@ -2758,9 +3201,10 @@ mod tests {
             &compilation_session,
         )
         .unwrap();
+        let program_index = ProgramIndex::from_environment(&environment);
         let resolved_functions = resolve_user_defined_function_definitions(
             &mut context,
-            &environment,
+            &program_index,
             &module_environments,
             &compilation_session,
         )
