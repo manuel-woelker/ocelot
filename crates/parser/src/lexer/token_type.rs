@@ -8,6 +8,7 @@ pub enum TokenType {
     String,
     False,
     Fun,
+    Native,
     Not,
     True,
     Use,

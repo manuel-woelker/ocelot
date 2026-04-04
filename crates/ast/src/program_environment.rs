@@ -13,7 +13,6 @@ use crate::type_kind::TypeKind;
 use ocelot_base::file_path::FilePath;
 use ocelot_base::result::{OcelotResult, OptionExt};
 use ocelot_base::shared_string::SharedString;
-use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -26,6 +25,7 @@ pub struct ProgramEnvironment {
     pub module_symbols: HashSet<SharedString>,
     pub effects: Vec<Effect>,
     pub effect_symbols: HashMap<SharedString, EffectIndex>,
+    pub native_function_symbols: HashMap<SharedString, NativeFunction>,
     pub types: Vec<Ty>,
     pub type_symbols: HashMap<SharedString, TypeIndex>,
 }
@@ -37,7 +37,7 @@ impl Default for ProgramEnvironment {
 }
 
 impl ProgramEnvironment {
-    /// Creates a program environment seeded with builtin types and native functions.
+    /// Creates a program environment seeded with primitive types and native implementations.
     pub fn new() -> Self {
         let mut environment = Self {
             functions: vec![None],
@@ -46,19 +46,14 @@ impl ProgramEnvironment {
             module_symbols: HashSet::new(),
             effects: vec![Effect::builtin("__reserved_effect_slot__")],
             effect_symbols: HashMap::new(),
+            native_function_symbols: HashMap::new(),
             types: vec![Ty::new("unresolved", TypeKind::Unresolved)],
             type_symbols: HashMap::new(),
         };
 
-        environment.seed_builtin_effects();
         environment.seed_builtin_types();
-        environment.seed_native_functions();
+        environment.seed_native_function_registry();
         environment
-    }
-
-    fn seed_builtin_effects(&mut self) {
-        self.add_effect(Effect::builtin("write_stdout"));
-        self.add_effect(Effect::builtin("panic"));
     }
 
     fn seed_builtin_types(&mut self) {
@@ -67,25 +62,10 @@ impl ProgramEnvironment {
         self.add_type(Ty::new("bool", TypeKind::Boolean));
     }
 
-    fn seed_native_functions(&mut self) {
-        self.add_function(FunctionDefinition::native(
-            "println",
-            vec![self.any_type_index()],
-            NativeFunction::Println,
-            BTreeSet::from([self.write_stdout_effect_index()]),
-        ));
-        self.add_function(FunctionDefinition::native(
-            "assert",
-            vec![self.boolean_type_index()],
-            NativeFunction::Assert,
-            BTreeSet::from([self.panic_effect_index()]),
-        ));
-        self.add_function(FunctionDefinition::native(
-            "assert_eq",
-            vec![self.any_type_index(), self.any_type_index()],
-            NativeFunction::AssertEq,
-            BTreeSet::from([self.panic_effect_index()]),
-        ));
+    fn seed_native_function_registry(&mut self) {
+        self.register_native_function_implementation("core::println", NativeFunction::Println);
+        self.register_native_function_implementation("core::assert", NativeFunction::Assert);
+        self.register_native_function_implementation("core::assert_eq", NativeFunction::AssertEq);
     }
 
     /// Resolves one effect name to its table handle.
@@ -112,13 +92,13 @@ impl ProgramEnvironment {
     /// Returns the canonical write-stdout effect handle.
     pub fn write_stdout_effect_index(&self) -> EffectIndex {
         self.resolve_effect("write_stdout")
-            .expect("write_stdout effect should always be seeded")
+            .expect("write_stdout effect should already be declared")
     }
 
     /// Returns the canonical panic effect handle.
     pub fn panic_effect_index(&self) -> EffectIndex {
         self.resolve_effect("panic")
-            .expect("panic effect should always be seeded")
+            .expect("panic effect should already be declared")
     }
 
     /// Resolves one type name to its table handle.
@@ -192,7 +172,8 @@ impl ProgramEnvironment {
             return Some(function_index);
         }
 
-        self.function_symbols.get(name).copied()
+        let core_function_name = self.qualify_function_name("core", name);
+        self.function_symbols.get(&core_function_name).copied()
     }
 
     /// Resolves one imported function binding by file-local name.
@@ -223,6 +204,24 @@ impl ProgramEnvironment {
     /// Registers one module name.
     pub fn add_module(&mut self, module_name: impl Into<SharedString>) {
         self.module_symbols.insert(module_name.into());
+    }
+
+    /// Registers one native function implementation keyed by fully qualified name.
+    pub fn register_native_function_implementation(
+        &mut self,
+        qualified_name: impl Into<SharedString>,
+        native_function: NativeFunction,
+    ) {
+        self.native_function_symbols
+            .insert(qualified_name.into(), native_function);
+    }
+
+    /// Resolves one registered native function implementation by fully qualified name.
+    pub fn resolve_native_function_implementation(
+        &self,
+        qualified_name: &str,
+    ) -> Option<NativeFunction> {
+        self.native_function_symbols.get(qualified_name).copied()
     }
 
     /// Returns whether one module name is known.
@@ -334,6 +333,7 @@ impl ProgramEnvironment {
 #[cfg(test)]
 mod tests {
     use super::ProgramEnvironment;
+    use crate::effect::Effect;
     use crate::function_definition::FunctionDefinition;
     use crate::function_index::FunctionIndex;
     use crate::function_item::FunctionItem;
@@ -347,22 +347,38 @@ mod tests {
     use ocelot_base::span::Span;
     use std::collections::BTreeSet;
     #[test]
-    fn program_environment_indexes_functions_by_name() {
+    fn program_environment_indexes_native_function_implementations_by_name() {
         let environment = ProgramEnvironment::new();
 
-        assert!(environment.resolve_function("println").is_some());
-        assert!(environment.resolve_function("assert").is_some());
-        assert!(environment.resolve_function("assert_eq").is_some());
+        assert_eq!(
+            environment.resolve_native_function_implementation("core::println"),
+            Some(NativeFunction::Println)
+        );
+        assert_eq!(
+            environment.resolve_native_function_implementation("core::assert"),
+            Some(NativeFunction::Assert)
+        );
+        assert_eq!(
+            environment.resolve_native_function_implementation("core::assert_eq"),
+            Some(NativeFunction::AssertEq)
+        );
     }
 
     #[test]
-    fn function_definition_looks_up_native_function_metadata() {
-        let environment = ProgramEnvironment::new();
-        let function_index = environment.resolve_function("println").unwrap();
+    fn add_function_can_store_native_function_metadata() {
+        let mut environment = ProgramEnvironment::new();
+        let function_index = environment.add_function(FunctionDefinition::native(
+            "core",
+            "core::println",
+            vec![environment.any_type_index()],
+            NativeFunction::Println,
+            BTreeSet::new(),
+            BTreeSet::new(),
+        ));
         let function = environment.function_definition(function_index).unwrap();
 
-        assert_eq!(function.name, "println");
-        assert_eq!(function.module_name, "");
+        assert_eq!(function.name, "core::println");
+        assert_eq!(function.module_name, "core");
         assert_eq!(function.argument_types, vec![environment.any_type_index()]);
         assert_eq!(
             function.kind,
@@ -423,37 +439,32 @@ mod tests {
     }
 
     #[test]
-    fn program_environment_seeds_builtin_effects() {
-        let environment = ProgramEnvironment::new();
+    fn add_effect_indexes_effects_by_name() {
+        let mut environment = ProgramEnvironment::new();
+
+        let write_stdout = environment.add_effect(Effect::builtin("write_stdout"));
+        let panic = environment.add_effect(Effect::builtin("panic"));
 
         assert_eq!(
-            environment
-                .effect_definition(environment.write_stdout_effect_index())
-                .unwrap()
-                .name,
+            environment.effect_definition(write_stdout).unwrap().name,
             "write_stdout"
         );
-        assert_eq!(
-            environment
-                .effect_definition(environment.panic_effect_index())
-                .unwrap()
-                .name,
-            "panic"
-        );
+        assert_eq!(environment.effect_definition(panic).unwrap().name, "panic");
     }
 
     #[test]
-    fn program_environment_indexes_effects_by_name() {
-        let environment = ProgramEnvironment::new();
+    fn write_stdout_and_panic_effect_accessors_use_declared_effects() {
+        let mut environment = ProgramEnvironment::new();
+        let write_stdout = environment.add_effect(Effect::builtin("write_stdout"));
+        let panic = environment.add_effect(Effect::builtin("panic"));
 
         assert_eq!(
             environment.resolve_effect("write_stdout"),
-            Some(environment.write_stdout_effect_index())
+            Some(write_stdout)
         );
-        assert_eq!(
-            environment.resolve_effect("panic"),
-            Some(environment.panic_effect_index())
-        );
+        assert_eq!(environment.resolve_effect("panic"), Some(panic));
+        assert_eq!(environment.write_stdout_effect_index(), write_stdout);
+        assert_eq!(environment.panic_effect_index(), panic);
     }
 
     #[test]
@@ -512,7 +523,7 @@ mod tests {
 
         assert_eq!(
             environment.user_defined_function_indices(),
-            vec![FunctionIndex::new(4)]
+            vec![FunctionIndex::new(1)]
         );
     }
 
@@ -585,7 +596,7 @@ mod tests {
         );
         assert_eq!(
             environment.resolve_local_function(&source_path, "math", "println"),
-            environment.resolve_function("println")
+            environment.resolve_function("core::println")
         );
     }
 

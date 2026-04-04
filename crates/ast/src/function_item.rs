@@ -7,6 +7,7 @@ use ocelot_base::span::Span;
 /// Top-level user-defined function declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionItem {
+    pub is_native: bool,
     pub identifier: Identifier,
     pub parameters: Vec<FunctionParameter>,
     pub can_clause: Option<FunctionEffectClause>,
@@ -26,11 +27,31 @@ impl FunctionItem {
         span: Span,
     ) -> Self {
         Self {
+            is_native: false,
             identifier,
             parameters,
             can_clause,
             cannot_clause,
             body,
+            span,
+        }
+    }
+
+    /// Creates a native function item from its identifier, signature, and source span.
+    pub fn new_native(
+        identifier: Identifier,
+        parameters: Vec<FunctionParameter>,
+        can_clause: Option<FunctionEffectClause>,
+        cannot_clause: Option<FunctionEffectClause>,
+        span: Span,
+    ) -> Self {
+        Self {
+            is_native: true,
+            identifier,
+            parameters,
+            can_clause,
+            cannot_clause,
+            body: Vec::new(),
             span,
         }
     }

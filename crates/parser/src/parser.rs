@@ -83,6 +83,7 @@ impl<'a> Parser<'a> {
         match self.current().token_type {
             TokenType::Effect => self.parse_effect_item(),
             TokenType::Fun => self.parse_function_item(),
+            TokenType::Native => self.parse_function_item(),
             TokenType::Test => self.parse_test_item(),
             TokenType::Use => self.parse_use_item(),
             _ => Ok({
@@ -112,9 +113,18 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_function_item(&mut self) -> OcelotResult<Item> {
+        let native_token = if self.at(TokenType::Native) {
+            Some(self.expect(TokenType::Native, "expected `native` keyword")?)
+        } else {
+            None
+        };
         let fun_token = self.expect(TokenType::Fun, "expected `fun` item")?;
         let name_token = self.expect(TokenType::Identifier, "expected function name")?;
         let name = self.source_text(&name_token.span).to_owned();
+        let span_start = native_token
+            .as_ref()
+            .map(|token| token.span.start())
+            .unwrap_or_else(|| fun_token.span.start());
         self.expect(TokenType::LeftParen, "expected `(` after function name")?;
         let parameters = self.parse_function_parameters()?;
         self.expect(TokenType::RightParen, "expected `)` after parameter list")?;
@@ -138,33 +148,57 @@ impl<'a> Parser<'a> {
                 "`can` must appear first",
             );
         }
-        self.expect(TokenType::LeftBrace, "expected `{` before function body")?;
-
-        let mut body = Vec::new();
-        while !self.at(TokenType::RightBrace) {
-            if self.at(TokenType::EndOfFile) {
+        let span;
+        let function_item = if native_token.is_some() {
+            if self.at(TokenType::LeftBrace) {
                 return self.emit_fatal_diagnostic(
-                    "expected `}` to close function body",
+                    "native functions must not have a body",
                     self.current().span.clone(),
-                    "function body ends here",
+                    "remove this body",
                 );
             }
-            body.push(self.parse_statement()?);
-        }
 
-        let right_brace = self.expect(TokenType::RightBrace, "expected `}` after function body")?;
-        let span = Span::new(fun_token.span.start(), right_brace.span.end());
-        Ok(Item::new(
-            ItemKind::Function(FunctionItem::new(
+            let semicolon = self.expect(
+                TokenType::Semicolon,
+                "expected `;` after native function declaration",
+            )?;
+            span = Span::new(span_start, semicolon.span.end());
+            FunctionItem::new_native(
+                Identifier::new(name, name_token.span),
+                parameters,
+                can_clause,
+                cannot_clause,
+                span.clone(),
+            )
+        } else {
+            self.expect(TokenType::LeftBrace, "expected `{` before function body")?;
+
+            let mut body = Vec::new();
+            while !self.at(TokenType::RightBrace) {
+                if self.at(TokenType::EndOfFile) {
+                    return self.emit_fatal_diagnostic(
+                        "expected `}` to close function body",
+                        self.current().span.clone(),
+                        "function body ends here",
+                    );
+                }
+                body.push(self.parse_statement()?);
+            }
+
+            let right_brace =
+                self.expect(TokenType::RightBrace, "expected `}` after function body")?;
+            span = Span::new(span_start, right_brace.span.end());
+            FunctionItem::new(
                 Identifier::new(name, name_token.span),
                 parameters,
                 can_clause,
                 cannot_clause,
                 body,
                 span.clone(),
-            )),
-            span,
-        ))
+            )
+        };
+
+        Ok(Item::new(ItemKind::Function(function_item), span))
     }
 
     fn parse_function_effect_clause(
@@ -302,7 +336,6 @@ impl<'a> Parser<'a> {
 
     fn parse_statement(&mut self) -> OcelotResult<Statement> {
         let expression = self.parse_expression()?;
-        self.validate_native_call(&expression)?;
         let semicolon = self.expect(TokenType::Semicolon, "expected `;` after statement")?;
         let statement_span = Span::new(expression.span.start(), semicolon.span.end());
 
@@ -432,34 +465,6 @@ impl<'a> Parser<'a> {
             ExpressionKind::Call(CallExpression::new(callee, arguments)),
             span,
         ))
-    }
-
-    fn validate_native_call(&mut self, expression: &Expression) -> OcelotResult<()> {
-        let ExpressionKind::Call(call_expression) = &expression.kind else {
-            return Ok(());
-        };
-
-        let ExpressionKind::Identifier(identifier) = &call_expression.callee.kind else {
-            return Ok(());
-        };
-
-        if identifier.name != "println" {
-            return Ok(());
-        }
-
-        match call_expression.arguments.len() {
-            1 => Ok(()),
-            0 => self.emit_fatal_diagnostic(
-                "type error: `println` expects exactly one argument",
-                Span::new(expression.span.end() - 1, expression.span.end()),
-                "missing argument",
-            ),
-            _ => self.emit_fatal_diagnostic(
-                "type error: `println` expects exactly one argument",
-                call_expression.arguments[1].span.clone(),
-                "extra argument",
-            ),
-        }
     }
 
     fn parse_grouped_import_names(&mut self) -> OcelotResult<(Vec<Identifier>, Span)> {

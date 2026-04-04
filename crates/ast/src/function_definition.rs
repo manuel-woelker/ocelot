@@ -28,20 +28,22 @@ pub struct FunctionDefinition {
 impl FunctionDefinition {
     /// Creates a new native function definition.
     pub fn native(
-        name: impl Into<SharedString>,
+        module_name: impl Into<SharedString>,
+        qualified_name: impl Into<SharedString>,
         argument_types: Vec<TypeIndex>,
         native_function: crate::native_function::NativeFunction,
-        effects: BTreeSet<EffectIndex>,
+        can_effects: BTreeSet<EffectIndex>,
+        cannot_effects: BTreeSet<EffectIndex>,
     ) -> Self {
         Self {
-            name: name.into(),
-            module_name: SharedString::empty(),
+            name: qualified_name.into(),
+            module_name: module_name.into(),
             argument_types,
-            can_effects: BTreeSet::new(),
-            cannot_effects: BTreeSet::new(),
-            direct_effects: effects.clone(),
+            can_effects: can_effects.clone(),
+            cannot_effects,
+            direct_effects: can_effects.clone(),
             direct_effect_sources: BTreeMap::new(),
-            inferred_effects: effects,
+            inferred_effects: can_effects,
             called_functions: BTreeMap::new(),
             can_clause_span: None,
             cannot_clause_span: None,

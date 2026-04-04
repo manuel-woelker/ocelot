@@ -39,6 +39,10 @@ use ocelot_base::span::Span;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 
+const CORE_MODULE_NAME: &str = "core";
+const CORE_MODULE_PATH: &str = "crates/engine/resources/core.ocelot";
+const CORE_MODULE_SOURCE: &str = include_str!("../../engine/resources/core.ocelot");
+
 /// Resolves one script as though it were the only loaded module.
 pub fn resolve(
     script: &mut Script,
@@ -46,6 +50,7 @@ pub fn resolve(
     compilation_context: &mut CompilationContext,
     environment: &mut ProgramEnvironment,
 ) -> OcelotResult<()> {
+    register_core_module(compilation_context, environment)?;
     let module_name = default_module_name(source_file);
     environment.add_module(module_name.clone());
     register_module_effects(script, source_file, compilation_context, environment)?;
@@ -72,6 +77,30 @@ pub fn resolve(
     )?;
     resolve_user_defined_function_definitions(compilation_context, environment)?;
     finish_resolution(compilation_context)
+}
+
+/// Registers the compiler-provided `core` module into one program environment.
+pub fn register_core_module(
+    compilation_context: &mut CompilationContext,
+    environment: &mut ProgramEnvironment,
+) -> OcelotResult<()> {
+    if environment.has_module(CORE_MODULE_NAME) {
+        return Ok(());
+    }
+
+    let source_file = SourceFile::new(CORE_MODULE_PATH, CORE_MODULE_SOURCE);
+    let mut script = ocelot_parser::parse_script::parse_script(&source_file, compilation_context)?;
+
+    environment.add_module(CORE_MODULE_NAME);
+    register_module_effects(&mut script, &source_file, compilation_context, environment)?;
+    register_module_functions(
+        &mut script,
+        CORE_MODULE_NAME,
+        &source_file,
+        compilation_context,
+        environment,
+    )?;
+    Ok(())
 }
 
 /// Registers all effect declarations for one module and lowers them out of the item list.
@@ -101,7 +130,7 @@ pub fn register_module_functions(
         environment,
         None,
     )
-    .register_function_items(script);
+    .register_function_items(script)?;
     Ok(())
 }
 
@@ -241,18 +270,19 @@ impl<'a> Resolver<'a> {
         script.items = retained_items;
     }
 
-    fn register_function_items(&mut self, script: &mut Script) {
+    fn register_function_items(&mut self, script: &mut Script) -> OcelotResult<()> {
         let mut retained_items = Vec::with_capacity(script.items.len());
 
         for item in std::mem::take(&mut script.items) {
             match item.kind {
                 ItemKind::Effect(effect_item) => self.register_effect_item(effect_item),
-                ItemKind::Function(function_item) => self.register_function_item(function_item),
+                ItemKind::Function(function_item) => self.register_function_item(function_item)?,
                 _ => retained_items.push(item),
             }
         }
 
         script.items = retained_items;
+        Ok(())
     }
 
     fn register_use_items(&mut self, script: &mut Script) {
@@ -337,7 +367,7 @@ impl<'a> Resolver<'a> {
         ));
     }
 
-    fn register_function_item(&mut self, mut function_item: FunctionItem) {
+    fn register_function_item(&mut self, mut function_item: FunctionItem) -> OcelotResult<()> {
         let qualified_name = self
             .environment
             .qualify_function_name(self.module_name, function_item.identifier.name.as_str());
@@ -374,12 +404,42 @@ impl<'a> Resolver<'a> {
                     "duplicate function",
                 );
             }
-            return;
+            return Ok(());
         }
 
         let can_effects = self.resolve_effect_clause(function_item.can_clause.as_ref());
         let cannot_effects = self.resolve_effect_clause(function_item.cannot_clause.as_ref());
         let argument_types = self.resolve_function_parameter_types(&mut function_item);
+
+        if function_item.is_native {
+            if self.module_name != "core" {
+                self.add_diagnostic(
+                    "native functions may only be declared in `core`",
+                    function_item.identifier.span.clone(),
+                    "only allowed in `core`",
+                );
+                return Ok(());
+            }
+
+            let Some(native_function) = self
+                .environment
+                .resolve_native_function_implementation(qualified_name.as_str())
+            else {
+                ocelot_base::bail!(
+                    "internal error: native function `{qualified_name}` has no registered implementation"
+                );
+            };
+
+            self.environment.add_function(FunctionDefinition::native(
+                self.module_name,
+                qualified_name,
+                argument_types,
+                native_function,
+                can_effects,
+                cannot_effects,
+            ));
+            return Ok(());
+        }
 
         self.environment
             .add_function(FunctionDefinition::user_defined(
@@ -391,6 +451,7 @@ impl<'a> Resolver<'a> {
                 cannot_effects,
                 self.source_file.clone(),
             ));
+        Ok(())
     }
 
     fn register_use_item(&mut self, use_item: UseItem) {
@@ -923,6 +984,16 @@ impl<'a> Resolver<'a> {
                 };
 
                 parameter.ty = type_index;
+                if !function_item.is_native && type_index == self.environment.any_type_index() {
+                    self.add_diagnostic(
+                        "`any` may only be used in native function signatures",
+                        parameter.type_name.span.clone(),
+                        "`any` is only allowed here for native functions",
+                    );
+                    parameter.ty = TypeIndex::unresolved();
+                    return TypeIndex::unresolved();
+                }
+
                 type_index
             })
             .collect()
@@ -1134,6 +1205,7 @@ fn line_bounds(source: &str, index: usize) -> (usize, usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::finish_resolution;
+    use super::register_core_module;
     use super::register_module_effects;
     use super::register_module_functions;
     use super::register_module_imports;
@@ -1233,7 +1305,10 @@ mod tests {
         );
         let source_file = SourceFile::new("examples/hello.ocelot", "println(\"hello\");");
         let mut environment = ProgramEnvironment::new();
-        let println_index = environment.resolve_function("println").unwrap();
+        let println_index = {
+            register_core_module(&mut CompilationContext::default(), &mut environment).unwrap();
+            environment.resolve_function("core::println").unwrap()
+        };
         let mut context = CompilationContext::default();
 
         resolve(&mut script, &source_file, &mut context, &mut environment).unwrap();
@@ -1390,6 +1465,80 @@ mod tests {
 
         let error = finish_resolution(&context).unwrap_err();
         assert!(error.to_test_string().contains("unknown type `number`"));
+    }
+
+    #[test]
+    fn reports_any_in_user_defined_function_signatures() {
+        let mut script = Script::new(
+            vec![Item::new(
+                ItemKind::Function(FunctionItem::new(
+                    Identifier::new("greet", Span::new(4, 9)),
+                    vec![parameter("value", "any", Span::new(10, 20))],
+                    None,
+                    None,
+                    Vec::new(),
+                    Span::new(0, 24),
+                )),
+                Span::new(0, 24),
+            )],
+            Span::new(0, 24),
+        );
+        let source_file = SourceFile::new("examples/functions.ocelot", "fun greet(value: any) {}");
+        let mut environment = ProgramEnvironment::new();
+        let mut context = CompilationContext::default();
+
+        register_module_functions(
+            &mut script,
+            "functions",
+            &source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+
+        let error = finish_resolution(&context).unwrap_err();
+        assert!(
+            error
+                .to_test_string()
+                .contains("`any` may only be used in native function signatures")
+        );
+    }
+
+    #[test]
+    fn reports_native_functions_outside_core() {
+        let mut script = Script::new(
+            vec![Item::new(
+                ItemKind::Function(FunctionItem::new_native(
+                    Identifier::new("println", Span::new(11, 18)),
+                    vec![parameter("value", "any", Span::new(19, 29))],
+                    None,
+                    None,
+                    Span::new(0, 30),
+                )),
+                Span::new(0, 30),
+            )],
+            Span::new(0, 30),
+        );
+        let source_file =
+            SourceFile::new("examples/helper.ocelot", "native fun println(value: any);");
+        let mut environment = ProgramEnvironment::new();
+        let mut context = CompilationContext::default();
+
+        register_module_functions(
+            &mut script,
+            "helper",
+            &source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+
+        let error = finish_resolution(&context).unwrap_err();
+        assert!(
+            error
+                .to_test_string()
+                .contains("native functions may only be declared in `core`")
+        );
     }
 
     #[test]

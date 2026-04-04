@@ -25,6 +25,10 @@ use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 use ocelot_pal::pal::PalHandle;
 
+const CORE_MODULE_NAME: &str = "core";
+const CORE_MODULE_PATH: &str = "crates/engine/resources/core.ocelot";
+const CORE_MODULE_SOURCE: &str = include_str!("../resources/core.ocelot");
+
 #[derive(Debug, Clone)]
 pub struct Engine {
     pal: PalHandle,
@@ -179,25 +183,29 @@ impl Engine {
             module_paths.sort();
         }
 
-        let entry_module_index = module_paths
+        let mut modules = vec![self.load_core_module()?];
+        modules.extend(
+            module_paths
+                .into_iter()
+                .map(|path| {
+                    let module_kind = if path == entry_path {
+                        entry_kind
+                    } else {
+                        SourceFileKind::Module
+                    };
+                    self.load_module(&execution_root, path, module_kind)
+                })
+                .collect::<OcelotResult<Vec<_>>>()?,
+        );
+        let entry_module_index = modules
             .iter()
-            .position(|path| path == &entry_path)
+            .position(|module| module.source_file.path == entry_path)
             .context("internal error: entry module was not loaded")?;
-        let mut modules = module_paths
-            .into_iter()
-            .map(|path| {
-                let module_kind = if path == entry_path {
-                    entry_kind
-                } else {
-                    SourceFileKind::Module
-                };
-                self.load_module(&execution_root, path, module_kind)
-            })
-            .collect::<OcelotResult<Vec<_>>>()?;
 
         let mut compilation_context = CompilationContext::default();
         for module in &modules {
             validate_loaded_module(module, &mut compilation_context);
+            validate_reserved_core_module_name(module, &mut compilation_context);
         }
         ocelot_resolver::finish_resolution(&compilation_context)?;
 
@@ -278,6 +286,19 @@ impl Engine {
         Ok(SourceFile::new(path, source))
     }
 
+    fn load_core_module(&self) -> OcelotResult<LoadedModule> {
+        let source_file = SourceFile::new(CORE_MODULE_PATH, CORE_MODULE_SOURCE);
+        let mut compilation_context = CompilationContext::default();
+        let script =
+            ocelot_parser::parse_script::parse_script(&source_file, &mut compilation_context)?;
+        Ok(LoadedModule::new(
+            CORE_MODULE_NAME,
+            SourceFileKind::Module,
+            source_file,
+            script,
+        ))
+    }
+
     fn create_program_environment(&self) -> ProgramEnvironment {
         ProgramEnvironment::new()
     }
@@ -341,6 +362,40 @@ fn validate_loaded_module(module: &LoadedModule, compilation_context: &mut Compi
         &module.source_file,
         statement.span.clone(),
     ));
+}
+
+fn validate_reserved_core_module_name(
+    module: &LoadedModule,
+    compilation_context: &mut CompilationContext,
+) {
+    if module.module_name != CORE_MODULE_NAME
+        || module.source_file.path.as_str() == CORE_MODULE_PATH
+    {
+        return;
+    }
+
+    compilation_context.add_diagnostic(
+        SourceDiagnostic::new(
+            DiagnosticLevel::Error,
+            &module.source_file.path,
+            "module name `core` is reserved",
+        )
+        .with_excerpt(source_excerpt_for_path(
+            &module.source_file,
+            "rename this file or module path",
+        )),
+    );
+}
+
+fn source_excerpt_for_path(
+    source_file: &SourceFile,
+    annotation: impl Into<SharedString>,
+) -> SourceExcerpt {
+    let annotation = annotation.into();
+    let source_line = source_file.source().lines().next().unwrap_or_default();
+
+    SourceExcerpt::new(&source_file.path, 1, source_line)
+        .with_annotation(SourceAnnotation::new(Span::new(0, 0), annotation))
 }
 
 fn module_statement_diagnostic(source_file: &SourceFile, span: Span) -> SourceDiagnostic {
@@ -424,6 +479,44 @@ mod tests {
         "#]]
         .assert_eq(&pal.get_effects());
         assert_eq!(pal.take_printed_output(), "hello, world\n");
+    }
+
+    #[test]
+    fn run_file_uses_core_functions_as_a_fallback_only() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/main.ocelot-script",
+            "fun println() { helper::greet(); }\nprintln();",
+        );
+        pal.set_file(
+            "examples/helper.ocelot",
+            "fun greet() { core::println(\"local wins\"); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal.clone()));
+
+        engine.run_file("examples/main.ocelot-script").unwrap();
+
+        assert_eq!(pal.take_printed_output(), "local wins\n");
+    }
+
+    #[test]
+    fn run_file_prefers_explicit_imports_over_core_fallback() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/main.ocelot-script",
+            "use helper::println;\nprintln();",
+        );
+        pal.set_file(
+            "examples/helper.ocelot",
+            "fun println() { core::println(\"import wins\"); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal.clone()));
+
+        engine.run_file("examples/main.ocelot-script").unwrap();
+
+        assert_eq!(pal.take_printed_output(), "import wins\n");
     }
 
     #[test]
@@ -628,6 +721,28 @@ mod tests {
                 .to_test_string()
                 .contains("module `tool` does not define a `main()` entrypoint")
         );
+    }
+
+    #[test]
+    fn run_file_rejects_user_defined_core_modules() {
+        let pal = PalMock::new();
+        pal.set_file("examples/main.ocelot-script", "println(\"hello\");");
+        pal.set_file("examples/core.ocelot", "fun helper() {}");
+
+        let engine = Engine::new(PalHandle::new(pal));
+
+        let error = engine.run_file("examples/main.ocelot-script").unwrap_err();
+
+        assert!(matches!(
+            error.kind(),
+            ErrorKind::CompilationError(CompilationStage::Resolver)
+        ));
+        assert!(
+            error
+                .to_test_string()
+                .contains("module name `core` is reserved")
+        );
+        assert!(error.to_test_string().contains("examples/core.ocelot"));
     }
 
     #[test]

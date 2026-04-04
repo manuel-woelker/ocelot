@@ -1,0 +1,11 @@
+/// Indicates that a function may write visible text to standard output.
+effect write_stdout;
+/// Indicates that a function may abort execution with an assertion-style failure.
+effect panic;
+
+/// Writes one value to standard output followed by a newline.
+native fun println(value: any) can write_stdout;
+/// Fails when the condition is false.
+native fun assert(condition: bool) can panic;
+/// Fails when the two values are not equal.
+native fun assert_eq(expected: any, actual: any) can panic;

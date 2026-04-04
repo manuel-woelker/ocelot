@@ -197,7 +197,7 @@ mod tests {
         assert_eq!(
             observed,
             ObservedOutcome::Error(SharedString::from(
-                "error: type error: `println` expects exactly one argument\n  ╭▸ main.ocelot-script:1:9\n  │\n1 │ println();\n  ╰╴        ━ missing argument\nat main.ocelot-script:1:9"
+                "error: type error: `println` expects exactly one argument\n  ╭▸ main.ocelot-script:1:1\n  │\n1 │ println();\n  ╰╴━━━━━━━ missing argument\nat main.ocelot-script:1:1"
             ))
         );
     }

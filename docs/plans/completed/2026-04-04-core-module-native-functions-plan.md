@@ -207,16 +207,38 @@ Verification should include colocated tests for:
 - Open question: should the parser allow `native fun` only inside the compiler-provided core module, or should user code be allowed to write such declarations but receive a resolver error because no implementation registry entry exists?
 - Open question: should `assert_eq(any, any)` continue accepting all pairs immediately, or should native-call argument compatibility still reject obviously incomparable future types once more types exist?
 
+# What landed from this plan?
+
+This slice landed a checked-in compiler-provided `core` module plus declared native functions:
+
+- the lexer now reserves `native`
+- function parsing now supports bodyless `native fun ...;` declarations and rejects native bodies
+- [`FunctionItem`](/data/projects/ocelot/crates/ast/src/function_item.rs) now tracks whether a declaration is native
+- [`ProgramEnvironment`](/data/projects/ocelot/crates/ast/src/program_environment.rs) now seeds primitive types plus a fully qualified native implementation registry instead of seeding builtin functions and effects directly
+- the engine now loads [`core.ocelot`](/data/projects/ocelot/crates/engine/resources/core.ocelot) as a compiler-provided synthetic module before user modules
+- the resolver now links native declarations against the fully qualified native registry, rejects native declarations outside `core`, and rejects user-defined `any` parameters
+- unqualified function resolution now treats `core` as a fallback tier after local declarations and explicit imports
+- the engine now rejects user-defined modules named `core`
+- the spec now documents the `core` module, `native fun`, and the constrained `any` type
+- `cargo test -p ocelot-ast`
+- `cargo test -p ocelot-parser`
+- `cargo test -p ocelot-resolver`
+- `cargo test -p ocelot-interpreter`
+- `cargo test -p ocelot-engine`
+- `cargo test -p ocelot-spec-validation`
+- `cargo run -p ocelot-spec-validation`
+- `nao check`
+
 # What concrete tasks should track this plan?
 
-- [ ] Add or update spec chapters to describe core-module declarations, `native fun`, builtin effects, and the constrained `any` type.
-- [ ] Reserve `native` in the lexer.
-- [ ] Extend function parsing and AST modeling for bodyless native declarations.
-- [ ] Add a checked-in internal `core.ocelot` file and load it as a synthetic `core` module in the engine/compiler loading pipeline.
-- [ ] Add fallback resolution for auto-imported `core` functions after local declarations and explicit imports.
-- [ ] Stop seeding builtin functions and builtin effects directly in [`ProgramEnvironment`](/data/projects/ocelot/crates/ast/src/program_environment.rs).
-- [ ] Add a fully-qualified native implementation registry and link declared native functions against it.
-- [ ] Enforce that `any` may only appear in native function signatures.
-- [ ] Update resolver and interpreter behavior to use declared core functions/effects.
-- [ ] Add or update parser, resolver, engine, interpreter, and spec-validation tests.
-- [ ] Run `nao check`.
+- [x] Add or update spec chapters to describe core-module declarations, `native fun`, builtin effects, and the constrained `any` type.
+- [x] Reserve `native` in the lexer.
+- [x] Extend function parsing and AST modeling for bodyless native declarations.
+- [x] Add a checked-in internal `core.ocelot` file and load it as a synthetic `core` module in the engine/compiler loading pipeline.
+- [x] Add fallback resolution for auto-imported `core` functions after local declarations and explicit imports.
+- [x] Stop seeding builtin functions and builtin effects directly in [`ProgramEnvironment`](/data/projects/ocelot/crates/ast/src/program_environment.rs).
+- [x] Add a fully-qualified native implementation registry and link declared native functions against it.
+- [x] Enforce that `any` may only appear in native function signatures.
+- [x] Update resolver and interpreter behavior to use declared core functions/effects.
+- [x] Add or update parser, resolver, engine, interpreter, and spec-validation tests.
+- [x] Run `nao check`.

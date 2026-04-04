@@ -100,6 +100,7 @@ pub fn lex(source_file: &SourceFile, context: &mut CompilationContext) -> Vec<To
                     "effect" => TokenType::Effect,
                     "false" => TokenType::False,
                     "fun" => TokenType::Fun,
+                    "native" => TokenType::Native,
                     "not" => TokenType::Not,
                     "test" => TokenType::Test,
                     "true" => TokenType::True,
@@ -884,6 +885,38 @@ mod tests {
                 TokenType::Comma,
                 TokenType::Identifier,
                 TokenType::RightBrace,
+                TokenType::Semicolon,
+                TokenType::EndOfFile,
+            ]
+        );
+        assert!(!context.has_errors());
+    }
+
+    #[test]
+    fn lexes_native_function_declarations() {
+        let source_file = SourceFile::new(
+            "examples/core.ocelot",
+            "native fun println(value: any) can write_stdout;",
+        );
+        let mut context = CompilationContext::default();
+        let token_types: Vec<_> = lex(&source_file, &mut context)
+            .into_iter()
+            .map(|token| token.token_type)
+            .collect();
+
+        assert_eq!(
+            token_types,
+            vec![
+                TokenType::Native,
+                TokenType::Fun,
+                TokenType::Identifier,
+                TokenType::LeftParen,
+                TokenType::Identifier,
+                TokenType::Colon,
+                TokenType::Identifier,
+                TokenType::RightParen,
+                TokenType::Can,
+                TokenType::Identifier,
                 TokenType::Semicolon,
                 TokenType::EndOfFile,
             ]

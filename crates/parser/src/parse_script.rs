@@ -568,29 +568,21 @@ mod tests {
         );
         let mut context = CompilationContext::default();
 
-        parse_script(&source_file, &mut context).unwrap_err();
-        assert!(context.has_errors());
-        assert_eq!(
-            context.source_diagnostics.diagnostics[0].message,
-            "type error: `println` expects exactly one argument"
-        );
-        assert_eq!(
-            context.source_diagnostics.diagnostics[0].excerpts[0].annotations[0].message,
-            "extra argument"
-        );
+        let script = parse_script(&source_file, &mut context).unwrap();
+
+        assert_eq!(script.items.len(), 1);
+        assert!(!context.has_errors());
     }
 
     #[test]
-    fn reports_zero_argument_println_as_a_source_diagnostic() {
+    fn parses_zero_argument_calls_without_parser_diagnostics() {
         let source_file = SourceFile::new("examples/invalid.ocelot", "println();");
         let mut context = CompilationContext::default();
 
-        parse_script(&source_file, &mut context).unwrap_err();
-        assert!(context.has_errors());
-        assert_eq!(
-            context.source_diagnostics.diagnostics[0].message,
-            "type error: `println` expects exactly one argument"
-        );
+        let script = parse_script(&source_file, &mut context).unwrap();
+
+        assert_eq!(script.items.len(), 1);
+        assert!(!context.has_errors());
     }
 
     #[test]
@@ -710,6 +702,47 @@ mod tests {
         assert_eq!(
             context.source_diagnostics.diagnostics[0].message,
             "function effect clauses must place `can` before `cannot`"
+        );
+    }
+
+    #[test]
+    fn parses_native_function_items_without_bodies() {
+        let source_file = SourceFile::new(
+            "examples/core.ocelot",
+            "native fun println(value: any) can write_stdout;",
+        );
+        let mut context = CompilationContext::default();
+
+        let script = parse_script(&source_file, &mut context).unwrap();
+
+        assert_eq!(script.items.len(), 1);
+        assert!(!context.has_errors());
+        match &script.items[0].kind {
+            ItemKind::Function(function_item) => {
+                assert!(function_item.is_native);
+                assert_eq!(function_item.identifier.name, "println");
+                assert_eq!(function_item.parameters.len(), 1);
+                assert_eq!(function_item.parameters[0].type_name.name, "any");
+                assert!(function_item.body.is_empty());
+            }
+            other => panic!("expected function item, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_native_function_bodies() {
+        let source_file = SourceFile::new(
+            "examples/core.ocelot",
+            "native fun println(value: any) { println(value); }",
+        );
+        let mut context = CompilationContext::default();
+
+        parse_script(&source_file, &mut context).unwrap_err();
+
+        assert!(context.has_errors());
+        assert_eq!(
+            context.source_diagnostics.diagnostics[0].message,
+            "native functions must not have a body"
         );
     }
 }
