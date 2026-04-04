@@ -22,9 +22,8 @@ use ocelot_base::source_excerpt::SourceExcerpt;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 use ocelot_pal::pal::PalHandle;
+use ocelot_semantic::compilation_session::CompilationSession;
 use ocelot_semantic::function_kind::FunctionKind;
-use ocelot_semantic::native_function::NativeFunctionRegistry;
-use ocelot_semantic::native_function::default_native_function_registry;
 use ocelot_semantic::program_environment::ProgramEnvironment;
 
 const CORE_MODULE_NAME: &str = "core";
@@ -211,7 +210,7 @@ impl Engine {
         }
         ocelot_resolver::finish_resolution(&compilation_context)?;
 
-        let native_function_registry = self.create_native_function_registry();
+        let compilation_session = self.create_compilation_session();
         let mut environment = self.create_program_environment();
 
         for module in &modules {
@@ -234,7 +233,7 @@ impl Engine {
                 &module.source_file,
                 &mut compilation_context,
                 &mut environment,
-                &native_function_registry,
+                &compilation_session,
             )?;
         }
 
@@ -255,14 +254,14 @@ impl Engine {
                 &module.source_file,
                 &mut compilation_context,
                 &mut environment,
-                &native_function_registry,
+                &compilation_session,
             )?;
         }
 
         ocelot_resolver::resolve_user_defined_function_definitions(
             &mut compilation_context,
             &mut environment,
-            &native_function_registry,
+            &compilation_session,
         )?;
         ocelot_resolver::finish_resolution(&compilation_context)?;
 
@@ -309,8 +308,8 @@ impl Engine {
         ProgramEnvironment::new()
     }
 
-    fn create_native_function_registry(&self) -> NativeFunctionRegistry {
-        default_native_function_registry()
+    fn create_compilation_session(&self) -> CompilationSession {
+        CompilationSession::with_default_native_functions()
     }
 
     fn run_module_entrypoint(
