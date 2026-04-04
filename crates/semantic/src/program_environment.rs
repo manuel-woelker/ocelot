@@ -3,11 +3,9 @@ use ocelot_ast::effect_index::EffectIndex;
 use ocelot_ast::function_index::FunctionIndex;
 use ocelot_ast::function_item::FunctionItem;
 use ocelot_ast::identifier::Identifier;
-use ocelot_ast::imported_function_symbols::ImportedFunctionSymbols;
 use ocelot_ast::ty::Ty;
 use ocelot_ast::type_index::TypeIndex;
 use ocelot_ast::type_kind::TypeKind;
-use ocelot_base::file_path::FilePath;
 use ocelot_base::result::{OcelotResult, OptionExt};
 use ocelot_base::shared_string::SharedString;
 use std::collections::HashMap;
@@ -20,7 +18,6 @@ use crate::function_kind::FunctionKind;
 pub struct ProgramEnvironment {
     pub functions: Vec<Option<FunctionDefinition>>,
     pub function_symbols: HashMap<SharedString, FunctionIndex>,
-    pub imported_function_symbols: ImportedFunctionSymbols,
     pub module_symbols: HashSet<SharedString>,
     pub effects: Vec<Effect>,
     pub effect_symbols: HashMap<SharedString, EffectIndex>,
@@ -40,7 +37,6 @@ impl ProgramEnvironment {
         let mut environment = Self {
             functions: vec![None],
             function_symbols: HashMap::new(),
-            imported_function_symbols: HashMap::new(),
             module_symbols: HashSet::new(),
             effects: vec![Effect::builtin("__reserved_effect_slot__")],
             effect_symbols: HashMap::new(),
@@ -142,53 +138,6 @@ impl ProgramEnvironment {
     /// Resolves one function name without module fallback.
     pub fn resolve_function_exact(&self, name: &str) -> Option<FunctionIndex> {
         self.function_symbols.get(name).copied()
-    }
-
-    /// Resolves an unqualified function name within one module, then falls back to natives.
-    pub fn resolve_local_function(
-        &self,
-        source_path: &FilePath,
-        module_name: &str,
-        name: &str,
-    ) -> Option<FunctionIndex> {
-        if !module_name.is_empty() {
-            let qualified_name = self.qualify_function_name(module_name, name);
-            if let Some(function_index) = self.function_symbols.get(&qualified_name) {
-                return Some(*function_index);
-            }
-        }
-
-        if let Some(function_index) = self.resolve_imported_function(source_path, name) {
-            return Some(function_index);
-        }
-
-        let core_function_name = self.qualify_function_name("core", name);
-        self.function_symbols.get(&core_function_name).copied()
-    }
-
-    /// Resolves one imported function binding by file-local name.
-    pub fn resolve_imported_function(
-        &self,
-        source_path: &FilePath,
-        name: &str,
-    ) -> Option<FunctionIndex> {
-        self.imported_function_symbols
-            .get(source_path)
-            .and_then(|symbols| symbols.get(name))
-            .copied()
-    }
-
-    /// Registers one imported function binding for a source file.
-    pub fn add_imported_function(
-        &mut self,
-        source_path: impl Into<FilePath>,
-        local_name: impl Into<SharedString>,
-        function_index: FunctionIndex,
-    ) {
-        self.imported_function_symbols
-            .entry(source_path.into())
-            .or_default()
-            .insert(local_name.into(), function_index);
     }
 
     /// Registers one module name.
@@ -311,7 +260,6 @@ mod tests {
     use ocelot_ast::identifier::Identifier;
     use ocelot_ast::type_index::TypeIndex;
     use ocelot_ast::type_kind::TypeKind;
-    use ocelot_base::file_path::FilePath;
     use ocelot_base::source_file::SourceFile;
     use ocelot_base::span::Span;
     use std::collections::BTreeSet;
@@ -520,9 +468,8 @@ mod tests {
     }
 
     #[test]
-    fn resolve_local_function_prefers_the_current_module() {
+    fn resolve_function_exact_looks_up_qualified_names() {
         let mut environment = ProgramEnvironment::new();
-        let source_path = FilePath::from("main.ocelot");
         let function_index = environment.add_function(FunctionDefinition::user_defined(
             "math",
             "math::greet",
@@ -541,45 +488,12 @@ mod tests {
         ));
 
         assert_eq!(
-            environment.resolve_local_function(&source_path, "math", "greet"),
+            environment.resolve_function_exact("math::greet"),
             Some(function_index)
         );
-        assert!(
-            environment
-                .resolve_local_function(&source_path, "other", "greet")
-                .is_none()
-        );
+        assert!(environment.resolve_function_exact("other::greet").is_none());
         assert_eq!(
-            environment.resolve_local_function(&source_path, "math", "println"),
-            environment.resolve_function("core::println")
-        );
-    }
-
-    #[test]
-    fn resolve_local_function_consults_file_local_imports() {
-        let mut environment = ProgramEnvironment::new();
-        let source_path = FilePath::from("main.ocelot");
-        let function_index = environment.add_function(FunctionDefinition::user_defined(
-            "helper",
-            "helper::greet",
-            FunctionItem::new(
-                Identifier::new("greet", Span::new(4, 9)),
-                Vec::new(),
-                None,
-                None,
-                Vec::new(),
-                Span::new(0, 13),
-            ),
-            Vec::new(),
-            BTreeSet::new(),
-            BTreeSet::new(),
-            SourceFile::new("helper.ocelot", "fun greet() {}"),
-        ));
-
-        environment.add_imported_function(source_path.clone(), "greet", function_index);
-
-        assert_eq!(
-            environment.resolve_local_function(&source_path, "main", "greet"),
+            environment.resolve_function("math::greet"),
             Some(function_index)
         );
     }

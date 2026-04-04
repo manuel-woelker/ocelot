@@ -24,7 +24,9 @@ use ocelot_base::span::Span;
 use ocelot_pal::pal::PalHandle;
 use ocelot_semantic::compilation_session::CompilationSession;
 use ocelot_semantic::function_kind::FunctionKind;
+use ocelot_semantic::module_environment::ModuleEnvironment;
 use ocelot_semantic::program_environment::ProgramEnvironment;
+use std::collections::HashMap;
 
 const CORE_MODULE_NAME: &str = "core";
 const CORE_MODULE_PATH: &str = "crates/engine/resources/core.ocelot";
@@ -212,6 +214,10 @@ impl Engine {
 
         let compilation_session = self.create_compilation_session();
         let mut environment = self.create_program_environment();
+        let mut module_environments: HashMap<FilePath, ModuleEnvironment> = modules
+            .iter()
+            .map(|module| (module.source_file.path.clone(), ModuleEnvironment::new()))
+            .collect();
 
         for module in &modules {
             environment.add_module(module.module_name.clone());
@@ -233,6 +239,9 @@ impl Engine {
                 &module.source_file,
                 &mut compilation_context,
                 &mut environment,
+                module_environments
+                    .get_mut(&module.source_file.path)
+                    .expect("module environment should exist for loaded module"),
                 &compilation_session,
             )?;
         }
@@ -244,6 +253,9 @@ impl Engine {
                 &module.source_file,
                 &mut compilation_context,
                 &mut environment,
+                module_environments
+                    .get_mut(&module.source_file.path)
+                    .expect("module environment should exist for loaded module"),
             )?;
         }
 
@@ -254,6 +266,9 @@ impl Engine {
                 &module.source_file,
                 &mut compilation_context,
                 &mut environment,
+                module_environments
+                    .get_mut(&module.source_file.path)
+                    .expect("module environment should exist for loaded module"),
                 &compilation_session,
             )?;
         }
@@ -261,6 +276,7 @@ impl Engine {
         ocelot_resolver::resolve_user_defined_function_definitions(
             &mut compilation_context,
             &mut environment,
+            &mut module_environments,
             &compilation_session,
         )?;
         ocelot_resolver::finish_resolution(&compilation_context)?;

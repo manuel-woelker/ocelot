@@ -36,6 +36,7 @@ use ocelot_base::span::Span;
 use ocelot_semantic::compilation_session::CompilationSession;
 use ocelot_semantic::function_definition::FunctionDefinition;
 use ocelot_semantic::function_kind::FunctionKind;
+use ocelot_semantic::module_environment::ModuleEnvironment;
 use ocelot_semantic::native_function::native_type_label;
 use ocelot_semantic::program_environment::ProgramEnvironment;
 use std::collections::BTreeSet;
@@ -55,6 +56,7 @@ pub fn resolve(
 ) -> OcelotResult<()> {
     register_core_module(compilation_context, environment, compilation_session)?;
     let module_name = default_module_name(source_file);
+    let mut module_environment = ModuleEnvironment::new();
     environment.add_module(module_name.clone());
     register_module_effects(script, source_file, compilation_context, environment)?;
     register_module_functions(
@@ -63,6 +65,7 @@ pub fn resolve(
         source_file,
         compilation_context,
         environment,
+        &mut module_environment,
         compilation_session,
     )?;
     register_module_imports(
@@ -71,6 +74,7 @@ pub fn resolve(
         source_file,
         compilation_context,
         environment,
+        &mut module_environment,
     )?;
     resolve_module_items(
         script,
@@ -78,11 +82,13 @@ pub fn resolve(
         source_file,
         compilation_context,
         environment,
+        &mut module_environment,
         compilation_session,
     )?;
     resolve_user_defined_function_definitions(
         compilation_context,
         environment,
+        &mut HashMap::from([(source_file.path.clone(), module_environment)]),
         compilation_session,
     )?;
     finish_resolution(compilation_context)
@@ -100,6 +106,7 @@ pub fn register_core_module(
 
     let source_file = SourceFile::new(CORE_MODULE_PATH, CORE_MODULE_SOURCE);
     let mut script = ocelot_parser::parse_script::parse_script(&source_file, compilation_context)?;
+    let mut module_environment = ModuleEnvironment::new();
 
     environment.add_module(CORE_MODULE_NAME);
     register_module_effects(&mut script, &source_file, compilation_context, environment)?;
@@ -109,6 +116,7 @@ pub fn register_core_module(
         &source_file,
         compilation_context,
         environment,
+        &mut module_environment,
         compilation_session,
     )?;
     Ok(())
@@ -122,11 +130,13 @@ pub fn register_module_effects(
     environment: &mut ProgramEnvironment,
 ) -> OcelotResult<()> {
     let compilation_session = CompilationSession::new();
+    let mut module_environment = ModuleEnvironment::new();
     Resolver::new(
         source_file,
         "",
         compilation_context,
         environment,
+        &mut module_environment,
         &compilation_session,
         None,
     )
@@ -141,6 +151,7 @@ pub fn register_module_functions(
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
     environment: &mut ProgramEnvironment,
+    module_environment: &mut ModuleEnvironment,
     compilation_session: &CompilationSession,
 ) -> OcelotResult<()> {
     Resolver::new(
@@ -148,6 +159,7 @@ pub fn register_module_functions(
         module_name,
         compilation_context,
         environment,
+        module_environment,
         compilation_session,
         None,
     )
@@ -162,6 +174,7 @@ pub fn register_module_imports(
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
     environment: &mut ProgramEnvironment,
+    module_environment: &mut ModuleEnvironment,
 ) -> OcelotResult<()> {
     let compilation_session = CompilationSession::new();
     Resolver::new(
@@ -169,6 +182,7 @@ pub fn register_module_imports(
         module_name,
         compilation_context,
         environment,
+        module_environment,
         &compilation_session,
         None,
     )
@@ -183,6 +197,7 @@ pub fn resolve_module_items(
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
     environment: &mut ProgramEnvironment,
+    module_environment: &mut ModuleEnvironment,
     compilation_session: &CompilationSession,
 ) -> OcelotResult<()> {
     let mut resolver = Resolver::new(
@@ -190,6 +205,7 @@ pub fn resolve_module_items(
         module_name,
         compilation_context,
         environment,
+        module_environment,
         compilation_session,
         None,
     );
@@ -203,6 +219,7 @@ pub fn resolve_module_items(
 pub fn resolve_user_defined_function_definitions(
     compilation_context: &mut CompilationContext,
     environment: &mut ProgramEnvironment,
+    module_environments: &mut HashMap<ocelot_base::file_path::FilePath, ModuleEnvironment>,
     compilation_session: &CompilationSession,
 ) -> OcelotResult<()> {
     let function_indices = environment.user_defined_function_indices();
@@ -222,11 +239,15 @@ pub fn resolve_user_defined_function_definitions(
         };
 
         let mut function = environment.take_user_defined_function(function_index)?;
+        let module_environment = module_environments
+            .get_mut(&source_file.path)
+            .expect("module environment should exist for resolved function source file");
         Resolver::new(
             &source_file,
             module_name.as_str(),
             compilation_context,
             environment,
+            module_environment,
             compilation_session,
             Some(function_index),
         )
@@ -262,6 +283,7 @@ struct Resolver<'a> {
     module_name: &'a str,
     compilation_context: &'a mut CompilationContext,
     environment: &'a mut ProgramEnvironment,
+    module_environment: &'a mut ModuleEnvironment,
     compilation_session: &'a CompilationSession,
     current_function_index: Option<FunctionIndex>,
     local_value_types: HashMap<SharedString, TypeIndex>,
@@ -273,6 +295,7 @@ impl<'a> Resolver<'a> {
         module_name: &'a str,
         compilation_context: &'a mut CompilationContext,
         environment: &'a mut ProgramEnvironment,
+        module_environment: &'a mut ModuleEnvironment,
         compilation_session: &'a CompilationSession,
         current_function_index: Option<FunctionIndex>,
     ) -> Self {
@@ -281,6 +304,7 @@ impl<'a> Resolver<'a> {
             module_name,
             compilation_context,
             environment,
+            module_environment,
             compilation_session,
             current_function_index,
             local_value_types: HashMap::new(),
@@ -561,8 +585,8 @@ impl<'a> Resolver<'a> {
         }
 
         if self
-            .environment
-            .resolve_imported_function(&self.source_file.path, local_name.as_str())
+            .module_environment
+            .resolve_imported_function(local_name.as_str())
             .is_some()
         {
             self.add_diagnostic(
@@ -573,11 +597,26 @@ impl<'a> Resolver<'a> {
             return;
         }
 
-        self.environment.add_imported_function(
-            self.source_file.path.clone(),
-            local_name,
-            function_index,
-        );
+        self.module_environment
+            .add_imported_function(local_name, function_index);
+    }
+
+    fn resolve_local_function(&self, name: &str) -> Option<FunctionIndex> {
+        if !self.module_name.is_empty() {
+            let qualified_name = self
+                .environment
+                .qualify_function_name(self.module_name, name);
+            if let Some(function_index) = self.environment.resolve_function_exact(&qualified_name) {
+                return Some(function_index);
+            }
+        }
+
+        if let Some(function_index) = self.module_environment.resolve_imported_function(name) {
+            return Some(function_index);
+        }
+
+        let core_function_name = self.environment.qualify_function_name("core", name);
+        self.environment.resolve_function_exact(&core_function_name)
     }
 
     fn resolve_function_item(&mut self, function_item: &mut FunctionItem) {
@@ -643,11 +682,9 @@ impl<'a> Resolver<'a> {
                     );
                     return;
                 } else {
-                    let Some(function_index) = self.environment.resolve_local_function(
-                        &self.source_file.path,
-                        self.module_name,
-                        identifier.name.as_str(),
-                    ) else {
+                    let Some(function_index) =
+                        self.resolve_local_function(identifier.name.as_str())
+                    else {
                         self.add_diagnostic(
                             format!("unknown function `{}`", identifier.name),
                             identifier.span.clone(),
@@ -1288,7 +1325,9 @@ mod tests {
     use ocelot_base::span::Span;
     use ocelot_semantic::compilation_session::CompilationSession;
     use ocelot_semantic::function_kind::FunctionKind;
+    use ocelot_semantic::module_environment::ModuleEnvironment;
     use ocelot_semantic::program_environment::ProgramEnvironment;
+    use std::collections::HashMap;
 
     fn identifier(name: &str, span: Span) -> Expression {
         Expression::new(
@@ -1341,6 +1380,10 @@ mod tests {
 
     fn compilation_session() -> CompilationSession {
         CompilationSession::with_default_native_functions()
+    }
+
+    fn create_module_environment() -> ModuleEnvironment {
+        ModuleEnvironment::new()
     }
 
     #[test]
@@ -1492,6 +1535,7 @@ mod tests {
         );
         let mut environment = ProgramEnvironment::new();
         let compilation_session = compilation_session();
+        let mut module_environment = create_module_environment();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -1500,6 +1544,7 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &mut module_environment,
             &compilation_session,
         )
         .unwrap();
@@ -1532,6 +1577,7 @@ mod tests {
             SourceFile::new("examples/functions.ocelot", "fun greet(name: number) {}");
         let mut environment = ProgramEnvironment::new();
         let compilation_session = compilation_session();
+        let mut module_environment = create_module_environment();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -1540,6 +1586,7 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &mut module_environment,
             &compilation_session,
         )
         .unwrap();
@@ -1567,6 +1614,7 @@ mod tests {
         let source_file = SourceFile::new("examples/functions.ocelot", "fun greet(value: any) {}");
         let mut environment = ProgramEnvironment::new();
         let compilation_session = compilation_session();
+        let mut module_environment = create_module_environment();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -1575,6 +1623,7 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &mut module_environment,
             &compilation_session,
         )
         .unwrap();
@@ -1606,6 +1655,7 @@ mod tests {
             SourceFile::new("examples/helper.ocelot", "native fun println(value: any);");
         let mut environment = ProgramEnvironment::new();
         let compilation_session = compilation_session();
+        let mut module_environment = create_module_environment();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -1614,6 +1664,7 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &mut module_environment,
             &compilation_session,
         )
         .unwrap();
@@ -1773,6 +1824,11 @@ mod tests {
         environment.add_module("main");
         environment.add_module("math::greet");
         let compilation_session = compilation_session();
+        let mut module_environment = create_module_environment();
+        let mut module_environments = HashMap::from([
+            (main_source_file.path.clone(), create_module_environment()),
+            (module_source_file.path.clone(), create_module_environment()),
+        ]);
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -1781,6 +1837,7 @@ mod tests {
             &module_source_file,
             &mut context,
             &mut environment,
+            &mut module_environment,
             &compilation_session,
         )
         .unwrap();
@@ -1790,12 +1847,16 @@ mod tests {
             &main_source_file,
             &mut context,
             &mut environment,
+            module_environments
+                .get_mut(&main_source_file.path)
+                .expect("module environment should exist"),
             &compilation_session,
         )
         .unwrap();
         resolve_user_defined_function_definitions(
             &mut context,
             &mut environment,
+            &mut module_environments,
             &compilation_session,
         )
         .unwrap();
@@ -1861,6 +1922,11 @@ mod tests {
         environment.add_module("main");
         environment.add_module("helper");
         let compilation_session = compilation_session();
+        let mut helper_module_environment = create_module_environment();
+        let mut module_environments = HashMap::from([
+            (main_source_file.path.clone(), create_module_environment()),
+            (helper_source_file.path.clone(), create_module_environment()),
+        ]);
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -1869,6 +1935,7 @@ mod tests {
             &helper_source_file,
             &mut context,
             &mut environment,
+            &mut helper_module_environment,
             &compilation_session,
         )
         .unwrap();
@@ -1878,6 +1945,9 @@ mod tests {
             &main_source_file,
             &mut context,
             &mut environment,
+            module_environments
+                .get_mut(&main_source_file.path)
+                .expect("module environment should exist"),
         )
         .unwrap();
         resolve_module_items(
@@ -1886,12 +1956,16 @@ mod tests {
             &main_source_file,
             &mut context,
             &mut environment,
+            module_environments
+                .get_mut(&main_source_file.path)
+                .expect("module environment should exist"),
             &compilation_session,
         )
         .unwrap();
         resolve_user_defined_function_definitions(
             &mut context,
             &mut environment,
+            &mut module_environments,
             &compilation_session,
         )
         .unwrap();
@@ -1964,6 +2038,18 @@ mod tests {
         environment.add_module("main");
         environment.add_module("helper");
         let compilation_session = compilation_session();
+        let mut main_module_environment = create_module_environment();
+        let mut helper_module_environment = create_module_environment();
+        let mut module_environments = HashMap::from([
+            (
+                main_source_file.path.clone(),
+                main_module_environment.clone(),
+            ),
+            (
+                helper_source_file.path.clone(),
+                helper_module_environment.clone(),
+            ),
+        ]);
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -1972,6 +2058,7 @@ mod tests {
             &main_source_file,
             &mut context,
             &mut environment,
+            &mut main_module_environment,
             &compilation_session,
         )
         .unwrap();
@@ -1981,6 +2068,7 @@ mod tests {
             &helper_source_file,
             &mut context,
             &mut environment,
+            &mut helper_module_environment,
             &compilation_session,
         )
         .unwrap();
@@ -1990,6 +2078,9 @@ mod tests {
             &main_source_file,
             &mut context,
             &mut environment,
+            module_environments
+                .get_mut(&main_source_file.path)
+                .expect("module environment should exist"),
         )
         .unwrap();
         resolve_module_items(
@@ -1998,12 +2089,16 @@ mod tests {
             &main_source_file,
             &mut context,
             &mut environment,
+            module_environments
+                .get_mut(&main_source_file.path)
+                .expect("module environment should exist"),
             &compilation_session,
         )
         .unwrap();
         resolve_user_defined_function_definitions(
             &mut context,
             &mut environment,
+            &mut module_environments,
             &compilation_session,
         )
         .unwrap();
@@ -2085,6 +2180,8 @@ mod tests {
         environment.add_module("main");
         environment.add_module("helper");
         let compilation_session = compilation_session();
+        let mut main_module_environment = create_module_environment();
+        let mut helper_module_environment = create_module_environment();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -2093,6 +2190,7 @@ mod tests {
             &main_source_file,
             &mut context,
             &mut environment,
+            &mut main_module_environment,
             &compilation_session,
         )
         .unwrap();
@@ -2102,6 +2200,7 @@ mod tests {
             &helper_source_file,
             &mut context,
             &mut environment,
+            &mut helper_module_environment,
             &compilation_session,
         )
         .unwrap();
@@ -2111,6 +2210,7 @@ mod tests {
             &main_source_file,
             &mut context,
             &mut environment,
+            &mut main_module_environment,
         )
         .unwrap();
 
@@ -2171,6 +2271,8 @@ mod tests {
         environment.add_module("main");
         environment.add_module("helper");
         let compilation_session = compilation_session();
+        let mut helper_module_environment = create_module_environment();
+        let mut main_module_environment = create_module_environment();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -2179,6 +2281,7 @@ mod tests {
             &helper_source_file,
             &mut context,
             &mut environment,
+            &mut helper_module_environment,
             &compilation_session,
         )
         .unwrap();
@@ -2188,6 +2291,7 @@ mod tests {
             &main_source_file,
             &mut context,
             &mut environment,
+            &mut main_module_environment,
         )
         .unwrap();
 
@@ -2228,6 +2332,8 @@ mod tests {
         environment.add_module("main");
         environment.add_module("helper");
         let compilation_session = compilation_session();
+        let mut helper_module_environment = create_module_environment();
+        let mut main_module_environment = create_module_environment();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -2236,6 +2342,7 @@ mod tests {
             &helper_source_file,
             &mut context,
             &mut environment,
+            &mut helper_module_environment,
             &compilation_session,
         )
         .unwrap();
@@ -2245,6 +2352,7 @@ mod tests {
             &main_source_file,
             &mut context,
             &mut environment,
+            &mut main_module_environment,
         )
         .unwrap();
 
@@ -2279,6 +2387,7 @@ mod tests {
         let mut environment = ProgramEnvironment::new();
         environment.add_module("main");
         let compilation_session = compilation_session();
+        let mut module_environment = create_module_environment();
         let mut context = CompilationContext::default();
 
         resolve_module_items(
@@ -2287,6 +2396,7 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &mut module_environment,
             &compilation_session,
         )
         .unwrap();
@@ -2328,6 +2438,7 @@ mod tests {
         let source_file = SourceFile::new("main.ocelot", "fun helper() {} test \"works\" {}");
         let mut environment = ProgramEnvironment::new();
         let compilation_session = compilation_session();
+        let mut module_environment = create_module_environment();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -2336,6 +2447,7 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &mut module_environment,
             &compilation_session,
         )
         .unwrap();
@@ -2422,6 +2534,9 @@ mod tests {
         );
         let mut environment = ProgramEnvironment::new();
         let compilation_session = compilation_session();
+        let mut module_environment = create_module_environment();
+        let mut module_environments =
+            HashMap::from([(source_file.path.clone(), create_module_environment())]);
         let mut context = CompilationContext::default();
 
         register_module_effects(&mut script, &source_file, &mut context, &mut environment).unwrap();
@@ -2431,6 +2546,7 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &mut module_environment,
             &compilation_session,
         )
         .unwrap();
@@ -2440,12 +2556,16 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            module_environments
+                .get_mut(&source_file.path)
+                .expect("module environment should exist"),
             &compilation_session,
         )
         .unwrap();
         resolve_user_defined_function_definitions(
             &mut context,
             &mut environment,
+            &mut module_environments,
             &compilation_session,
         )
         .unwrap();
@@ -2508,6 +2628,9 @@ mod tests {
         );
         let mut environment = ProgramEnvironment::new();
         let compilation_session = compilation_session();
+        let mut module_environment = create_module_environment();
+        let mut module_environments =
+            HashMap::from([(source_file.path.clone(), create_module_environment())]);
         let mut context = CompilationContext::default();
 
         register_module_effects(&mut script, &source_file, &mut context, &mut environment).unwrap();
@@ -2517,6 +2640,7 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &mut module_environment,
             &compilation_session,
         )
         .unwrap();
@@ -2526,12 +2650,16 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            module_environments
+                .get_mut(&source_file.path)
+                .expect("module environment should exist"),
             &compilation_session,
         )
         .unwrap();
         resolve_user_defined_function_definitions(
             &mut context,
             &mut environment,
+            &mut module_environments,
             &compilation_session,
         )
         .unwrap();
@@ -2578,6 +2706,9 @@ mod tests {
         );
         let mut environment = ProgramEnvironment::new();
         let compilation_session = compilation_session();
+        let mut module_environment = create_module_environment();
+        let mut module_environments =
+            HashMap::from([(source_file.path.clone(), create_module_environment())]);
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -2586,12 +2717,14 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &mut module_environment,
             &compilation_session,
         )
         .unwrap();
         resolve_user_defined_function_definitions(
             &mut context,
             &mut environment,
+            &mut module_environments,
             &compilation_session,
         )
         .unwrap();
@@ -2620,6 +2753,7 @@ mod tests {
         let source_file = SourceFile::new("main.ocelot", "fun quiet() can exec {}");
         let mut environment = ProgramEnvironment::new();
         let compilation_session = compilation_session();
+        let mut module_environment = create_module_environment();
         let mut context = CompilationContext::default();
 
         register_module_functions(
@@ -2628,6 +2762,7 @@ mod tests {
             &source_file,
             &mut context,
             &mut environment,
+            &mut module_environment,
             &compilation_session,
         )
         .unwrap();
