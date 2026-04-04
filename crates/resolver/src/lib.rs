@@ -107,19 +107,23 @@ impl<'a> Resolver<'a> {
                 .environment
                 .function_definition(function_index)
                 .expect("resolved function index should point at a definition");
-            let message = match existing_function.kind {
-                FunctionKind::Native { .. } => {
+            let duplicate_with_original = match &existing_function.kind {
+                FunctionKind::Native { .. } => None,
+                FunctionKind::UserDefined { function } => Some((**function).clone()),
+            };
+
+            if let Some(original_function) = duplicate_with_original {
+                self.add_duplicate_function_diagnostic(&function_item, &original_function);
+            } else {
+                self.add_diagnostic(
                     format!(
                         "function `{}` conflicts with native function",
                         function_item.name
-                    )
-                }
-                FunctionKind::UserDefined { .. } => {
-                    format!("duplicate function `{}`", function_item.name)
-                }
-            };
-
-            self.add_diagnostic(message, function_item.span.clone(), "duplicate function");
+                    ),
+                    function_item.name_span.clone(),
+                    "duplicate function",
+                );
+            }
             return;
         }
 
@@ -211,6 +215,23 @@ impl<'a> Resolver<'a> {
             .add_diagnostic(self.source_diagnostic(message, span, annotation));
     }
 
+    fn add_duplicate_function_diagnostic(
+        &mut self,
+        duplicate_function: &FunctionItem,
+        original_function: &FunctionItem,
+    ) {
+        let diagnostic = self
+            .source_diagnostic(
+                format!("duplicate function `{}`", duplicate_function.name),
+                duplicate_function.name_span.clone(),
+                "duplicate function",
+            )
+            .with_excerpt(
+                self.source_excerpt(original_function.name_span.clone(), "already defined here"),
+            );
+        self.compilation_context.add_diagnostic(diagnostic);
+    }
+
     fn source_diagnostic(
         &self,
         message: impl Into<SharedString>,
@@ -218,16 +239,19 @@ impl<'a> Resolver<'a> {
         annotation: impl Into<SharedString>,
     ) -> SourceDiagnostic {
         let message = message.into();
+        SourceDiagnostic::new(DiagnosticLevel::Error, &self.source_file.path, message)
+            .with_excerpt(self.source_excerpt(span, annotation))
+    }
+
+    fn source_excerpt(&self, span: Span, annotation: impl Into<SharedString>) -> SourceExcerpt {
         let annotation = annotation.into();
         let (line_number, line_start, line_end) = self.line_bounds(span.start());
         let source_line = &self.source_file.source()[line_start..line_end];
         let relative_start = span.start().saturating_sub(line_start);
         let relative_end = span.end().saturating_sub(line_start);
 
-        SourceDiagnostic::new(DiagnosticLevel::Error, &self.source_file.path, message).with_excerpt(
-            SourceExcerpt::new(&self.source_file.path, line_number, source_line).with_annotation(
-                SourceAnnotation::new(Span::new(relative_start, relative_end), annotation),
-            ),
+        SourceExcerpt::new(&self.source_file.path, line_number, source_line).with_annotation(
+            SourceAnnotation::new(Span::new(relative_start, relative_end), annotation),
         )
     }
 
@@ -489,6 +513,7 @@ mod tests {
                 Item::new(
                     ItemKind::Function(FunctionItem::new(
                         "greet",
+                        Span::new(4, 9),
                         vec![Statement::new(
                             StatementKind::Expression(ExpressionStatement::new(call(
                                 identifier("println", Span::new(14, 21)),
@@ -553,7 +578,12 @@ mod tests {
                     Span::new(0, 8),
                 ),
                 Item::new(
-                    ItemKind::Function(FunctionItem::new("greet", Vec::new(), Span::new(9, 22))),
+                    ItemKind::Function(FunctionItem::new(
+                        "greet",
+                        Span::new(13, 18),
+                        Vec::new(),
+                        Span::new(9, 22),
+                    )),
                     Span::new(9, 22),
                 ),
             ],
@@ -584,6 +614,7 @@ mod tests {
             vec![Item::new(
                 ItemKind::Function(FunctionItem::new(
                     "greet",
+                    Span::new(4, 9),
                     vec![Statement::new(
                         StatementKind::Expression(ExpressionStatement::new(call(
                             identifier("println", Span::new(14, 21)),
@@ -627,11 +658,21 @@ mod tests {
         let mut script = Script::new(
             vec![
                 Item::new(
-                    ItemKind::Function(FunctionItem::new("greet", Vec::new(), Span::new(0, 13))),
+                    ItemKind::Function(FunctionItem::new(
+                        "greet",
+                        Span::new(4, 9),
+                        Vec::new(),
+                        Span::new(0, 13),
+                    )),
                     Span::new(0, 13),
                 ),
                 Item::new(
-                    ItemKind::Function(FunctionItem::new("greet", Vec::new(), Span::new(14, 27))),
+                    ItemKind::Function(FunctionItem::new(
+                        "greet",
+                        Span::new(18, 23),
+                        Vec::new(),
+                        Span::new(14, 27),
+                    )),
                     Span::new(14, 27),
                 ),
             ],
@@ -649,13 +690,24 @@ mod tests {
                 .to_test_string()
                 .contains("duplicate function `greet`")
         );
+        assert!(error.to_test_string().contains("already defined here"));
+        assert!(
+            error
+                .to_test_string()
+                .contains("fun greet() {} fun greet() {}")
+        );
     }
 
     #[test]
     fn reports_collisions_with_native_function_names() {
         let mut script = Script::new(
             vec![Item::new(
-                ItemKind::Function(FunctionItem::new("println", Vec::new(), Span::new(0, 15))),
+                ItemKind::Function(FunctionItem::new(
+                    "println",
+                    Span::new(4, 11),
+                    Vec::new(),
+                    Span::new(0, 15),
+                )),
                 Span::new(0, 15),
             )],
             Span::new(0, 15),

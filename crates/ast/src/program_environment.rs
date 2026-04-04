@@ -102,6 +102,7 @@ impl ProgramEnvironment {
             function,
             Box::new(FunctionItem::new(
                 "",
+                ocelot_base::span::Span::default(),
                 Vec::new(),
                 ocelot_base::span::Span::default(),
             )),
@@ -187,7 +188,7 @@ mod tests {
         )]);
 
         let function_index = environment.add_function(FunctionDefinition::user_defined(
-            FunctionItem::new("greet", Vec::new(), Span::new(0, 13)),
+            FunctionItem::new("greet", Span::new(4, 9), Vec::new(), Span::new(0, 13)),
         ));
 
         assert_eq!(environment.resolve_function("greet"), Some(function_index));
@@ -206,6 +207,7 @@ mod tests {
             FunctionDefinition::native("println", NativeFunction::Println),
             FunctionDefinition::user_defined(FunctionItem::new(
                 "greet",
+                Span::new(4, 9),
                 Vec::new(),
                 Span::new(0, 13),
             )),
@@ -221,7 +223,7 @@ mod tests {
     #[test]
     fn take_and_put_user_defined_function_round_trips() {
         let mut environment = ProgramEnvironment::new(vec![FunctionDefinition::user_defined(
-            FunctionItem::new("greet", Vec::new(), Span::new(0, 13)),
+            FunctionItem::new("greet", Span::new(4, 9), Vec::new(), Span::new(0, 13)),
         )]);
         let function_index = FunctionIndex::new(1);
 

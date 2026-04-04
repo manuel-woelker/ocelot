@@ -109,7 +109,7 @@ impl<'a> Parser<'a> {
         let right_brace = self.expect(TokenType::RightBrace, "expected `}` after function body")?;
         let span = Span::new(fun_token.span.start(), right_brace.span.end());
         Ok(Item::new(
-            ItemKind::Function(FunctionItem::new(name, body, span.clone())),
+            ItemKind::Function(FunctionItem::new(name, name_token.span, body, span.clone())),
             span,
         ))
     }

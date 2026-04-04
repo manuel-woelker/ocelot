@@ -6,15 +6,22 @@ use ocelot_base::span::Span;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionItem {
     pub name: SharedString,
+    pub name_span: Span,
     pub body: Vec<Statement>,
     pub span: Span,
 }
 
 impl FunctionItem {
     /// Creates a function item from its name, body, and source span.
-    pub fn new(name: impl Into<SharedString>, body: Vec<Statement>, span: Span) -> Self {
+    pub fn new(
+        name: impl Into<SharedString>,
+        name_span: Span,
+        body: Vec<Statement>,
+        span: Span,
+    ) -> Self {
         Self {
             name: name.into(),
+            name_span,
             body,
             span,
         }
