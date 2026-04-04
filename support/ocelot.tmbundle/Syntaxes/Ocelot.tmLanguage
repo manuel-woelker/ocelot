@@ -61,7 +61,7 @@
       <array>
         <dict>
           <key>match</key>
-          <string>\b(?:assert_eq|println)\b(?=\s*\()</string>
+          <string>\b(?:assert|assert_eq|println)\b(?=\s*\()</string>
           <key>name</key>
           <string>support.function.builtin.ocelot</string>
         </dict>
@@ -110,6 +110,12 @@
     <dict>
       <key>patterns</key>
       <array>
+        <dict>
+          <key>match</key>
+          <string>\bnot\b</string>
+          <key>name</key>
+          <string>keyword.operator.logical.ocelot</string>
+        </dict>
         <dict>
           <key>match</key>
           <string>\btest\b</string>

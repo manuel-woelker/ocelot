@@ -177,14 +177,24 @@ This order keeps the tree shape, runtime behavior, docs, and support files movin
 - This plan assumes call expressions should bind tighter than `not`, which is the least surprising behavior for users and the easiest rule to explain in the spec.
 - This plan does not yet imply `and`, `or`, `if`, or boolean comparisons.
 
+# What verification was completed?
+
+Verification completed with:
+
+- `cargo test -p ocelot-parser`
+- `cargo test -p ocelot-interpreter`
+- `cargo test -p ocelot-engine`
+- `cargo test -p ocelot-spec-validation`
+- `nao check`
+
 # What concrete tasks should track this plan?
 
-- [ ] Add a dedicated `NotExpression` AST node and extend `ExpressionKind`.
-- [ ] Reserve `not` in the lexer without breaking longer identifiers.
-- [ ] Refactor parser expression parsing to support prefix negation with calls binding tighter than `not`.
-- [ ] Teach the interpreter to evaluate `not` for booleans and report a stable type error for non-boolean operands.
-- [ ] Add colocated lexer, parser, interpreter, and engine coverage for `not`.
-- [ ] Add `02.02 Expressions - Prefix negation` and update the boolean/spec index chapters accordingly.
-- [ ] Update the TextMate bundle so `not` highlights as a keyword.
-- [ ] Add or update example `.ocelot` files that demonstrate `not` without introducing more operators.
-- [ ] Run `nao check`.
+- [x] Add a dedicated `NotExpression` AST node and extend `ExpressionKind`.
+- [x] Reserve `not` in the lexer without breaking longer identifiers.
+- [x] Refactor parser expression parsing to support prefix negation with calls binding tighter than `not`.
+- [x] Teach the interpreter to evaluate `not` for booleans and report a stable type error for non-boolean operands.
+- [x] Add colocated lexer, parser, interpreter, and engine coverage for `not`.
+- [x] Add `02.02 Expressions - Prefix negation` and update the boolean/spec index chapters accordingly.
+- [x] Update the TextMate bundle so `not` highlights as a keyword.
+- [x] Add or update example `.ocelot` files that demonstrate `not` without introducing more operators.
+- [x] Run `nao check`.

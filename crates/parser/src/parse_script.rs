@@ -29,9 +29,11 @@ mod tests {
     use super::parse_script;
     use ocelot_ast::boolean_literal_expression::BooleanLiteralExpression;
     use ocelot_ast::call_expression::CallExpression;
+    use ocelot_ast::expression::Expression;
     use ocelot_ast::expression_kind::ExpressionKind;
     use ocelot_ast::expression_statement::ExpressionStatement;
     use ocelot_ast::item_kind::ItemKind;
+    use ocelot_ast::not_expression::NotExpression;
     use ocelot_ast::statement_kind::StatementKind;
     use ocelot_base::compilation_context::CompilationContext;
     use ocelot_base::diagnostic_level::DiagnosticLevel;
@@ -164,6 +166,128 @@ mod tests {
                     assert_eq!(
                         arguments[1].kind,
                         ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(false))
+                    );
+                }
+            },
+            other => panic!("expected statement item, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_not_true_as_a_not_expression() {
+        let source_file = SourceFile::new("examples/not.ocelot", "not true;");
+        let mut context = CompilationContext::default();
+
+        let script = parse_script(&source_file, &mut context).unwrap();
+
+        assert_eq!(script.items.len(), 1);
+        assert!(!context.has_errors());
+
+        match &script.items[0].kind {
+            ItemKind::Statement(statement) => match &statement.kind {
+                StatementKind::Expression(ExpressionStatement { expression }) => {
+                    assert_eq!(
+                        expression.kind,
+                        ExpressionKind::Not(NotExpression::new(Expression::new(
+                            ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(true)),
+                            Span::new(4, 8),
+                        )))
+                    );
+                }
+            },
+            other => panic!("expected statement item, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_nested_not_expressions() {
+        let source_file = SourceFile::new("examples/not.ocelot", "not not false;");
+        let mut context = CompilationContext::default();
+
+        let script = parse_script(&source_file, &mut context).unwrap();
+
+        assert_eq!(script.items.len(), 1);
+        assert!(!context.has_errors());
+
+        match &script.items[0].kind {
+            ItemKind::Statement(statement) => match &statement.kind {
+                StatementKind::Expression(ExpressionStatement { expression }) => {
+                    assert_eq!(
+                        expression.kind,
+                        ExpressionKind::Not(NotExpression::new(Expression::new(
+                            ExpressionKind::Not(NotExpression::new(Expression::new(
+                                ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(
+                                    false,
+                                )),
+                                Span::new(8, 13),
+                            ))),
+                            Span::new(4, 13),
+                        )))
+                    );
+                }
+            },
+            other => panic!("expected statement item, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_not_with_calls_binding_tighter_than_the_operator() {
+        let source_file = SourceFile::new("examples/not.ocelot", "not foo();");
+        let mut context = CompilationContext::default();
+
+        let script = parse_script(&source_file, &mut context).unwrap();
+
+        assert_eq!(script.items.len(), 1);
+        assert!(!context.has_errors());
+
+        match &script.items[0].kind {
+            ItemKind::Statement(statement) => match &statement.kind {
+                StatementKind::Expression(ExpressionStatement { expression }) => {
+                    let ExpressionKind::Not(NotExpression { operand }) = &expression.kind else {
+                        panic!("expected not expression, got {:?}", expression.kind);
+                    };
+
+                    let ExpressionKind::Call(CallExpression { callee, arguments }) = &operand.kind
+                    else {
+                        panic!("expected call operand, got {:?}", operand.kind);
+                    };
+
+                    assert!(arguments.is_empty());
+
+                    let ExpressionKind::Identifier(identifier) = &callee.kind else {
+                        panic!("expected identifier callee, got {:?}", callee.kind);
+                    };
+                    assert_eq!(identifier.name, "foo");
+                }
+            },
+            other => panic!("expected statement item, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_not_inside_call_arguments() {
+        let source_file = SourceFile::new("examples/not.ocelot", "assert(not false);");
+        let mut context = CompilationContext::default();
+
+        let script = parse_script(&source_file, &mut context).unwrap();
+
+        assert_eq!(script.items.len(), 1);
+        assert!(!context.has_errors());
+
+        match &script.items[0].kind {
+            ItemKind::Statement(statement) => match &statement.kind {
+                StatementKind::Expression(ExpressionStatement { expression }) => {
+                    let ExpressionKind::Call(CallExpression { arguments, .. }) = &expression.kind
+                    else {
+                        panic!("expected call expression, got {:?}", expression.kind);
+                    };
+
+                    assert_eq!(
+                        arguments[0].kind,
+                        ExpressionKind::Not(NotExpression::new(Expression::new(
+                            ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(false)),
+                            Span::new(11, 16),
+                        )))
                     );
                 }
             },

@@ -6,6 +6,7 @@ use ocelot_ast::expression_kind::ExpressionKind;
 use ocelot_ast::expression_statement::ExpressionStatement;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
+use ocelot_ast::not_expression::NotExpression;
 use ocelot_ast::script::Script;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
@@ -73,6 +74,7 @@ impl<'a> Interpreter<'a> {
             ExpressionKind::Call(call_expression) => {
                 self.evaluate_call_expression(expression, call_expression)
             }
+            ExpressionKind::Not(not_expression) => self.evaluate_not_expression(not_expression),
             ExpressionKind::StringLiteral(string_literal) => {
                 Ok(RuntimeValue::string(string_literal.value.clone()))
             }
@@ -99,6 +101,15 @@ impl<'a> Interpreter<'a> {
             "println" => self.evaluate_println_call(call_expression),
             _ => ocelot_base::bail!("unknown native function `{}`", identifier.name),
         }
+    }
+
+    fn evaluate_not_expression(
+        &self,
+        not_expression: &NotExpression,
+    ) -> OcelotResult<RuntimeValue> {
+        let operand = self.evaluate_expression(&not_expression.operand)?;
+        let operand = operand.expect_boolean("type error: `not` expects a boolean operand")?;
+        Ok(RuntimeValue::boolean(!operand))
     }
 
     fn evaluate_println_call(

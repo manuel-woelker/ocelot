@@ -24,6 +24,7 @@ mod tests {
     use ocelot_ast::identifier_expression::IdentifierExpression;
     use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
+    use ocelot_ast::not_expression::NotExpression;
     use ocelot_ast::script::Script;
     use ocelot_ast::statement::Statement;
     use ocelot_ast::statement_kind::StatementKind;
@@ -45,6 +46,10 @@ mod tests {
             )),
             span,
         )
+    }
+
+    fn not_expression(operand: Expression, span: Span) -> Expression {
+        Expression::new(ExpressionKind::Not(NotExpression::new(operand)), span)
     }
 
     #[test]
@@ -182,6 +187,73 @@ mod tests {
     }
 
     #[test]
+    fn interprets_println_not_false() {
+        let script = Script::new(
+            vec![Item::new(
+                ItemKind::Statement(Statement::new(
+                    StatementKind::Expression(ExpressionStatement::new(call_expression(
+                        "println",
+                        vec![not_expression(
+                            Expression::new(
+                                ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(
+                                    false,
+                                )),
+                                Span::new(12, 17),
+                            ),
+                            Span::new(8, 17),
+                        )],
+                        Span::new(0, 18),
+                    ))),
+                    Span::new(0, 19),
+                )),
+                Span::new(0, 19),
+            )],
+            Span::new(0, 19),
+        );
+        let pal = PalMock::new();
+        let source_file = SourceFile::new("examples/not.ocelot", "println(not false);");
+
+        interpret_script(&script, &source_file, &pal).unwrap();
+
+        assert_eq!(pal.take_printed_output(), "true\n");
+    }
+
+    #[test]
+    fn interprets_nested_not_expressions() {
+        let script = Script::new(
+            vec![Item::new(
+                ItemKind::Statement(Statement::new(
+                    StatementKind::Expression(ExpressionStatement::new(call_expression(
+                        "println",
+                        vec![not_expression(
+                            not_expression(
+                                Expression::new(
+                                    ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(
+                                        false,
+                                    )),
+                                    Span::new(16, 21),
+                                ),
+                                Span::new(12, 21),
+                            ),
+                            Span::new(8, 21),
+                        )],
+                        Span::new(0, 22),
+                    ))),
+                    Span::new(0, 23),
+                )),
+                Span::new(0, 23),
+            )],
+            Span::new(0, 23),
+        );
+        let pal = PalMock::new();
+        let source_file = SourceFile::new("examples/not.ocelot", "println(not not false);");
+
+        interpret_script(&script, &source_file, &pal).unwrap();
+
+        assert_eq!(pal.take_printed_output(), "false\n");
+    }
+
+    #[test]
     fn interprets_assert_eq_when_values_match() {
         let script = Script::new(
             vec![Item::new(
@@ -306,6 +378,72 @@ mod tests {
         assert_eq!(assertion_error.actual, None);
         assert!(!error.to_test_string().contains("expected:"));
         assert!(!error.to_test_string().contains("actual:"));
+    }
+
+    #[test]
+    fn interprets_assert_with_a_not_expression() {
+        let script = Script::new(
+            vec![Item::new(
+                ItemKind::Statement(Statement::new(
+                    StatementKind::Expression(ExpressionStatement::new(call_expression(
+                        "assert",
+                        vec![not_expression(
+                            Expression::new(
+                                ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(
+                                    false,
+                                )),
+                                Span::new(11, 16),
+                            ),
+                            Span::new(7, 16),
+                        )],
+                        Span::new(0, 17),
+                    ))),
+                    Span::new(0, 18),
+                )),
+                Span::new(0, 18),
+            )],
+            Span::new(0, 18),
+        );
+        let source_file = SourceFile::new("examples/not.ocelot", "assert(not false);");
+        let pal = PalMock::new();
+
+        interpret_script(&script, &source_file, &pal).unwrap();
+        assert_eq!(pal.take_printed_output(), "");
+    }
+
+    #[test]
+    fn reports_assert_not_true_as_a_minimal_assertion_error() {
+        let script = Script::new(
+            vec![Item::new(
+                ItemKind::Statement(Statement::new(
+                    StatementKind::Expression(ExpressionStatement::new(call_expression(
+                        "assert",
+                        vec![not_expression(
+                            Expression::new(
+                                ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(true)),
+                                Span::new(11, 15),
+                            ),
+                            Span::new(7, 15),
+                        )],
+                        Span::new(0, 16),
+                    ))),
+                    Span::new(0, 17),
+                )),
+                Span::new(0, 17),
+            )],
+            Span::new(0, 17),
+        );
+        let source_file = SourceFile::new("examples/not.ocelot", "assert(not true);");
+        let pal = PalMock::new();
+
+        let error = interpret_script(&script, &source_file, &pal).unwrap_err();
+
+        let ErrorKind::AssertionError(assertion_error) = error.kind() else {
+            panic!("expected assertion error, got {:?}", error.kind());
+        };
+        assert_eq!(assertion_error.summary(), "assert condition was false");
+        assert_eq!(assertion_error.expected, None);
+        assert_eq!(assertion_error.actual, None);
     }
 
     #[test]
@@ -473,6 +611,42 @@ mod tests {
             error
                 .to_test_string()
                 .contains("type error: `assert` expects a boolean argument")
+        );
+    }
+
+    #[test]
+    fn reports_not_wrong_type() {
+        let script = Script::new(
+            vec![Item::new(
+                ItemKind::Statement(Statement::new(
+                    StatementKind::Expression(ExpressionStatement::new(call_expression(
+                        "println",
+                        vec![not_expression(
+                            Expression::new(
+                                ExpressionKind::StringLiteral(StringLiteralExpression::new(
+                                    "hello",
+                                )),
+                                Span::new(12, 19),
+                            ),
+                            Span::new(8, 19),
+                        )],
+                        Span::new(0, 20),
+                    ))),
+                    Span::new(0, 21),
+                )),
+                Span::new(0, 21),
+            )],
+            Span::new(0, 21),
+        );
+        let source_file = SourceFile::new("examples/not.ocelot", "println(not \"hello\");");
+        let pal = PalMock::new();
+
+        let error = interpret_script(&script, &source_file, &pal).unwrap_err();
+
+        assert!(
+            error
+                .to_test_string()
+                .contains("type error: `not` expects a boolean operand")
         );
     }
 }

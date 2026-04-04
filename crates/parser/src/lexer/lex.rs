@@ -88,6 +88,7 @@ pub fn lex(source_file: &SourceFile, context: &mut CompilationContext) -> Vec<To
 
                 let token_type = match &source[start..index] {
                     "false" => TokenType::False,
+                    "not" => TokenType::Not,
                     "test" => TokenType::Test,
                     "true" => TokenType::True,
                     _ => TokenType::Identifier,
@@ -327,6 +328,27 @@ mod tests {
     }
 
     #[test]
+    fn lexes_not_as_a_reserved_token() {
+        let source_file = SourceFile::new("examples/not.ocelot", "not true;");
+        let mut context = CompilationContext::default();
+        let token_types: Vec<_> = lex(&source_file, &mut context)
+            .into_iter()
+            .map(|token| token.token_type)
+            .collect();
+
+        assert_eq!(
+            token_types,
+            vec![
+                TokenType::Not,
+                TokenType::True,
+                TokenType::Semicolon,
+                TokenType::EndOfFile,
+            ]
+        );
+        assert!(!context.has_errors());
+    }
+
+    #[test]
     fn keeps_longer_identifiers_distinct_from_boolean_literals() {
         let source_file = SourceFile::new("examples/booleans.ocelot", "true_value; falsey;");
         let mut context = CompilationContext::default();
@@ -338,6 +360,30 @@ mod tests {
         assert_eq!(
             token_types,
             vec![
+                TokenType::Identifier,
+                TokenType::Semicolon,
+                TokenType::Identifier,
+                TokenType::Semicolon,
+                TokenType::EndOfFile,
+            ]
+        );
+        assert!(!context.has_errors());
+    }
+
+    #[test]
+    fn keeps_longer_identifiers_distinct_from_not() {
+        let source_file = SourceFile::new("examples/not.ocelot", "notify; not_value; knot;");
+        let mut context = CompilationContext::default();
+        let token_types: Vec<_> = lex(&source_file, &mut context)
+            .into_iter()
+            .map(|token| token.token_type)
+            .collect();
+
+        assert_eq!(
+            token_types,
+            vec![
+                TokenType::Identifier,
+                TokenType::Semicolon,
                 TokenType::Identifier,
                 TokenType::Semicolon,
                 TokenType::Identifier,

@@ -4,6 +4,7 @@ pub enum TokenType {
     Identifier,
     String,
     False,
+    Not,
     True,
     Comma,
     LeftParen,

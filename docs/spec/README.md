@@ -65,6 +65,7 @@ The first numbered spec chapters are:
 
 - [01.01 Lexical structure - Comments](./01.01%20Lexical%20structure%20-%20Comments.md)
 - [02.01 Expressions - Function calls](./02.01%20Expressions%20-%20Function%20calls.md)
+- [02.02 Expressions - Prefix negation](./02.02%20Expressions%20-%20Prefix%20negation.md)
 - [10.01 Types - Booleans](./10.01%20Types%20-%20Booleans.md)
 - [15.01 Declarations - Test items](./15.01%20Declarations%20-%20Test%20items.md)
 - [28.01 Runtime behavior - Scripts](./28.01%20Runtime%20behavior%20-%20Scripts.md)

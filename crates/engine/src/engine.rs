@@ -200,6 +200,21 @@ mod tests {
     }
 
     #[test]
+    fn run_script_evaluates_not_expressions() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/not.ocelot",
+            "println(not false); println(not true);",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal.clone()));
+
+        engine.run_script("examples/not.ocelot").unwrap();
+
+        assert_eq!(pal.take_printed_output(), "true\nfalse\n");
+    }
+
+    #[test]
     fn discover_tests_returns_names_in_source_order() {
         let pal = PalMock::new();
         pal.set_file(
@@ -323,6 +338,31 @@ mod tests {
                 .contains("assert condition was false")
         );
         assert!(error.to_test_string().contains("assert(false);"));
+        assert!(!error.to_test_string().contains("expected:"));
+        assert!(!error.to_test_string().contains("actual:"));
+    }
+
+    #[test]
+    fn run_test_renders_assert_not_true_failures_without_a_diff_block() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/tests.ocelot",
+            "test \"broken\" { assert(not true); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal));
+
+        let error = engine
+            .run_test("examples/tests.ocelot", "broken")
+            .unwrap_err();
+
+        assert!(error.to_test_string().contains("test `broken` failed"));
+        assert!(
+            error
+                .to_test_string()
+                .contains("assert condition was false")
+        );
+        assert!(error.to_test_string().contains("assert(not true);"));
         assert!(!error.to_test_string().contains("expected:"));
         assert!(!error.to_test_string().contains("actual:"));
     }

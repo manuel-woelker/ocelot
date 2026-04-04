@@ -8,6 +8,7 @@ pub mod expression_statement;
 pub mod identifier_expression;
 pub mod item;
 pub mod item_kind;
+pub mod not_expression;
 pub mod script;
 pub mod statement;
 pub mod statement_kind;

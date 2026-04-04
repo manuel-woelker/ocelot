@@ -9,6 +9,7 @@ use ocelot_ast::expression_statement::ExpressionStatement;
 use ocelot_ast::identifier_expression::IdentifierExpression;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
+use ocelot_ast::not_expression::NotExpression;
 use ocelot_ast::script::Script;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
@@ -123,10 +124,29 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expression(&mut self) -> OcelotResult<Expression> {
+        self.parse_prefix_expression()
+    }
+
+    fn parse_prefix_expression(&mut self) -> OcelotResult<Expression> {
+        if self.at(TokenType::Not) {
+            let not_token = self.expect(TokenType::Not, "expected `not` operator")?;
+            let operand = self.parse_prefix_expression()?;
+            let span = Span::new(not_token.span.start(), operand.span.end());
+
+            return Ok(Expression::new(
+                ExpressionKind::Not(NotExpression::new(operand)),
+                span,
+            ));
+        }
+
+        self.parse_call_expression()
+    }
+
+    fn parse_call_expression(&mut self) -> OcelotResult<Expression> {
         let mut expression = self.parse_primary_expression()?;
 
         while self.at(TokenType::LeftParen) {
-            expression = self.parse_call_expression(expression)?;
+            expression = self.parse_call_expression_suffix(expression)?;
         }
 
         Ok(expression)
@@ -168,6 +188,11 @@ impl<'a> Parser<'a> {
                     token.span,
                 ))
             }
+            TokenType::Not => self.emit_fatal_diagnostic(
+                "expected expression after `not`",
+                token.span,
+                "operand expected here",
+            ),
             TokenType::Unexpected => {
                 self.emit_fatal_diagnostic("unexpected token", token.span, "unexpected character")
             }
@@ -179,7 +204,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_call_expression(&mut self, callee: Expression) -> OcelotResult<Expression> {
+    fn parse_call_expression_suffix(&mut self, callee: Expression) -> OcelotResult<Expression> {
         self.expect(TokenType::LeftParen, "expected `(` after callee")?;
         let mut arguments = Vec::new();
 

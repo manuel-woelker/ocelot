@@ -126,6 +126,13 @@ mod tests {
             .unwrap(),
         );
         inner_pal.set_file(
+            "docs/spec/02.02 Expressions - Prefix negation.md",
+            std::fs::read_to_string(
+                repo_root.join("docs/spec/02.02 Expressions - Prefix negation.md"),
+            )
+            .unwrap(),
+        );
+        inner_pal.set_file(
             "docs/spec/15.01 Declarations - Test items.md",
             std::fs::read_to_string(repo_root.join("docs/spec/15.01 Declarations - Test items.md"))
                 .unwrap(),
@@ -184,9 +191,9 @@ mod tests {
         .unwrap();
 
         expect![[r#"
-            10
-            20
-            20
+            11
+            23
+            23
             0
         "#]]
         .assert_eq(&format!(
