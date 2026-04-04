@@ -156,6 +156,11 @@ mod tests {
             .unwrap(),
         );
         inner_pal.set_file(
+            "docs/spec/30.02 Standard library - assert.md",
+            std::fs::read_to_string(repo_root.join("docs/spec/30.02 Standard library - assert.md"))
+                .unwrap(),
+        );
+        inner_pal.set_file(
             "docs/spec/91.01 Lexer errors - Unterminated strings.md",
             std::fs::read_to_string(
                 repo_root.join("docs/spec/91.01 Lexer errors - Unterminated strings.md"),
@@ -179,9 +184,9 @@ mod tests {
         .unwrap();
 
         expect![[r#"
-            9
-            18
-            18
+            10
+            20
+            20
             0
         "#]]
         .assert_eq(&format!(

@@ -94,11 +94,11 @@ The only additional runtime helper that may be worth adding is a boolean expecta
 That helper is recommended if it keeps builtin type checking consistent and readable.
 If it would be a one-off wrapper with no reuse, local matching in the interpreter is fine.
 
-# What spec chapters should document `assert()`?
+# What spec chapters document `assert()`?
 
 `assert()` belongs in the standard-library chapter set, alongside `println()`, and it should also influence runtime-facing examples.
 
-The recommended spec work is:
+The implemented spec work is:
 
 - add `30.02 Standard library - assert`
 - describe `assert()` as a builtin that requires one boolean argument
@@ -115,7 +115,7 @@ This plan should not block on redesigning the whole assertion chapter layout.
 
 # What examples should the repository add or update?
 
-The repository should add or update small examples that use `assert()` directly.
+The repository now adds and updates small examples that use `assert()` directly.
 
 Recommended example work:
 
@@ -125,7 +125,7 @@ Recommended example work:
 
 The examples should make the intended usage obvious without faking future features like custom messages or boolean operators.
 
-# What tests should verify the feature?
+# What tests verified the feature?
 
 Verification should stay colocated and focus on observable behavior.
 
@@ -142,12 +142,12 @@ Engine tests in [`crates/engine/src/engine.rs`](/data/projects/ocelot/crates/eng
 - test execution renders `assert(false)` failures in the same style as `assert_eq`
 - test summaries preserve the assertion output
 
-Spec validation should cover:
+Spec validation now covers:
 
 - successful `assert(true)` examples
 - failing `assert(false)` examples if a spec error example is added
 
-# What implementation order is recommended?
+# What implementation order was used?
 
 1. Add builtin dispatch for `assert`.
 2. Implement `evaluate_assert_call(...)` using the existing assertion-error path.
@@ -160,19 +160,29 @@ Spec validation should cover:
 This keeps the work honest and small.
 Starting with docs before the builtin exists would just create churn.
 
-# What assumptions and open questions should stay explicit?
+# What assumptions and follow-up notes should stay explicit?
 
 - This plan assumes `assert()` is a builtin function, not new syntax.
 - The first version intentionally does not support a second message argument such as `assert(condition, "message")`.
 - The first version assumes `assert()` should stay leaner than `assert_eq` and should not emit an expected/actual diff block for `assert(false)`.
 - If the repository later wants richer assertion APIs, `assert()` should remain the smallest direct boolean assertion rather than being replaced by more abstract helpers.
 
+# What verification was completed?
+
+Verification completed with:
+
+- `cargo test -p ocelot-base`
+- `cargo test -p ocelot-interpreter`
+- `cargo test -p ocelot-engine`
+- `cargo test -p ocelot-spec-validation`
+- `nao check`
+
 # What concrete tasks should track this plan?
 
-- [ ] Add builtin dispatch and interpreter support for `assert(condition)`.
-- [ ] Reuse the structured `AssertionError` path for false-condition failures.
-- [ ] Add interpreter coverage for successful, failing, wrong-arity, and wrong-type `assert()` calls.
-- [ ] Add engine coverage proving `assert()` failures render cleanly through test execution.
-- [ ] Add a `30.02 Standard library - assert` spec chapter with executable examples.
-- [ ] Add or update example `.ocelot` files that demonstrate `assert()` usage.
-- [ ] Run `nao check`.
+- [x] Add builtin dispatch and interpreter support for `assert(condition)`.
+- [x] Reuse the structured `AssertionError` path for false-condition failures.
+- [x] Add interpreter coverage for successful, failing, wrong-arity, and wrong-type `assert()` calls.
+- [x] Add engine coverage proving `assert()` failures render cleanly through test execution.
+- [x] Add a `30.02 Standard library - assert` spec chapter with executable examples.
+- [x] Add or update example `.ocelot` files that demonstrate `assert()` usage.
+- [x] Run `nao check`.

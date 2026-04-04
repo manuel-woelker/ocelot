@@ -94,6 +94,7 @@ impl<'a> Interpreter<'a> {
         };
 
         match identifier.name.as_str() {
+            "assert" => self.evaluate_assert_call(expression, call_expression),
             "assert_eq" => self.evaluate_assert_eq_call(expression, call_expression),
             "println" => self.evaluate_println_call(call_expression),
             _ => ocelot_base::bail!("unknown native function `{}`", identifier.name),
@@ -118,6 +119,32 @@ impl<'a> Interpreter<'a> {
 
         self.pal.print(&format!("{text}\n"))?;
         Ok(RuntimeValue::unit())
+    }
+
+    fn evaluate_assert_call(
+        &self,
+        expression: &Expression,
+        call_expression: &CallExpression,
+    ) -> OcelotResult<RuntimeValue> {
+        if call_expression.arguments.len() != 1 {
+            ocelot_base::bail!("type error: `assert` expects exactly one argument");
+        }
+
+        let condition = self.evaluate_expression(&call_expression.arguments[0])?;
+        let condition =
+            condition.expect_boolean("type error: `assert` expects a boolean argument")?;
+
+        if condition {
+            return Ok(RuntimeValue::unit());
+        }
+
+        Err(OcelotError::assertion_error(
+            AssertionError::new_without_diff(
+                self.source_file,
+                expression.span.clone(),
+                "assert condition was false",
+            ),
+        ))
     }
 
     fn evaluate_assert_eq_call(

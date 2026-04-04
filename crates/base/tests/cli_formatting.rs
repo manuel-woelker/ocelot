@@ -96,3 +96,26 @@ fn format_cli_error_returns_only_rendered_assertion_errors() {
         &error,
     )));
 }
+
+#[test]
+fn format_cli_error_returns_only_rendered_assertion_errors_without_a_diff() {
+    let source_file = SourceFile::new("examples/tests.ocelot", "assert(false);");
+    let error = OcelotError::assertion_error(AssertionError::new_without_diff(
+        &source_file,
+        Span::new(0, source_file.source().len() - 1),
+        "assert condition was false",
+    ));
+
+    expect!([r#"
+        error: assert condition was false
+          ╭▸ examples/tests.ocelot:1
+          │
+        1 │ assert(false);
+          ╰╴━━━━━━━━━━━━━ assertion failed here
+        at examples/tests.ocelot:1:1
+    "#])
+    .assert_eq(&ocelot_base::unansi(&format_cli_error(
+        "operation failed",
+        &error,
+    )));
+}

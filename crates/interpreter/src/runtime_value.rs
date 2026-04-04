@@ -75,6 +75,14 @@ impl RuntimeValue {
         }
     }
 
+    /// Returns the inner boolean or a user-facing type error.
+    pub fn expect_boolean(&self, message: impl AsRef<str>) -> OcelotResult<bool> {
+        match self {
+            Self::Boolean(value) => Ok(*value),
+            Self::String(_) | Self::Unit => ocelot_base::bail!("{}", message.as_ref()),
+        }
+    }
+
     /// Returns true when both runtime values compare equal.
     pub fn equals(&self, other: &Self) -> bool {
         self == other
@@ -143,6 +151,30 @@ mod tests {
             error
                 .to_test_string()
                 .contains("type error: expected string")
+        );
+    }
+
+    #[test]
+    fn expect_boolean_returns_the_inner_boolean() {
+        let value = RuntimeValue::boolean(true);
+
+        let actual = value.expect_boolean("expected boolean").unwrap();
+
+        assert!(actual);
+    }
+
+    #[test]
+    fn expect_boolean_returns_the_given_error_for_non_booleans() {
+        let value = RuntimeValue::string("hello");
+
+        let error = value
+            .expect_boolean("type error: expected boolean")
+            .unwrap_err();
+
+        assert!(
+            error
+                .to_test_string()
+                .contains("type error: expected boolean")
         );
     }
 

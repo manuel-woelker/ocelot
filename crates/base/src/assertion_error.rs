@@ -12,8 +12,8 @@ use crate::span::Span;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssertionError {
     pub diagnostic: SourceDiagnostic,
-    pub expected: SharedString,
-    pub actual: SharedString,
+    pub expected: Option<SharedString>,
+    pub actual: Option<SharedString>,
 }
 
 impl AssertionError {
@@ -42,8 +42,36 @@ impl AssertionError {
 
         Self {
             diagnostic,
-            expected: expected.into(),
-            actual: actual.into(),
+            expected: Some(expected.into()),
+            actual: Some(actual.into()),
+        }
+    }
+
+    /// Creates an assertion error for a source-file span without an expected/actual diff.
+    pub fn new_without_diff(
+        source_file: &SourceFile,
+        span: Span,
+        summary: impl Into<SharedString>,
+    ) -> Self {
+        let (line_number, line_start, line_end) = line_bounds(source_file.source(), span.start());
+        let source_line = &source_file.source()[line_start..line_end];
+        let relative_start = span.start().saturating_sub(line_start);
+        let relative_end = span.end().saturating_sub(line_start);
+        let summary = summary.into();
+        let diagnostic = SourceDiagnostic::new(DiagnosticLevel::Error, &source_file.path, summary)
+            .with_excerpt(
+                SourceExcerpt::new(&source_file.path, line_number, source_line).with_annotation(
+                    SourceAnnotation::new(
+                        Span::new(relative_start, relative_end),
+                        "assertion failed here",
+                    ),
+                ),
+            );
+
+        Self {
+            diagnostic,
+            expected: None,
+            actual: None,
         }
     }
 
@@ -58,17 +86,18 @@ impl AssertionError {
     }
 }
 
-/// Renders an assertion error as a source diagnostic followed by a short diff.
+/// Renders an assertion error as a source diagnostic and an optional short diff.
 pub fn render_assertion_error(assertion_error: &AssertionError) -> SharedString {
     let rendered_diagnostic = strip_column_from_assertion_diagnostic(&render_source_diagnostics(
         std::slice::from_ref(&assertion_error.diagnostic),
     ));
 
-    crate::shared_format!(
-        "{rendered_diagnostic}\n\nexpected: {}\nactual:   {}",
-        assertion_error.expected,
-        assertion_error.actual
-    )
+    match (&assertion_error.expected, &assertion_error.actual) {
+        (Some(expected), Some(actual)) => crate::shared_format!(
+            "{rendered_diagnostic}\n\nexpected: {expected}\nactual:   {actual}"
+        ),
+        _ => rendered_diagnostic,
+    }
 }
 
 fn strip_column_from_assertion_diagnostic(rendered: &str) -> SharedString {
@@ -152,6 +181,27 @@ mod tests {
 
             expected: "a"
             actual:   "b""#]]
+        .assert_eq(&rendered);
+    }
+
+    #[test]
+    fn renders_assertion_errors_without_a_diff_block() {
+        let source_file = SourceFile::new("examples/tests.ocelot", "assert(false);");
+        let assertion_error = AssertionError::new_without_diff(
+            &source_file,
+            Span::new(0, source_file.source().len() - 1),
+            "assert condition was false",
+        );
+
+        let rendered = unansi(&render_assertion_error(&assertion_error));
+
+        expect![[r#"
+            error: assert condition was false
+              ╭▸ examples/tests.ocelot:1
+              │
+            1 │ assert(false);
+              ╰╴━━━━━━━━━━━━━ assertion failed here
+            at examples/tests.ocelot:1:1"#]]
         .assert_eq(&rendered);
     }
 }

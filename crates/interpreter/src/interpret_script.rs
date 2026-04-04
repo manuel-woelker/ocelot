@@ -249,6 +249,66 @@ mod tests {
     }
 
     #[test]
+    fn interprets_assert_when_condition_is_true() {
+        let script = Script::new(
+            vec![Item::new(
+                ItemKind::Statement(Statement::new(
+                    StatementKind::Expression(ExpressionStatement::new(call_expression(
+                        "assert",
+                        vec![Expression::new(
+                            ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(true)),
+                            Span::new(7, 11),
+                        )],
+                        Span::new(0, 12),
+                    ))),
+                    Span::new(0, 13),
+                )),
+                Span::new(0, 13),
+            )],
+            Span::new(0, 13),
+        );
+        let source_file = SourceFile::new("examples/assertions.ocelot", "assert(true);");
+        let pal = PalMock::new();
+
+        interpret_script(&script, &source_file, &pal).unwrap();
+        assert_eq!(pal.take_printed_output(), "");
+    }
+
+    #[test]
+    fn reports_assert_false_as_an_assertion_error_without_a_diff_block() {
+        let script = Script::new(
+            vec![Item::new(
+                ItemKind::Statement(Statement::new(
+                    StatementKind::Expression(ExpressionStatement::new(call_expression(
+                        "assert",
+                        vec![Expression::new(
+                            ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(false)),
+                            Span::new(7, 12),
+                        )],
+                        Span::new(0, 13),
+                    ))),
+                    Span::new(0, 14),
+                )),
+                Span::new(0, 14),
+            )],
+            Span::new(0, 14),
+        );
+        let source_file = SourceFile::new("examples/assertions.ocelot", "assert(false);");
+        let pal = PalMock::new();
+
+        let error = interpret_script(&script, &source_file, &pal).unwrap_err();
+
+        let ErrorKind::AssertionError(assertion_error) = error.kind() else {
+            panic!("expected assertion error, got {:?}", error.kind());
+        };
+        assert_eq!(assertion_error.summary(), "assert condition was false");
+        assert_eq!(assertion_error.expected, None);
+        assert_eq!(assertion_error.actual, None);
+        assert!(!error.to_test_string().contains("expected:"));
+        assert!(!error.to_test_string().contains("actual:"));
+    }
+
+    #[test]
     fn reports_assert_eq_mismatches_as_assertion_errors() {
         let script = Script::new(
             vec![Item::new(
@@ -316,8 +376,14 @@ mod tests {
         let ErrorKind::AssertionError(assertion_error) = error.kind() else {
             panic!("expected assertion error, got {:?}", error.kind());
         };
-        assert_eq!(assertion_error.expected, "true");
-        assert_eq!(assertion_error.actual, "false");
+        assert_eq!(
+            assertion_error.expected.as_ref().map(|s| s.as_str()),
+            Some("true")
+        );
+        assert_eq!(
+            assertion_error.actual.as_ref().map(|s| s.as_str()),
+            Some("false")
+        );
     }
 
     #[test]
@@ -348,6 +414,65 @@ mod tests {
             error
                 .to_test_string()
                 .contains("type error: `assert_eq` expects exactly two arguments")
+        );
+    }
+
+    #[test]
+    fn reports_assert_wrong_arity() {
+        let script = Script::new(
+            vec![Item::new(
+                ItemKind::Statement(Statement::new(
+                    StatementKind::Expression(ExpressionStatement::new(call_expression(
+                        "assert",
+                        vec![],
+                        Span::new(0, 8),
+                    ))),
+                    Span::new(0, 9),
+                )),
+                Span::new(0, 9),
+            )],
+            Span::new(0, 9),
+        );
+        let source_file = SourceFile::new("examples/assertions.ocelot", "assert();");
+        let pal = PalMock::new();
+
+        let error = interpret_script(&script, &source_file, &pal).unwrap_err();
+
+        assert!(
+            error
+                .to_test_string()
+                .contains("type error: `assert` expects exactly one argument")
+        );
+    }
+
+    #[test]
+    fn reports_assert_wrong_type() {
+        let script = Script::new(
+            vec![Item::new(
+                ItemKind::Statement(Statement::new(
+                    StatementKind::Expression(ExpressionStatement::new(call_expression(
+                        "assert",
+                        vec![Expression::new(
+                            ExpressionKind::StringLiteral(StringLiteralExpression::new("hello")),
+                            Span::new(7, 14),
+                        )],
+                        Span::new(0, 15),
+                    ))),
+                    Span::new(0, 16),
+                )),
+                Span::new(0, 16),
+            )],
+            Span::new(0, 16),
+        );
+        let source_file = SourceFile::new("examples/assertions.ocelot", "assert(\"hello\");");
+        let pal = PalMock::new();
+
+        let error = interpret_script(&script, &source_file, &pal).unwrap_err();
+
+        assert!(
+            error
+                .to_test_string()
+                .contains("type error: `assert` expects a boolean argument")
         );
     }
 }

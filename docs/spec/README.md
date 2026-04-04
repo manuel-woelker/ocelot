@@ -70,6 +70,7 @@ The first numbered spec chapters are:
 - [28.01 Runtime behavior - Scripts](./28.01%20Runtime%20behavior%20-%20Scripts.md)
 - [28.02 Runtime behavior - Test items](./28.02%20Runtime%20behavior%20-%20Test%20items.md)
 - [30.01 Standard library - println](./30.01%20Standard%20library%20-%20println.md)
+- [30.02 Standard library - assert](./30.02%20Standard%20library%20-%20assert.md)
 - [91.01 Lexer errors - Unterminated strings](./91.01%20Lexer%20errors%20-%20Unterminated%20strings.md)
 - [91.02 Lexer errors - Unterminated block comments](./91.02%20Lexer%20errors%20-%20Unterminated%20block%20comments.md)
 

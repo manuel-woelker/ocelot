@@ -303,6 +303,31 @@ mod tests {
     }
 
     #[test]
+    fn run_test_renders_assert_failures_without_a_diff_block() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/tests.ocelot",
+            "test \"broken\" { assert(false); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal));
+
+        let error = engine
+            .run_test("examples/tests.ocelot", "broken")
+            .unwrap_err();
+
+        assert!(error.to_test_string().contains("test `broken` failed"));
+        assert!(
+            error
+                .to_test_string()
+                .contains("assert condition was false")
+        );
+        assert!(error.to_test_string().contains("assert(false);"));
+        assert!(!error.to_test_string().contains("expected:"));
+        assert!(!error.to_test_string().contains("actual:"));
+    }
+
+    #[test]
     fn run_tests_reports_unknown_test_names() {
         let pal = PalMock::new();
         pal.set_file(
@@ -456,5 +481,28 @@ mod tests {
         );
         assert!(summary.failed[0].message.contains("expected: \"a\""));
         assert!(summary.failed[0].message.contains("actual:   \"b\""));
+    }
+
+    #[test]
+    fn run_tests_include_assert_failures_without_a_diff_block() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/tests.ocelot",
+            "test \"broken\" { assert(false); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal));
+
+        let summary = engine.run_tests("examples/tests.ocelot").unwrap();
+
+        assert!(summary.passed.is_empty());
+        assert_eq!(summary.failed.len(), 1);
+        assert!(
+            summary.failed[0]
+                .message
+                .contains("assert condition was false")
+        );
+        assert!(!summary.failed[0].message.contains("expected:"));
+        assert!(!summary.failed[0].message.contains("actual:"));
     }
 }
