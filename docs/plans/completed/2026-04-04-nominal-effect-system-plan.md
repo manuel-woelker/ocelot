@@ -225,17 +225,33 @@ Verification should include:
 - If user-defined functions are allowed to declare `can exec` without a matching `effect exec;`, the model stops being nominal and gets sloppy fast. The resolver should require explicit effect declarations for user-defined names, while still exempting seeded builtin effects.
 - The current parser enforces `println` arity directly. If more semantic validation moves into the resolver during this work, watch out for duplicated or inconsistent diagnostics across phases.
 
+# What landed from this plan?
+
+This slice landed a lightweight nominal effect system across the parser, AST, resolver, and spec:
+
+- the lexer and parser now recognize `effect`, `can`, and `cannot`
+- scripts can declare top-level effects and functions can carry `can` and `cannot` clauses, including the combined `can ... cannot ...` form
+- [`ProgramEnvironment`](/data/projects/ocelot/crates/ast/src/program_environment.rs) now seeds builtin `write_stdout` and `panic` effects and stores user-declared nominal effects
+- [`FunctionDefinition`](/data/projects/ocelot/crates/ast/src/function_definition.rs) now stores declared effects, direct effects, transitive inferred effects, and effect dependency metadata for diagnostics
+- the resolver now registers effect declarations before function registration, resolves effect names in function annotations, propagates effects upward through the user-defined call graph, and reports duplicate, unknown, and forbidden-effect diagnostics
+- builtin function effects are modeled semantically:
+  - `println` contributes `write_stdout`
+  - `assert` contributes `panic`
+  - `assert_eq` contributes `panic`
+- the spec now documents nominal effect declarations, propagation, and builtin effects
+- verification now includes expanded AST, parser, and resolver tests plus `cargo test --workspace` and `nao check`
+
 # What concrete tasks should track this plan?
 
-- [ ] Add AST types and module wiring for effect declarations, effect indices, and function effect metadata.
-- [ ] Seed builtin effects and effect-symbol lookup in [`ProgramEnvironment`](/data/projects/ocelot/crates/ast/src/program_environment.rs).
-- [ ] Extend the lexer and parser for `effect`, `can`, and `cannot` syntax.
-- [ ] Register effect declarations and diagnose duplicate effect names.
-- [ ] Resolve effect names in function annotations and diagnose unknown effects.
-- [ ] Associate builtin effect sets with native functions.
-- [ ] Record direct call dependencies and direct builtin effects during resolution.
-- [ ] Implement fixed-point propagation of inferred effects across user-defined functions.
-- [ ] Report diagnostics when inferred effects conflict with `cannot` clauses.
-- [ ] Add or update spec chapters and examples for effect declarations, propagation, and diagnostics.
-- [ ] Add colocated tests across AST, parser, and resolver coverage.
-- [ ] Run `nao check`.
+- [x] Add AST types and module wiring for effect declarations, effect indices, and function effect metadata.
+- [x] Seed builtin effects and effect-symbol lookup in [`ProgramEnvironment`](/data/projects/ocelot/crates/ast/src/program_environment.rs).
+- [x] Extend the lexer and parser for `effect`, `can`, and `cannot` syntax.
+- [x] Register effect declarations and diagnose duplicate effect names.
+- [x] Resolve effect names in function annotations and diagnose unknown effects.
+- [x] Associate builtin effect sets with native functions.
+- [x] Record direct call dependencies and direct builtin effects during resolution.
+- [x] Implement fixed-point propagation of inferred effects across user-defined functions.
+- [x] Report diagnostics when inferred effects conflict with `cannot` clauses.
+- [x] Add or update spec chapters and examples for effect declarations, propagation, and diagnostics.
+- [x] Add colocated tests across AST, parser, and resolver coverage.
+- [x] Run `nao check`.

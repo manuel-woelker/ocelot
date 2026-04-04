@@ -587,4 +587,75 @@ mod tests {
             "expected expression"
         );
     }
+
+    #[test]
+    fn parses_effect_items() {
+        let source_file = SourceFile::new("examples/effects.ocelot", "effect exec;");
+        let mut context = CompilationContext::default();
+
+        let script = parse_script(&source_file, &mut context).unwrap();
+
+        assert_eq!(script.items.len(), 1);
+        assert!(!context.has_errors());
+        match &script.items[0].kind {
+            ItemKind::Effect(effect_item) => {
+                assert_eq!(effect_item.identifier.name, "exec");
+            }
+            other => panic!("expected effect item, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_function_items_with_can_and_cannot_effect_clauses() {
+        let source_file = SourceFile::new(
+            "examples/effects.ocelot",
+            "fun greet() can exec cannot panic {}",
+        );
+        let mut context = CompilationContext::default();
+
+        let script = parse_script(&source_file, &mut context).unwrap();
+
+        assert_eq!(script.items.len(), 1);
+        assert!(!context.has_errors());
+        match &script.items[0].kind {
+            ItemKind::Function(function_item) => {
+                assert_eq!(
+                    function_item
+                        .can_clause
+                        .as_ref()
+                        .expect("can clause should be present")
+                        .effect
+                        .name,
+                    "exec"
+                );
+                assert_eq!(
+                    function_item
+                        .cannot_clause
+                        .as_ref()
+                        .expect("cannot clause should be present")
+                        .effect
+                        .name,
+                    "panic"
+                );
+            }
+            other => panic!("expected function item, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_function_effect_clauses_in_the_wrong_order() {
+        let source_file = SourceFile::new(
+            "examples/invalid.ocelot",
+            "fun greet() cannot panic can exec {}",
+        );
+        let mut context = CompilationContext::default();
+
+        parse_script(&source_file, &mut context).unwrap_err();
+
+        assert!(context.has_errors());
+        assert_eq!(
+            context.source_diagnostics.diagnostics[0].message,
+            "function effect clauses must place `can` before `cannot`"
+        );
+    }
 }

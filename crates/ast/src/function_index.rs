@@ -1,7 +1,7 @@
 use std::num::NonZeroU32;
 
 /// Compact typed handle for one function entry in the program environment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FunctionIndex(NonZeroU32);
 
 impl FunctionIndex {

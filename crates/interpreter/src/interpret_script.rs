@@ -193,6 +193,8 @@ mod tests {
                 Item::new(
                     ItemKind::Function(FunctionItem::new(
                         Identifier::new("greet", Span::new(4, 9)),
+                        None,
+                        None,
                         vec![Statement::new(
                             StatementKind::Expression(ExpressionStatement::new(call_expression(
                                 "println",

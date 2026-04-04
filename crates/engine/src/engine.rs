@@ -61,6 +61,7 @@ impl Engine {
             .items
             .iter()
             .filter_map(|item| match &item.kind {
+                ItemKind::Effect(_) => None,
                 ItemKind::Function(_) => None,
                 ItemKind::Test(test_item) => Some(DiscoveredTest::new(
                     test_item.name.clone(),
@@ -203,6 +204,15 @@ impl Engine {
 
         for module in &modules {
             environment.add_module(module.module_name.clone());
+        }
+
+        for module in &mut modules {
+            ocelot_resolver::register_module_effects(
+                &mut module.script,
+                &module.source_file,
+                &mut compilation_context,
+                &mut environment,
+            )?;
         }
 
         for module in &mut modules {

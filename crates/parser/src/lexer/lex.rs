@@ -91,6 +91,9 @@ pub fn lex(source_file: &SourceFile, context: &mut CompilationContext) -> Vec<To
                 }
 
                 let token_type = match &source[start..index] {
+                    "can" => TokenType::Can,
+                    "cannot" => TokenType::Cannot,
+                    "effect" => TokenType::Effect,
                     "false" => TokenType::False,
                     "fun" => TokenType::Fun,
                     "not" => TokenType::Not,
@@ -335,6 +338,40 @@ mod tests {
                 TokenType::String,
                 TokenType::RightParen,
                 TokenType::Semicolon,
+                TokenType::RightBrace,
+                TokenType::EndOfFile,
+            ]
+        );
+        assert!(!context.has_errors());
+    }
+
+    #[test]
+    fn lexes_effect_keywords() {
+        let source_file = SourceFile::new(
+            "examples/effects.ocelot",
+            "effect exec; fun greet() can exec cannot panic {}",
+        );
+        let mut context = CompilationContext::default();
+        let token_types: Vec<_> = lex(&source_file, &mut context)
+            .into_iter()
+            .map(|token| token.token_type)
+            .collect();
+
+        assert_eq!(
+            token_types,
+            vec![
+                TokenType::Effect,
+                TokenType::Identifier,
+                TokenType::Semicolon,
+                TokenType::Fun,
+                TokenType::Identifier,
+                TokenType::LeftParen,
+                TokenType::RightParen,
+                TokenType::Can,
+                TokenType::Identifier,
+                TokenType::Cannot,
+                TokenType::Identifier,
+                TokenType::LeftBrace,
                 TokenType::RightBrace,
                 TokenType::EndOfFile,
             ]

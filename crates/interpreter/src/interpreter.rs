@@ -63,6 +63,7 @@ impl<'a> Interpreter<'a> {
 
     fn interpret_item(&self, item: &ocelot_ast::item::Item) -> OcelotResult<()> {
         match &item.kind {
+            ItemKind::Effect(_) => Ok(()),
             ItemKind::Function(_) => Ok(()),
             ItemKind::Statement(statement) => self.interpret_statement(statement),
             ItemKind::Test(_) => Ok(()),

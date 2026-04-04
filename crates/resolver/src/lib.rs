@@ -1,10 +1,15 @@
 //! Name resolution for `ocelot`.
 
 use ocelot_ast::call_expression::CallExpression;
+use ocelot_ast::effect::Effect;
+use ocelot_ast::effect_index::EffectIndex;
+use ocelot_ast::effect_item::EffectItem;
 use ocelot_ast::expression::Expression;
 use ocelot_ast::expression_kind::ExpressionKind;
 use ocelot_ast::expression_statement::ExpressionStatement;
 use ocelot_ast::function_definition::FunctionDefinition;
+use ocelot_ast::function_effect_clause::FunctionEffectClause;
+use ocelot_ast::function_index::FunctionIndex;
 use ocelot_ast::function_item::FunctionItem;
 use ocelot_ast::function_kind::FunctionKind;
 use ocelot_ast::item::Item;
@@ -28,6 +33,7 @@ use ocelot_base::source_diagnostic::SourceDiagnostic;
 use ocelot_base::source_excerpt::SourceExcerpt;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
+use std::collections::BTreeSet;
 
 /// Resolves one script as though it were the only loaded module.
 pub fn resolve(
@@ -38,6 +44,7 @@ pub fn resolve(
 ) -> OcelotResult<()> {
     let module_name = default_module_name(source_file);
     environment.add_module(module_name.clone());
+    register_module_effects(script, source_file, compilation_context, environment)?;
     register_module_functions(
         script,
         &module_name,
@@ -56,6 +63,18 @@ pub fn resolve(
     finish_resolution(compilation_context)
 }
 
+/// Registers all effect declarations for one module and lowers them out of the item list.
+pub fn register_module_effects(
+    script: &mut Script,
+    source_file: &SourceFile,
+    compilation_context: &mut CompilationContext,
+    environment: &mut ProgramEnvironment,
+) -> OcelotResult<()> {
+    Resolver::new(source_file, "", compilation_context, environment, None)
+        .register_effect_items(script);
+    Ok(())
+}
+
 /// Registers all function declarations for one module and lowers them out of the item list.
 pub fn register_module_functions(
     script: &mut Script,
@@ -64,8 +83,14 @@ pub fn register_module_functions(
     compilation_context: &mut CompilationContext,
     environment: &mut ProgramEnvironment,
 ) -> OcelotResult<()> {
-    Resolver::new(source_file, module_name, compilation_context, environment)
-        .register_function_items(script);
+    Resolver::new(
+        source_file,
+        module_name,
+        compilation_context,
+        environment,
+        None,
+    )
+    .register_function_items(script);
     Ok(())
 }
 
@@ -77,7 +102,13 @@ pub fn resolve_module_items(
     compilation_context: &mut CompilationContext,
     environment: &mut ProgramEnvironment,
 ) -> OcelotResult<()> {
-    let mut resolver = Resolver::new(source_file, module_name, compilation_context, environment);
+    let mut resolver = Resolver::new(
+        source_file,
+        module_name,
+        compilation_context,
+        environment,
+        None,
+    );
     for item in &mut script.items {
         resolver.resolve_item(item);
     }
@@ -111,11 +142,13 @@ pub fn resolve_user_defined_function_definitions(
             module_name.as_str(),
             compilation_context,
             environment,
+            Some(function_index),
         )
         .resolve_function_item(&mut function);
         environment.put_user_defined_function(function_index, function)?;
     }
 
+    propagate_function_effects(compilation_context, environment)?;
     Ok(())
 }
 
@@ -143,6 +176,7 @@ struct Resolver<'a> {
     module_name: &'a str,
     compilation_context: &'a mut CompilationContext,
     environment: &'a mut ProgramEnvironment,
+    current_function_index: Option<FunctionIndex>,
 }
 
 impl<'a> Resolver<'a> {
@@ -151,13 +185,28 @@ impl<'a> Resolver<'a> {
         module_name: &'a str,
         compilation_context: &'a mut CompilationContext,
         environment: &'a mut ProgramEnvironment,
+        current_function_index: Option<FunctionIndex>,
     ) -> Self {
         Self {
             source_file,
             module_name,
             compilation_context,
             environment,
+            current_function_index,
         }
+    }
+
+    fn register_effect_items(&mut self, script: &mut Script) {
+        let mut retained_items = Vec::with_capacity(script.items.len());
+
+        for item in std::mem::take(&mut script.items) {
+            match item.kind {
+                ItemKind::Effect(effect_item) => self.register_effect_item(effect_item),
+                _ => retained_items.push(item),
+            }
+        }
+
+        script.items = retained_items;
     }
 
     fn register_function_items(&mut self, script: &mut Script) {
@@ -165,6 +214,7 @@ impl<'a> Resolver<'a> {
 
         for item in std::mem::take(&mut script.items) {
             match item.kind {
+                ItemKind::Effect(effect_item) => self.register_effect_item(effect_item),
                 ItemKind::Function(function_item) => self.register_function_item(function_item),
                 _ => retained_items.push(item),
             }
@@ -175,12 +225,68 @@ impl<'a> Resolver<'a> {
 
     fn resolve_item(&mut self, item: &mut Item) {
         match &mut item.kind {
+            ItemKind::Effect(_) => {
+                unreachable!("effect items should be lowered before item resolution")
+            }
             ItemKind::Statement(statement) => self.resolve_statement(statement),
             ItemKind::Test(test_item) => self.resolve_test_item(test_item),
             ItemKind::Function(_) => {
                 unreachable!("function items should be lowered before item resolution")
             }
         }
+    }
+
+    fn register_effect_item(&mut self, effect_item: EffectItem) {
+        if let Some(effect_index) = self
+            .environment
+            .resolve_effect(effect_item.identifier.name.as_str())
+        {
+            let existing_effect = self
+                .environment
+                .effect_definition(effect_index)
+                .expect("resolved effect index should point at a definition");
+
+            if existing_effect.is_builtin {
+                self.add_diagnostic(
+                    format!(
+                        "effect `{}` conflicts with builtin effect",
+                        effect_item.identifier.name
+                    ),
+                    effect_item.identifier.span.clone(),
+                    "duplicate effect",
+                );
+                return;
+            }
+
+            let diagnostic = self
+                .source_diagnostic(
+                    self.source_file,
+                    format!("duplicate effect `{}`", effect_item.identifier.name),
+                    effect_item.identifier.span.clone(),
+                    "duplicate effect",
+                )
+                .with_excerpt(
+                    self.source_excerpt(
+                        existing_effect
+                            .source_file
+                            .as_deref()
+                            .expect("user-declared effect should keep its source file"),
+                        existing_effect
+                            .declaration_span
+                            .clone()
+                            .expect("user-declared effect should keep its declaration span"),
+                        "already defined here",
+                    ),
+                );
+            self.compilation_context.add_diagnostic(diagnostic);
+            return;
+        }
+
+        self.environment.add_effect(Effect::declared(
+            effect_item.identifier.name.clone(),
+            effect_item.identifier.span.clone(),
+            self.source_file.clone(),
+        ));
     }
 
     fn register_function_item(&mut self, function_item: FunctionItem) {
@@ -223,11 +329,16 @@ impl<'a> Resolver<'a> {
             return;
         }
 
+        let can_effects = self.resolve_effect_clause(function_item.can_clause.as_ref());
+        let cannot_effects = self.resolve_effect_clause(function_item.cannot_clause.as_ref());
+
         self.environment
             .add_function(FunctionDefinition::user_defined(
                 self.module_name,
                 qualified_name,
                 function_item,
+                can_effects,
+                cannot_effects,
                 self.source_file.clone(),
             ));
     }
@@ -307,6 +418,7 @@ impl<'a> Resolver<'a> {
         };
 
         call_expression.resolve_to(function_index);
+        self.record_effect_dependency(function_index, call_expression.callee.span.clone());
         self.validate_call_argument_types(function_name.as_str(), call_expression, function_index);
     }
 
@@ -381,6 +493,65 @@ impl<'a> Resolver<'a> {
                 }
 
                 expression.ty = TypeIndex::unresolved();
+            }
+        }
+    }
+
+    fn resolve_effect_clause(
+        &mut self,
+        clause: Option<&FunctionEffectClause>,
+    ) -> BTreeSet<EffectIndex> {
+        let Some(clause) = clause else {
+            return BTreeSet::new();
+        };
+
+        let Some(effect_index) = self.environment.resolve_effect(clause.effect.name.as_str())
+        else {
+            self.add_diagnostic(
+                format!("unknown effect `{}`", clause.effect.name),
+                clause.effect.span.clone(),
+                "unknown effect",
+            );
+            return BTreeSet::new();
+        };
+
+        BTreeSet::from([effect_index])
+    }
+
+    fn record_effect_dependency(&mut self, called_function_index: FunctionIndex, span: Span) {
+        let Some(current_function_index) = self.current_function_index else {
+            return;
+        };
+
+        let Ok(called_function) = self.environment.function_definition(called_function_index)
+        else {
+            return;
+        };
+        let called_kind = called_function.kind.clone();
+        let called_effects = called_function.inferred_effects.clone();
+
+        let Ok(current_function) = self
+            .environment
+            .function_definition_mut(current_function_index)
+        else {
+            return;
+        };
+
+        match called_kind {
+            FunctionKind::Native { .. } => {
+                for effect_index in called_effects {
+                    current_function.direct_effects.insert(effect_index);
+                    current_function
+                        .direct_effect_sources
+                        .entry(effect_index)
+                        .or_insert(span.clone());
+                }
+            }
+            FunctionKind::UserDefined { .. } => {
+                current_function
+                    .called_functions
+                    .entry(called_function_index)
+                    .or_insert(span);
             }
         }
     }
@@ -512,6 +683,150 @@ impl<'a> Resolver<'a> {
     }
 }
 
+fn propagate_function_effects(
+    compilation_context: &mut CompilationContext,
+    environment: &mut ProgramEnvironment,
+) -> OcelotResult<()> {
+    let function_indices = environment.user_defined_function_indices();
+
+    let mut changed = true;
+    while changed {
+        changed = false;
+
+        for function_index in &function_indices {
+            let (direct_effects, called_functions, current_inferred_effects) = {
+                let function = environment.function_definition(*function_index)?;
+                (
+                    function.direct_effects.clone(),
+                    function.called_functions.clone(),
+                    function.inferred_effects.clone(),
+                )
+            };
+
+            let mut next_effects = direct_effects;
+            for called_function_index in called_functions.keys() {
+                let called_function = environment.function_definition(*called_function_index)?;
+                next_effects.extend(called_function.inferred_effects.iter().copied());
+            }
+
+            if next_effects != current_inferred_effects {
+                environment
+                    .function_definition_mut(*function_index)?
+                    .inferred_effects = next_effects;
+                changed = true;
+            }
+        }
+    }
+
+    for function_index in function_indices {
+        let function = environment.function_definition(function_index)?.clone();
+
+        for forbidden_effect in &function.cannot_effects {
+            if !function.inferred_effects.contains(forbidden_effect) {
+                continue;
+            }
+
+            let effect_name = environment
+                .effect_definition(*forbidden_effect)?
+                .name
+                .clone();
+            let Some((span, annotation)) =
+                violation_source(environment, &function, *forbidden_effect)?
+            else {
+                continue;
+            };
+
+            let FunctionKind::UserDefined { source_file, .. } = &function.kind else {
+                continue;
+            };
+
+            let mut diagnostic = source_diagnostic_for_span(
+                source_file,
+                format!(
+                    "effect error: function `{}` cannot perform effect `{}`",
+                    function.name, effect_name
+                ),
+                span,
+                annotation,
+            );
+
+            if let Some(cannot_clause_span) = function.cannot_clause_span.clone() {
+                diagnostic = diagnostic.with_excerpt(source_excerpt_for_span(
+                    source_file,
+                    cannot_clause_span,
+                    "forbidden here",
+                ));
+            }
+
+            compilation_context.add_diagnostic(diagnostic);
+        }
+    }
+
+    Ok(())
+}
+
+fn violation_source(
+    environment: &ProgramEnvironment,
+    function: &FunctionDefinition,
+    effect_index: EffectIndex,
+) -> OcelotResult<Option<(Span, SharedString)>> {
+    if function.can_effects.contains(&effect_index)
+        && let Some(span) = function.can_clause_span.clone()
+    {
+        return Ok(Some((span, "effect declared here".into())));
+    }
+
+    for (called_function_index, span) in &function.called_functions {
+        let called_function = environment.function_definition(*called_function_index)?;
+        if called_function.inferred_effects.contains(&effect_index) {
+            return Ok(Some((
+                span.clone(),
+                "call introduces forbidden effect".into(),
+            )));
+        }
+    }
+
+    if let Some(span) = function.direct_effect_sources.get(&effect_index) {
+        return Ok(Some((
+            span.clone(),
+            "call introduces forbidden effect".into(),
+        )));
+    }
+
+    if let Some(span) = function.cannot_clause_span.clone() {
+        return Ok(Some((span, "forbidden effect".into())));
+    }
+
+    Ok(None)
+}
+
+fn source_diagnostic_for_span(
+    source_file: &SourceFile,
+    message: impl Into<SharedString>,
+    span: Span,
+    annotation: impl Into<SharedString>,
+) -> SourceDiagnostic {
+    let message = message.into();
+    SourceDiagnostic::new(DiagnosticLevel::Error, &source_file.path, message)
+        .with_excerpt(source_excerpt_for_span(source_file, span, annotation))
+}
+
+fn source_excerpt_for_span(
+    source_file: &SourceFile,
+    span: Span,
+    annotation: impl Into<SharedString>,
+) -> SourceExcerpt {
+    let annotation = annotation.into();
+    let (line_number, line_start, line_end) = line_bounds(source_file.source(), span.start());
+    let source_line = &source_file.source()[line_start..line_end];
+    let relative_start = span.start().saturating_sub(line_start);
+    let relative_end = span.end().saturating_sub(line_start);
+
+    SourceExcerpt::new(&source_file.path, line_number, source_line).with_annotation(
+        SourceAnnotation::new(Span::new(relative_start, relative_end), annotation),
+    )
+}
+
 fn line_bounds(source: &str, index: usize) -> (usize, usize, usize) {
     let line_start = source[..index].rfind('\n').map_or(0, |offset| offset + 1);
     let line_end = source[index..]
@@ -529,14 +844,17 @@ fn line_bounds(source: &str, index: usize) -> (usize, usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::finish_resolution;
+    use super::register_module_effects;
     use super::register_module_functions;
     use super::resolve;
     use super::resolve_module_items;
     use super::resolve_user_defined_function_definitions;
     use ocelot_ast::call_expression::CallExpression;
+    use ocelot_ast::effect_item::EffectItem;
     use ocelot_ast::expression::Expression;
     use ocelot_ast::expression_kind::ExpressionKind;
     use ocelot_ast::expression_statement::ExpressionStatement;
+    use ocelot_ast::function_effect_clause::FunctionEffectClause;
     use ocelot_ast::function_item::FunctionItem;
     use ocelot_ast::function_kind::FunctionKind;
     use ocelot_ast::identifier::Identifier;
@@ -587,6 +905,10 @@ mod tests {
             ExpressionKind::Call(CallExpression::new(callee, arguments)),
             span,
         )
+    }
+
+    fn effect_clause(name: &str, span: Span) -> FunctionEffectClause {
+        FunctionEffectClause::new(Identifier::new(name, span.clone()), span)
     }
 
     #[test]
@@ -646,6 +968,8 @@ mod tests {
             vec![Item::new(
                 ItemKind::Function(FunctionItem::new(
                     Identifier::new("hello", Span::new(4, 9)),
+                    None,
+                    None,
                     Vec::new(),
                     Span::new(0, 14),
                 )),
@@ -744,6 +1068,8 @@ mod tests {
                 Item::new(
                     ItemKind::Function(FunctionItem::new(
                         Identifier::new("helper", Span::new(4, 10)),
+                        None,
+                        None,
                         Vec::new(),
                         Span::new(0, 15),
                     )),
@@ -778,5 +1104,292 @@ mod tests {
                 .kind,
             FunctionKind::UserDefined { .. }
         ));
+    }
+
+    #[test]
+    fn registers_effect_items_before_function_resolution() {
+        let mut script = Script::new(
+            vec![Item::new(
+                ItemKind::Effect(EffectItem::new(
+                    Identifier::new("exec", Span::new(7, 11)),
+                    Span::new(0, 12),
+                )),
+                Span::new(0, 12),
+            )],
+            Span::new(0, 12),
+        );
+        let source_file = SourceFile::new("main.ocelot", "effect exec;");
+        let mut environment = ProgramEnvironment::new();
+        let mut context = CompilationContext::default();
+
+        register_module_effects(&mut script, &source_file, &mut context, &mut environment).unwrap();
+
+        assert!(script.items.is_empty());
+        assert!(environment.resolve_effect("exec").is_some());
+    }
+
+    #[test]
+    fn propagates_explicit_can_effects_to_callers() {
+        let mut script = Script::new(
+            vec![
+                Item::new(
+                    ItemKind::Effect(EffectItem::new(
+                        Identifier::new("exec", Span::new(7, 11)),
+                        Span::new(0, 12),
+                    )),
+                    Span::new(0, 12),
+                ),
+                Item::new(
+                    ItemKind::Function(FunctionItem::new(
+                        Identifier::new("child", Span::new(17, 22)),
+                        Some(effect_clause("exec", Span::new(25, 33))),
+                        None,
+                        Vec::new(),
+                        Span::new(13, 36),
+                    )),
+                    Span::new(13, 36),
+                ),
+                Item::new(
+                    ItemKind::Function(FunctionItem::new(
+                        Identifier::new("parent", Span::new(41, 47)),
+                        None,
+                        None,
+                        vec![Statement::new(
+                            StatementKind::Expression(ExpressionStatement::new(call(
+                                identifier("child", Span::new(53, 58)),
+                                Vec::new(),
+                                Span::new(53, 60),
+                            ))),
+                            Span::new(53, 61),
+                        )],
+                        Span::new(37, 63),
+                    )),
+                    Span::new(37, 63),
+                ),
+            ],
+            Span::new(0, 63),
+        );
+        let source_file = SourceFile::new(
+            "main.ocelot",
+            "effect exec; fun child() can exec {} fun parent() { child(); }",
+        );
+        let mut environment = ProgramEnvironment::new();
+        let mut context = CompilationContext::default();
+
+        register_module_effects(&mut script, &source_file, &mut context, &mut environment).unwrap();
+        register_module_functions(
+            &mut script,
+            "main",
+            &source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+        resolve_module_items(
+            &mut script,
+            "main",
+            &source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+        resolve_user_defined_function_definitions(&mut context, &mut environment).unwrap();
+        finish_resolution(&context).unwrap();
+
+        let exec_effect = environment.resolve_effect("exec").unwrap();
+        let parent = environment
+            .function_definition(environment.resolve_function("main::parent").unwrap())
+            .unwrap();
+
+        assert!(parent.inferred_effects.contains(&exec_effect));
+    }
+
+    #[test]
+    fn reports_transitive_forbidden_effects() {
+        let mut script = Script::new(
+            vec![
+                Item::new(
+                    ItemKind::Effect(EffectItem::new(
+                        Identifier::new("exec", Span::new(7, 11)),
+                        Span::new(0, 12),
+                    )),
+                    Span::new(0, 12),
+                ),
+                Item::new(
+                    ItemKind::Function(FunctionItem::new(
+                        Identifier::new("child", Span::new(17, 22)),
+                        Some(effect_clause("exec", Span::new(25, 33))),
+                        None,
+                        Vec::new(),
+                        Span::new(13, 36),
+                    )),
+                    Span::new(13, 36),
+                ),
+                Item::new(
+                    ItemKind::Function(FunctionItem::new(
+                        Identifier::new("parent", Span::new(41, 47)),
+                        None,
+                        Some(effect_clause("exec", Span::new(50, 61))),
+                        vec![Statement::new(
+                            StatementKind::Expression(ExpressionStatement::new(call(
+                                identifier("child", Span::new(65, 70)),
+                                Vec::new(),
+                                Span::new(65, 72),
+                            ))),
+                            Span::new(65, 73),
+                        )],
+                        Span::new(37, 75),
+                    )),
+                    Span::new(37, 75),
+                ),
+            ],
+            Span::new(0, 75),
+        );
+        let source_file = SourceFile::new(
+            "main.ocelot",
+            "effect exec; fun child() can exec {} fun parent() cannot exec { child(); }",
+        );
+        let mut environment = ProgramEnvironment::new();
+        let mut context = CompilationContext::default();
+
+        register_module_effects(&mut script, &source_file, &mut context, &mut environment).unwrap();
+        register_module_functions(
+            &mut script,
+            "main",
+            &source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+        resolve_module_items(
+            &mut script,
+            "main",
+            &source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+        resolve_user_defined_function_definitions(&mut context, &mut environment).unwrap();
+
+        let error = finish_resolution(&context).unwrap_err();
+
+        assert!(matches!(
+            error.kind(),
+            ocelot_base::error::ErrorKind::CompilationError(CompilationStage::Resolver)
+        ));
+        assert!(
+            error
+                .to_test_string()
+                .contains("effect error: function `main::parent` cannot perform effect `exec`")
+        );
+    }
+
+    #[test]
+    fn reports_direct_builtin_effect_violations_at_the_call_site() {
+        let mut script = Script::new(
+            vec![Item::new(
+                ItemKind::Function(FunctionItem::new(
+                    Identifier::new("quiet", Span::new(4, 9)),
+                    None,
+                    Some(effect_clause("write_stdout", Span::new(12, 32))),
+                    vec![Statement::new(
+                        StatementKind::Expression(ExpressionStatement::new(call(
+                            identifier("println", Span::new(35, 42)),
+                            vec![string_literal("hello", Span::new(43, 50))],
+                            Span::new(35, 51),
+                        ))),
+                        Span::new(35, 52),
+                    )],
+                    Span::new(0, 54),
+                )),
+                Span::new(0, 54),
+            )],
+            Span::new(0, 54),
+        );
+        let source_file = SourceFile::new(
+            "main.ocelot",
+            "fun quiet() cannot write_stdout { println(\"hello\"); }",
+        );
+        let mut environment = ProgramEnvironment::new();
+        let mut context = CompilationContext::default();
+
+        register_module_functions(
+            &mut script,
+            "main",
+            &source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+        resolve_user_defined_function_definitions(&mut context, &mut environment).unwrap();
+
+        let error = finish_resolution(&context).unwrap_err();
+
+        assert!(error.to_test_string().contains("println"));
+    }
+
+    #[test]
+    fn reports_unknown_effect_names_in_function_annotations() {
+        let mut script = Script::new(
+            vec![Item::new(
+                ItemKind::Function(FunctionItem::new(
+                    Identifier::new("quiet", Span::new(4, 9)),
+                    Some(effect_clause("exec", Span::new(12, 20))),
+                    None,
+                    Vec::new(),
+                    Span::new(0, 23),
+                )),
+                Span::new(0, 23),
+            )],
+            Span::new(0, 23),
+        );
+        let source_file = SourceFile::new("main.ocelot", "fun quiet() can exec {}");
+        let mut environment = ProgramEnvironment::new();
+        let mut context = CompilationContext::default();
+
+        register_module_functions(
+            &mut script,
+            "main",
+            &source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+
+        let error = finish_resolution(&context).unwrap_err();
+
+        assert!(error.to_test_string().contains("unknown effect `exec`"));
+    }
+
+    #[test]
+    fn reports_duplicate_effect_declarations() {
+        let mut script = Script::new(
+            vec![
+                Item::new(
+                    ItemKind::Effect(EffectItem::new(
+                        Identifier::new("exec", Span::new(7, 11)),
+                        Span::new(0, 12),
+                    )),
+                    Span::new(0, 12),
+                ),
+                Item::new(
+                    ItemKind::Effect(EffectItem::new(
+                        Identifier::new("exec", Span::new(20, 24)),
+                        Span::new(13, 25),
+                    )),
+                    Span::new(13, 25),
+                ),
+            ],
+            Span::new(0, 25),
+        );
+        let source_file = SourceFile::new("main.ocelot", "effect exec;\neffect exec;");
+        let mut environment = ProgramEnvironment::new();
+        let mut context = CompilationContext::default();
+
+        register_module_effects(&mut script, &source_file, &mut context, &mut environment).unwrap();
+
+        let error = finish_resolution(&context).unwrap_err();
+
+        assert!(error.to_test_string().contains("duplicate effect `exec`"));
     }
 }

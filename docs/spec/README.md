@@ -73,6 +73,7 @@ The first numbered spec chapters are:
 - [15.01 Declarations - Test items](./15.01%20Declarations%20-%20Test%20items.md)
 - [15.02 Declarations - Function definitions](./15.02%20Declarations%20-%20Function%20definitions.md)
 - [25.01 Modules - File modules](./25.01%20Modules%20-%20File%20modules.md)
+- [27.01 Effects - Nominal effect declarations](./27.01%20Effects%20-%20Nominal%20effect%20declarations.md)
 - [28.01 Runtime behavior - Scripts](./28.01%20Runtime%20behavior%20-%20Scripts.md)
 - [28.02 Runtime behavior - Test items](./28.02%20Runtime%20behavior%20-%20Test%20items.md)
 - [30.01 Standard library - println](./30.01%20Standard%20library%20-%20println.md)

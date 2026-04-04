@@ -2,10 +2,14 @@
 
 pub mod boolean_literal_expression;
 pub mod call_expression;
+pub mod effect;
+pub mod effect_index;
+pub mod effect_item;
 pub mod expression;
 pub mod expression_kind;
 pub mod expression_statement;
 pub mod function_definition;
+pub mod function_effect_clause;
 pub mod function_index;
 pub mod function_item;
 pub mod function_kind;

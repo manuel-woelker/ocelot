@@ -3,9 +3,11 @@ use crate::lexer::token::Token;
 use crate::lexer::token_type::TokenType;
 use ocelot_ast::boolean_literal_expression::BooleanLiteralExpression;
 use ocelot_ast::call_expression::CallExpression;
+use ocelot_ast::effect_item::EffectItem;
 use ocelot_ast::expression::Expression;
 use ocelot_ast::expression_kind::ExpressionKind;
 use ocelot_ast::expression_statement::ExpressionStatement;
+use ocelot_ast::function_effect_clause::FunctionEffectClause;
 use ocelot_ast::function_item::FunctionItem;
 use ocelot_ast::identifier::Identifier;
 use ocelot_ast::item::Item;
@@ -77,6 +79,7 @@ impl<'a> Parser<'a> {
 
     fn parse_item(&mut self) -> OcelotResult<Item> {
         match self.current().token_type {
+            TokenType::Effect => self.parse_effect_item(),
             TokenType::Fun => self.parse_function_item(),
             TokenType::Test => self.parse_test_item(),
             _ => Ok({
@@ -87,12 +90,50 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_effect_item(&mut self) -> OcelotResult<Item> {
+        let effect_token = self.expect(TokenType::Effect, "expected `effect` item")?;
+        let name_token = self.expect(TokenType::Identifier, "expected effect name")?;
+        let semicolon = self.expect(
+            TokenType::Semicolon,
+            "expected `;` after effect declaration",
+        )?;
+        let span = Span::new(effect_token.span.start(), semicolon.span.end());
+
+        Ok(Item::new(
+            ItemKind::Effect(EffectItem::new(
+                Identifier::new(self.source_text(&name_token.span), name_token.span),
+                span.clone(),
+            )),
+            span,
+        ))
+    }
+
     fn parse_function_item(&mut self) -> OcelotResult<Item> {
         let fun_token = self.expect(TokenType::Fun, "expected `fun` item")?;
         let name_token = self.expect(TokenType::Identifier, "expected function name")?;
         let name = self.source_text(&name_token.span).to_owned();
         self.expect(TokenType::LeftParen, "expected `(` after function name")?;
         self.expect(TokenType::RightParen, "expected `)` after parameter list")?;
+        let can_clause = if self.at(TokenType::Can) {
+            Some(self.parse_function_effect_clause(TokenType::Can, "expected `can` effect clause")?)
+        } else {
+            None
+        };
+        let cannot_clause = if self.at(TokenType::Cannot) {
+            Some(self.parse_function_effect_clause(
+                TokenType::Cannot,
+                "expected `cannot` effect clause",
+            )?)
+        } else {
+            None
+        };
+        if self.at(TokenType::Can) {
+            return self.emit_fatal_diagnostic(
+                "function effect clauses must place `can` before `cannot`",
+                self.current().span.clone(),
+                "`can` must appear first",
+            );
+        }
         self.expect(TokenType::LeftBrace, "expected `{` before function body")?;
 
         let mut body = Vec::new();
@@ -112,9 +153,26 @@ impl<'a> Parser<'a> {
         Ok(Item::new(
             ItemKind::Function(FunctionItem::new(
                 Identifier::new(name, name_token.span),
+                can_clause,
+                cannot_clause,
                 body,
                 span.clone(),
             )),
+            span,
+        ))
+    }
+
+    fn parse_function_effect_clause(
+        &mut self,
+        token_type: TokenType,
+        message: &str,
+    ) -> OcelotResult<FunctionEffectClause> {
+        let keyword = self.expect(token_type, message)?;
+        let effect_token = self.expect(TokenType::Identifier, "expected effect name")?;
+        let span = Span::new(keyword.span.start(), effect_token.span.end());
+
+        Ok(FunctionEffectClause::new(
+            Identifier::new(self.source_text(&effect_token.span), effect_token.span),
             span,
         ))
     }

@@ -1,6 +1,9 @@
 /// Token kinds needed for the first script-style `println()` programs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenType {
+    Can,
+    Cannot,
+    Effect,
     Identifier,
     String,
     False,

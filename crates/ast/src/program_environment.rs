@@ -1,3 +1,5 @@
+use crate::effect::Effect;
+use crate::effect_index::EffectIndex;
 use crate::function_definition::FunctionDefinition;
 use crate::function_index::FunctionIndex;
 use crate::function_item::FunctionItem;
@@ -9,6 +11,7 @@ use crate::type_index::TypeIndex;
 use crate::type_kind::TypeKind;
 use ocelot_base::result::{OcelotResult, OptionExt};
 use ocelot_base::shared_string::SharedString;
+use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -18,6 +21,8 @@ pub struct ProgramEnvironment {
     pub functions: Vec<Option<FunctionDefinition>>,
     pub function_symbols: HashMap<SharedString, FunctionIndex>,
     pub module_symbols: HashSet<SharedString>,
+    pub effects: Vec<Effect>,
+    pub effect_symbols: HashMap<SharedString, EffectIndex>,
     pub types: Vec<Ty>,
     pub type_symbols: HashMap<SharedString, TypeIndex>,
 }
@@ -35,13 +40,21 @@ impl ProgramEnvironment {
             functions: vec![None],
             function_symbols: HashMap::new(),
             module_symbols: HashSet::new(),
+            effects: vec![Effect::builtin("__reserved_effect_slot__")],
+            effect_symbols: HashMap::new(),
             types: vec![Ty::new("unresolved", TypeKind::Unresolved)],
             type_symbols: HashMap::new(),
         };
 
+        environment.seed_builtin_effects();
         environment.seed_builtin_types();
         environment.seed_native_functions();
         environment
+    }
+
+    fn seed_builtin_effects(&mut self) {
+        self.add_effect(Effect::builtin("write_stdout"));
+        self.add_effect(Effect::builtin("panic"));
     }
 
     fn seed_builtin_types(&mut self) {
@@ -55,17 +68,53 @@ impl ProgramEnvironment {
             "println",
             vec![self.any_type_index()],
             NativeFunction::Println,
+            BTreeSet::from([self.write_stdout_effect_index()]),
         ));
         self.add_function(FunctionDefinition::native(
             "assert",
             vec![self.boolean_type_index()],
             NativeFunction::Assert,
+            BTreeSet::from([self.panic_effect_index()]),
         ));
         self.add_function(FunctionDefinition::native(
             "assert_eq",
             vec![self.any_type_index(), self.any_type_index()],
             NativeFunction::AssertEq,
+            BTreeSet::from([self.panic_effect_index()]),
         ));
+    }
+
+    /// Resolves one effect name to its table handle.
+    pub fn resolve_effect(&self, name: &str) -> Option<EffectIndex> {
+        self.effect_symbols.get(name).copied()
+    }
+
+    /// Returns the definition for one effect index.
+    pub fn effect_definition(&self, effect_index: EffectIndex) -> OcelotResult<&Effect> {
+        self.effects
+            .get(effect_index.as_usize())
+            .context("internal error: effect index points outside the effect table")
+    }
+
+    /// Appends one new effect definition and returns its table handle.
+    pub fn add_effect(&mut self, effect: Effect) -> EffectIndex {
+        let effect_index = EffectIndex::new(self.effects.len() as u32);
+        self.effect_symbols
+            .insert(effect.name.clone(), effect_index);
+        self.effects.push(effect);
+        effect_index
+    }
+
+    /// Returns the canonical write-stdout effect handle.
+    pub fn write_stdout_effect_index(&self) -> EffectIndex {
+        self.resolve_effect("write_stdout")
+            .expect("write_stdout effect should always be seeded")
+    }
+
+    /// Returns the canonical panic effect handle.
+    pub fn panic_effect_index(&self) -> EffectIndex {
+        self.resolve_effect("panic")
+            .expect("panic effect should always be seeded")
     }
 
     /// Resolves one type name to its table handle.
@@ -213,6 +262,8 @@ impl ProgramEnvironment {
             function,
             Box::new(FunctionItem::new(
                 Identifier::new("", ocelot_base::span::Span::default()),
+                None,
+                None,
                 Vec::new(),
                 ocelot_base::span::Span::default(),
             )),
@@ -254,6 +305,7 @@ mod tests {
     use crate::type_kind::TypeKind;
     use ocelot_base::source_file::SourceFile;
     use ocelot_base::span::Span;
+    use std::collections::BTreeSet;
     #[test]
     fn program_environment_indexes_functions_by_name() {
         let environment = ProgramEnvironment::new();
@@ -331,6 +383,40 @@ mod tests {
     }
 
     #[test]
+    fn program_environment_seeds_builtin_effects() {
+        let environment = ProgramEnvironment::new();
+
+        assert_eq!(
+            environment
+                .effect_definition(environment.write_stdout_effect_index())
+                .unwrap()
+                .name,
+            "write_stdout"
+        );
+        assert_eq!(
+            environment
+                .effect_definition(environment.panic_effect_index())
+                .unwrap()
+                .name,
+            "panic"
+        );
+    }
+
+    #[test]
+    fn program_environment_indexes_effects_by_name() {
+        let environment = ProgramEnvironment::new();
+
+        assert_eq!(
+            environment.resolve_effect("write_stdout"),
+            Some(environment.write_stdout_effect_index())
+        );
+        assert_eq!(
+            environment.resolve_effect("panic"),
+            Some(environment.panic_effect_index())
+        );
+    }
+
+    #[test]
     fn add_function_appends_user_defined_entries() {
         let mut environment = ProgramEnvironment::new();
 
@@ -339,9 +425,13 @@ mod tests {
             "greetings::greet",
             FunctionItem::new(
                 Identifier::new("greet", Span::new(4, 9)),
+                None,
+                None,
                 Vec::new(),
                 Span::new(0, 13),
             ),
+            BTreeSet::new(),
+            BTreeSet::new(),
             SourceFile::new("greetings.ocelot", "fun greet() {}"),
         ));
 
@@ -366,9 +456,13 @@ mod tests {
             "greetings::greet",
             FunctionItem::new(
                 Identifier::new("greet", Span::new(4, 9)),
+                None,
+                None,
                 Vec::new(),
                 Span::new(0, 13),
             ),
+            BTreeSet::new(),
+            BTreeSet::new(),
             SourceFile::new("greetings.ocelot", "fun greet() {}"),
         ));
 
@@ -386,9 +480,13 @@ mod tests {
             "greetings::greet",
             FunctionItem::new(
                 Identifier::new("greet", Span::new(4, 9)),
+                None,
+                None,
                 Vec::new(),
                 Span::new(0, 13),
             ),
+            BTreeSet::new(),
+            BTreeSet::new(),
             SourceFile::new("greetings.ocelot", "fun greet() {}"),
         ));
 
@@ -417,9 +515,13 @@ mod tests {
             "math::greet",
             FunctionItem::new(
                 Identifier::new("greet", Span::new(4, 9)),
+                None,
+                None,
                 Vec::new(),
                 Span::new(0, 13),
             ),
+            BTreeSet::new(),
+            BTreeSet::new(),
             SourceFile::new("math.ocelot", "fun greet() {}"),
         ));
 
