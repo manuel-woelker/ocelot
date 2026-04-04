@@ -23,9 +23,11 @@ mod tests {
     use ocelot_ast::expression::Expression;
     use ocelot_ast::expression_kind::ExpressionKind;
     use ocelot_ast::expression_statement::ExpressionStatement;
+    use ocelot_ast::function_definition::FunctionDefinition;
     use ocelot_ast::identifier_expression::IdentifierExpression;
     use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
+    use ocelot_ast::native_function::NativeFunction;
     use ocelot_ast::not_expression::NotExpression;
     use ocelot_ast::program_environment::ProgramEnvironment;
     use ocelot_ast::script::Script;
@@ -41,12 +43,20 @@ mod tests {
     use ocelot_pal::pal_mock::PalMock;
     use ocelot_resolver::resolve;
 
+    fn test_program_environment() -> ProgramEnvironment {
+        ProgramEnvironment::new(vec![
+            FunctionDefinition::new("println", NativeFunction::Println),
+            FunctionDefinition::new("assert", NativeFunction::Assert),
+            FunctionDefinition::new("assert_eq", NativeFunction::AssertEq),
+        ])
+    }
+
     fn interpret_script(
         script: &Script,
         source_file: &SourceFile,
         pal: &PalMock,
     ) -> OcelotResult<()> {
-        let environment = ProgramEnvironment::native();
+        let environment = test_program_environment();
         let mut script = script.clone();
         let mut context = CompilationContext::default();
         resolve(&mut script, source_file, &mut context, &environment)?;

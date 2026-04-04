@@ -5,14 +5,14 @@ use std::num::NonZeroU32;
 pub struct FunctionIndex(NonZeroU32);
 
 impl FunctionIndex {
-    /// Creates a function index from a zero-based table position.
+    /// Creates a function index from a one-based table position.
     pub fn new(index: u32) -> Self {
-        Self(NonZeroU32::new(index + 1).expect("function index overflow"))
+        Self(NonZeroU32::new(index).expect("function index 0 is reserved"))
     }
 
-    /// Returns the zero-based table position as `usize`.
+    /// Returns the table position as `usize`.
     pub fn as_usize(self) -> usize {
-        (self.0.get() - 1) as usize
+        self.0.get() as usize
     }
 }
 
@@ -21,7 +21,7 @@ mod tests {
     use super::FunctionIndex;
 
     #[test]
-    fn function_index_round_trips_a_zero_based_position() {
+    fn function_index_round_trips_a_one_based_position() {
         let index = FunctionIndex::new(2);
 
         assert_eq!(index.as_usize(), 2);

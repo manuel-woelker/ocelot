@@ -1,6 +1,5 @@
 use crate::function_definition::FunctionDefinition;
 use crate::function_index::FunctionIndex;
-use crate::native_function::NativeFunction;
 use ocelot_base::result::{OcelotResult, OptionExt};
 use ocelot_base::shared_string::SharedString;
 use std::collections::HashMap;
@@ -8,7 +7,7 @@ use std::collections::HashMap;
 /// Shared program-level data needed by resolution and interpretation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProgramEnvironment {
-    pub functions: Vec<FunctionDefinition>,
+    pub functions: Vec<Option<FunctionDefinition>>,
     pub function_symbols: HashMap<SharedString, FunctionIndex>,
 }
 
@@ -18,22 +17,21 @@ impl ProgramEnvironment {
         let function_symbols = functions
             .iter()
             .enumerate()
-            .map(|(index, function)| (function.name.clone(), FunctionIndex::new(index as u32)))
+            .map(|(index, function)| {
+                (
+                    function.name.clone(),
+                    FunctionIndex::new((index + 1) as u32),
+                )
+            })
             .collect();
 
+        let mut table = vec![None];
+        table.extend(functions.into_iter().map(Some));
+
         Self {
-            functions,
+            functions: table,
             function_symbols,
         }
-    }
-
-    /// Creates the default environment for the current language slice.
-    pub fn native() -> Self {
-        Self::new(vec![
-            FunctionDefinition::new("println", NativeFunction::Println),
-            FunctionDefinition::new("assert", NativeFunction::Assert),
-            FunctionDefinition::new("assert_eq", NativeFunction::AssertEq),
-        ])
     }
 
     /// Resolves one function name to its table handle.
@@ -48,24 +46,24 @@ impl ProgramEnvironment {
     ) -> OcelotResult<&FunctionDefinition> {
         self.functions
             .get(function_index.as_usize())
+            .and_then(Option::as_ref)
             .context("internal error: function index points outside the function table")
-    }
-}
-
-impl Default for ProgramEnvironment {
-    fn default() -> Self {
-        Self::native()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::ProgramEnvironment;
+    use crate::function_definition::FunctionDefinition;
     use crate::native_function::NativeFunction;
 
     #[test]
-    fn native_environment_contains_the_current_native_functions() {
-        let environment = ProgramEnvironment::native();
+    fn program_environment_indexes_functions_by_name() {
+        let environment = ProgramEnvironment::new(vec![
+            FunctionDefinition::new("println", NativeFunction::Println),
+            FunctionDefinition::new("assert", NativeFunction::Assert),
+            FunctionDefinition::new("assert_eq", NativeFunction::AssertEq),
+        ]);
 
         assert!(environment.resolve_function("println").is_some());
         assert!(environment.resolve_function("assert").is_some());
@@ -74,11 +72,24 @@ mod tests {
 
     #[test]
     fn function_definition_looks_up_native_function_metadata() {
-        let environment = ProgramEnvironment::native();
+        let environment = ProgramEnvironment::new(vec![FunctionDefinition::new(
+            "println",
+            NativeFunction::Println,
+        )]);
         let function_index = environment.resolve_function("println").unwrap();
         let function = environment.function_definition(function_index).unwrap();
 
         assert_eq!(function.name, "println");
         assert_eq!(function.native_function, NativeFunction::Println);
+    }
+
+    #[test]
+    fn program_environment_reserves_table_entry_zero() {
+        let environment = ProgramEnvironment::new(vec![FunctionDefinition::new(
+            "println",
+            NativeFunction::Println,
+        )]);
+
+        assert!(environment.functions[0].is_none());
     }
 }

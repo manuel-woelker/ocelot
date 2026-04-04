@@ -1,7 +1,9 @@
 use crate::discovered_test::DiscoveredTest;
 use crate::failed_test_result::FailedTestResult;
 use crate::test_run_summary::TestRunSummary;
+use ocelot_ast::function_definition::FunctionDefinition;
 use ocelot_ast::item_kind::ItemKind;
+use ocelot_ast::native_function::NativeFunction;
 use ocelot_ast::program_environment::ProgramEnvironment;
 use ocelot_base::assertion_error::render_assertion_error;
 use ocelot_base::error::ErrorKind;
@@ -155,7 +157,7 @@ impl Engine {
             ocelot_base::compilation_context::CompilationContext::default();
         let mut script =
             ocelot_parser::parse_script::parse_script(source_file, &mut compilation_context)?;
-        let environment = ProgramEnvironment::native();
+        let environment = self.create_program_environment();
         ocelot_resolver::resolve(
             &mut script,
             source_file,
@@ -163,6 +165,14 @@ impl Engine {
             &environment,
         )?;
         Ok((script, environment))
+    }
+
+    fn create_program_environment(&self) -> ProgramEnvironment {
+        ProgramEnvironment::new(vec![
+            FunctionDefinition::new("println", NativeFunction::Println),
+            FunctionDefinition::new("assert", NativeFunction::Assert),
+            FunctionDefinition::new("assert_eq", NativeFunction::AssertEq),
+        ])
     }
 }
 

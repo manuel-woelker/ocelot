@@ -184,9 +184,11 @@ mod tests {
     use ocelot_ast::expression::Expression;
     use ocelot_ast::expression_kind::ExpressionKind;
     use ocelot_ast::expression_statement::ExpressionStatement;
+    use ocelot_ast::function_definition::FunctionDefinition;
     use ocelot_ast::identifier_expression::IdentifierExpression;
     use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
+    use ocelot_ast::native_function::NativeFunction;
     use ocelot_ast::program_environment::ProgramEnvironment;
     use ocelot_ast::script::Script;
     use ocelot_ast::statement::Statement;
@@ -219,6 +221,14 @@ mod tests {
         )
     }
 
+    fn test_program_environment() -> ProgramEnvironment {
+        ProgramEnvironment::new(vec![
+            FunctionDefinition::new("println", NativeFunction::Println),
+            FunctionDefinition::new("assert", NativeFunction::Assert),
+            FunctionDefinition::new("assert_eq", NativeFunction::AssertEq),
+        ])
+    }
+
     #[test]
     fn resolves_native_call_expressions() {
         let mut script = Script::new(
@@ -236,7 +246,7 @@ mod tests {
             Span::new(0, 17),
         );
         let source_file = SourceFile::new("examples/hello.ocelot", "println(\"hello\");");
-        let environment = ProgramEnvironment::native();
+        let environment = test_program_environment();
         let println_index = environment.resolve_function("println").unwrap();
         let mut context = CompilationContext::default();
 
@@ -274,7 +284,7 @@ mod tests {
         );
         let source_file =
             SourceFile::new("examples/tests.ocelot", "test \"prints\" { assert(true); }");
-        let environment = ProgramEnvironment::native();
+        let environment = test_program_environment();
         let assert_index = environment.resolve_function("assert").unwrap();
         let mut context = CompilationContext::default();
 
@@ -311,7 +321,7 @@ mod tests {
             Span::new(0, 26),
         );
         let source_file = SourceFile::new("examples/nested.ocelot", "println(println(\"hello\"));");
-        let environment = ProgramEnvironment::native();
+        let environment = test_program_environment();
         let println_index = environment.resolve_function("println").unwrap();
         let mut context = CompilationContext::default();
 
@@ -349,7 +359,7 @@ mod tests {
             Span::new(0, 19),
         );
         let source_file = SourceFile::new("examples/broken.ocelot", "printline(\"hello\");");
-        let environment = ProgramEnvironment::native();
+        let environment = test_program_environment();
         let mut context = CompilationContext::default();
 
         let error = resolve(&mut script, &source_file, &mut context, &environment).unwrap_err();
@@ -388,7 +398,7 @@ mod tests {
             Span::new(0, 10),
         );
         let source_file = SourceFile::new("examples/broken.ocelot", "\"hello\"();");
-        let environment = ProgramEnvironment::native();
+        let environment = test_program_environment();
         let mut context = CompilationContext::default();
 
         let error = resolve(&mut script, &source_file, &mut context, &environment).unwrap_err();
