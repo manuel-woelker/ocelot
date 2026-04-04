@@ -8,7 +8,6 @@ use ocelot_ast::expression_kind::ExpressionKind;
 use ocelot_ast::expression_statement::ExpressionStatement;
 use ocelot_ast::function_item::FunctionItem;
 use ocelot_ast::identifier::Identifier;
-use ocelot_ast::identifier_expression::IdentifierExpression;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_ast::not_expression::NotExpression;
@@ -217,8 +216,9 @@ impl<'a> Parser<'a> {
             TokenType::Identifier => {
                 self.position += 1;
                 Ok(Expression::new(
-                    ExpressionKind::Identifier(IdentifierExpression::new(
+                    ExpressionKind::Identifier(Identifier::new(
                         self.source_text(&token.span),
+                        token.span.clone(),
                     )),
                     token.span,
                 ))

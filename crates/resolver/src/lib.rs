@@ -289,7 +289,6 @@ mod tests {
     use ocelot_ast::function_item::FunctionItem;
     use ocelot_ast::function_kind::FunctionKind;
     use ocelot_ast::identifier::Identifier;
-    use ocelot_ast::identifier_expression::IdentifierExpression;
     use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
     use ocelot_ast::native_function::NativeFunction;
@@ -306,7 +305,7 @@ mod tests {
 
     fn identifier(name: &str, span: Span) -> Expression {
         Expression::new(
-            ExpressionKind::Identifier(IdentifierExpression::new(name)),
+            ExpressionKind::Identifier(Identifier::new(name, span.clone())),
             span,
         )
     }

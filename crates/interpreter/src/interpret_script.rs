@@ -26,7 +26,6 @@ mod tests {
     use ocelot_ast::function_definition::FunctionDefinition;
     use ocelot_ast::function_item::FunctionItem;
     use ocelot_ast::identifier::Identifier;
-    use ocelot_ast::identifier_expression::IdentifierExpression;
     use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
     use ocelot_ast::native_function::NativeFunction;
@@ -70,7 +69,10 @@ mod tests {
         Expression::new(
             ExpressionKind::Call(CallExpression::new(
                 Expression::new(
-                    ExpressionKind::Identifier(IdentifierExpression::new(name)),
+                    ExpressionKind::Identifier(Identifier::new(
+                        name,
+                        Span::new(span.start(), span.start() + name.len()),
+                    )),
                     Span::new(span.start(), span.start() + name.len()),
                 ),
                 arguments,
@@ -91,7 +93,10 @@ mod tests {
                     StatementKind::Expression(ExpressionStatement::new(Expression::new(
                         ExpressionKind::Call(CallExpression::new(
                             Expression::new(
-                                ExpressionKind::Identifier(IdentifierExpression::new("println")),
+                                ExpressionKind::Identifier(Identifier::new(
+                                    "println",
+                                    Span::new(0, 7),
+                                )),
                                 Span::new(0, 7),
                             ),
                             vec![Expression::new(
@@ -126,8 +131,9 @@ mod tests {
                         StatementKind::Expression(ExpressionStatement::new(Expression::new(
                             ExpressionKind::Call(CallExpression::new(
                                 Expression::new(
-                                    ExpressionKind::Identifier(IdentifierExpression::new(
+                                    ExpressionKind::Identifier(Identifier::new(
                                         "println",
+                                        Span::new(0, 7),
                                     )),
                                     Span::new(0, 7),
                                 ),
@@ -151,8 +157,9 @@ mod tests {
                             StatementKind::Expression(ExpressionStatement::new(Expression::new(
                                 ExpressionKind::Call(CallExpression::new(
                                     Expression::new(
-                                        ExpressionKind::Identifier(IdentifierExpression::new(
+                                        ExpressionKind::Identifier(Identifier::new(
                                             "println",
+                                            Span::new(24, 31),
                                         )),
                                         Span::new(24, 31),
                                     ),
@@ -242,7 +249,10 @@ mod tests {
                     StatementKind::Expression(ExpressionStatement::new(Expression::new(
                         ExpressionKind::Call(CallExpression::new(
                             Expression::new(
-                                ExpressionKind::Identifier(IdentifierExpression::new("println")),
+                                ExpressionKind::Identifier(Identifier::new(
+                                    "println",
+                                    Span::new(0, 7),
+                                )),
                                 Span::new(0, 7),
                             ),
                             vec![Expression::new(

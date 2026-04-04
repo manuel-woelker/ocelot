@@ -1,6 +1,6 @@
 use crate::boolean_literal_expression::BooleanLiteralExpression;
 use crate::call_expression::CallExpression;
-use crate::identifier_expression::IdentifierExpression;
+use crate::identifier::Identifier;
 use crate::not_expression::NotExpression;
 use crate::string_literal_expression::StringLiteralExpression;
 
@@ -9,7 +9,7 @@ use crate::string_literal_expression::StringLiteralExpression;
 pub enum ExpressionKind {
     BooleanLiteral(BooleanLiteralExpression),
     Call(CallExpression),
-    Identifier(IdentifierExpression),
+    Identifier(Identifier),
     Not(NotExpression),
     StringLiteral(StringLiteralExpression),
 }

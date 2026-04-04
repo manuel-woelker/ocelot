@@ -38,12 +38,12 @@ mod tests {
     use crate::expression::Expression;
     use crate::expression_kind::ExpressionKind;
     use crate::function_index::FunctionIndex;
-    use crate::identifier_expression::IdentifierExpression;
+    use crate::identifier::Identifier;
     use ocelot_base::span::Span;
 
     fn identifier(name: &str) -> Expression {
         Expression::new(
-            ExpressionKind::Identifier(IdentifierExpression::new(name)),
+            ExpressionKind::Identifier(Identifier::new(name, Span::new(0, name.len()))),
             Span::new(0, name.len()),
         )
     }
