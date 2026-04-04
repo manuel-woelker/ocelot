@@ -39,6 +39,7 @@ use ocelot_semantic::function_kind::FunctionKind;
 use ocelot_semantic::module_environment::ModuleEnvironment;
 use ocelot_semantic::native_function::native_type_label;
 use ocelot_semantic::program_environment::ProgramEnvironment;
+use ocelot_semantic::resolved_function::ResolvedFunction;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 
@@ -85,12 +86,13 @@ pub fn resolve(
         &mut module_environment,
         compilation_session,
     )?;
-    resolve_user_defined_function_definitions(
+    let resolved_functions = resolve_user_defined_function_definitions(
         compilation_context,
         environment,
-        &mut HashMap::from([(source_file.path.clone(), module_environment)]),
+        &HashMap::from([(source_file.path.clone(), module_environment)]),
         compilation_session,
     )?;
+    environment.apply_resolved_functions(resolved_functions)?;
     finish_resolution(compilation_context)
 }
 
@@ -131,7 +133,7 @@ pub fn register_module_effects(
 ) -> OcelotResult<()> {
     let compilation_session = CompilationSession::new();
     let mut module_environment = ModuleEnvironment::new();
-    Resolver::new(
+    DeclarationIndexer::new(
         source_file,
         "",
         compilation_context,
@@ -154,7 +156,7 @@ pub fn register_module_functions(
     module_environment: &mut ModuleEnvironment,
     compilation_session: &CompilationSession,
 ) -> OcelotResult<()> {
-    Resolver::new(
+    DeclarationIndexer::new(
         source_file,
         module_name,
         compilation_context,
@@ -177,7 +179,7 @@ pub fn register_module_imports(
     module_environment: &mut ModuleEnvironment,
 ) -> OcelotResult<()> {
     let compilation_session = CompilationSession::new();
-    Resolver::new(
+    DeclarationIndexer::new(
         source_file,
         module_name,
         compilation_context,
@@ -196,16 +198,18 @@ pub fn resolve_module_items(
     module_name: &str,
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
-    environment: &mut ProgramEnvironment,
+    environment: &ProgramEnvironment,
     module_environment: &mut ModuleEnvironment,
     compilation_session: &CompilationSession,
 ) -> OcelotResult<()> {
-    let mut resolver = Resolver::new(
+    let mut working_environment = environment.clone();
+    let mut working_module_environment = module_environment.clone();
+    let mut resolver = DeclarationIndexer::new(
         source_file,
         module_name,
         compilation_context,
-        environment,
-        module_environment,
+        &mut working_environment,
+        &mut working_module_environment,
         compilation_session,
         None,
     );
@@ -218,15 +222,17 @@ pub fn resolve_module_items(
 /// Resolves the bodies of all registered user-defined functions.
 pub fn resolve_user_defined_function_definitions(
     compilation_context: &mut CompilationContext,
-    environment: &mut ProgramEnvironment,
-    module_environments: &mut HashMap<ocelot_base::file_path::FilePath, ModuleEnvironment>,
+    environment: &ProgramEnvironment,
+    module_environments: &HashMap<ocelot_base::file_path::FilePath, ModuleEnvironment>,
     compilation_session: &CompilationSession,
-) -> OcelotResult<()> {
-    let function_indices = environment.user_defined_function_indices();
+) -> OcelotResult<Vec<ResolvedFunction>> {
+    let mut working_environment = environment.clone();
+    let mut working_module_environments = module_environments.clone();
+    let function_indices = working_environment.user_defined_function_indices();
 
     for function_index in function_indices {
         let (module_name, source_file) = {
-            let function_definition = environment.function_definition(function_index)?;
+            let function_definition = working_environment.function_definition(function_index)?;
             let FunctionKind::UserDefined { source_file, .. } = &function_definition.kind else {
                 ocelot_base::bail!(
                     "internal error: function index did not reference a user-defined function"
@@ -238,25 +244,41 @@ pub fn resolve_user_defined_function_definitions(
             )
         };
 
-        let mut function = environment.take_user_defined_function(function_index)?;
-        let module_environment = module_environments
+        let mut function = working_environment.take_user_defined_function(function_index)?;
+        let module_environment = working_module_environments
             .get_mut(&source_file.path)
             .expect("module environment should exist for resolved function source file");
-        Resolver::new(
+        DeclarationIndexer::new(
             &source_file,
             module_name.as_str(),
             compilation_context,
-            environment,
+            &mut working_environment,
             module_environment,
             compilation_session,
             Some(function_index),
         )
         .resolve_function_item(&mut function);
-        environment.put_user_defined_function(function_index, function)?;
+        working_environment.put_user_defined_function(function_index, function)?;
     }
 
-    propagate_function_effects(compilation_context, environment)?;
-    Ok(())
+    propagate_function_effects(compilation_context, &mut working_environment)?;
+    let mut resolved_functions = Vec::new();
+    for function_index in working_environment.user_defined_function_indices() {
+        let function_definition = working_environment.function_definition(function_index)?;
+        let FunctionKind::UserDefined { function, .. } = &function_definition.kind else {
+            continue;
+        };
+        resolved_functions.push(ResolvedFunction {
+            function_index,
+            function: function.clone(),
+            direct_effects: function_definition.direct_effects.clone(),
+            direct_effect_sources: function_definition.direct_effect_sources.clone(),
+            inferred_effects: function_definition.inferred_effects.clone(),
+            called_functions: function_definition.called_functions.clone(),
+        });
+    }
+
+    Ok(resolved_functions)
 }
 
 /// Returns a resolver compilation error if diagnostics were produced.
@@ -278,7 +300,7 @@ fn default_module_name(source_file: &SourceFile) -> SharedString {
     source_file.path.file_stem().unwrap_or_default().into()
 }
 
-struct Resolver<'a> {
+struct DeclarationIndexer<'a> {
     source_file: &'a SourceFile,
     module_name: &'a str,
     compilation_context: &'a mut CompilationContext,
@@ -289,7 +311,7 @@ struct Resolver<'a> {
     local_value_types: HashMap<SharedString, TypeIndex>,
 }
 
-impl<'a> Resolver<'a> {
+impl<'a> DeclarationIndexer<'a> {
     fn new(
         source_file: &'a SourceFile,
         module_name: &'a str,
@@ -1846,20 +1868,23 @@ mod tests {
             "main",
             &main_source_file,
             &mut context,
-            &mut environment,
+            &environment,
             module_environments
                 .get_mut(&main_source_file.path)
                 .expect("module environment should exist"),
             &compilation_session,
         )
         .unwrap();
-        resolve_user_defined_function_definitions(
+        let resolved_functions = resolve_user_defined_function_definitions(
             &mut context,
-            &mut environment,
-            &mut module_environments,
+            &environment,
+            &module_environments,
             &compilation_session,
         )
         .unwrap();
+        environment
+            .apply_resolved_functions(resolved_functions)
+            .unwrap();
         finish_resolution(&context).unwrap();
 
         let ItemKind::Statement(statement) = &main_script.items[0].kind else {
@@ -1955,20 +1980,23 @@ mod tests {
             "main",
             &main_source_file,
             &mut context,
-            &mut environment,
+            &environment,
             module_environments
                 .get_mut(&main_source_file.path)
                 .expect("module environment should exist"),
             &compilation_session,
         )
         .unwrap();
-        resolve_user_defined_function_definitions(
+        let resolved_functions = resolve_user_defined_function_definitions(
             &mut context,
-            &mut environment,
-            &mut module_environments,
+            &environment,
+            &module_environments,
             &compilation_session,
         )
         .unwrap();
+        environment
+            .apply_resolved_functions(resolved_functions)
+            .unwrap();
         finish_resolution(&context).unwrap();
 
         let ItemKind::Statement(statement) = &main_script.items[0].kind else {
@@ -2088,20 +2116,23 @@ mod tests {
             "main",
             &main_source_file,
             &mut context,
-            &mut environment,
+            &environment,
             module_environments
                 .get_mut(&main_source_file.path)
                 .expect("module environment should exist"),
             &compilation_session,
         )
         .unwrap();
-        resolve_user_defined_function_definitions(
+        let resolved_functions = resolve_user_defined_function_definitions(
             &mut context,
-            &mut environment,
-            &mut module_environments,
+            &environment,
+            &module_environments,
             &compilation_session,
         )
         .unwrap();
+        environment
+            .apply_resolved_functions(resolved_functions)
+            .unwrap();
         finish_resolution(&context).unwrap();
 
         let run = environment
@@ -2395,7 +2426,7 @@ mod tests {
             "main",
             &source_file,
             &mut context,
-            &mut environment,
+            &environment,
             &mut module_environment,
             &compilation_session,
         )
@@ -2555,20 +2586,23 @@ mod tests {
             "main",
             &source_file,
             &mut context,
-            &mut environment,
+            &environment,
             module_environments
                 .get_mut(&source_file.path)
                 .expect("module environment should exist"),
             &compilation_session,
         )
         .unwrap();
-        resolve_user_defined_function_definitions(
+        let resolved_functions = resolve_user_defined_function_definitions(
             &mut context,
-            &mut environment,
-            &mut module_environments,
+            &environment,
+            &module_environments,
             &compilation_session,
         )
         .unwrap();
+        environment
+            .apply_resolved_functions(resolved_functions)
+            .unwrap();
         finish_resolution(&context).unwrap();
 
         let exec_effect = environment.resolve_effect("exec").unwrap();
@@ -2649,20 +2683,23 @@ mod tests {
             "main",
             &source_file,
             &mut context,
-            &mut environment,
+            &environment,
             module_environments
                 .get_mut(&source_file.path)
                 .expect("module environment should exist"),
             &compilation_session,
         )
         .unwrap();
-        resolve_user_defined_function_definitions(
+        let resolved_functions = resolve_user_defined_function_definitions(
             &mut context,
-            &mut environment,
-            &mut module_environments,
+            &environment,
+            &module_environments,
             &compilation_session,
         )
         .unwrap();
+        environment
+            .apply_resolved_functions(resolved_functions)
+            .unwrap();
 
         let error = finish_resolution(&context).unwrap_err();
 
@@ -2707,7 +2744,7 @@ mod tests {
         let mut environment = ProgramEnvironment::new();
         let compilation_session = compilation_session();
         let mut module_environment = create_module_environment();
-        let mut module_environments =
+        let module_environments =
             HashMap::from([(source_file.path.clone(), create_module_environment())]);
         let mut context = CompilationContext::default();
 
@@ -2721,13 +2758,16 @@ mod tests {
             &compilation_session,
         )
         .unwrap();
-        resolve_user_defined_function_definitions(
+        let resolved_functions = resolve_user_defined_function_definitions(
             &mut context,
-            &mut environment,
-            &mut module_environments,
+            &environment,
+            &module_environments,
             &compilation_session,
         )
         .unwrap();
+        environment
+            .apply_resolved_functions(resolved_functions)
+            .unwrap();
 
         let error = finish_resolution(&context).unwrap_err();
 

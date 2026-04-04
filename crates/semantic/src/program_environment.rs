@@ -13,6 +13,7 @@ use std::collections::HashSet;
 
 use crate::function_definition::FunctionDefinition;
 use crate::function_kind::FunctionKind;
+use crate::resolved_function::ResolvedFunction;
 /// Shared program-level data needed by resolution and interpretation.
 #[derive(Debug, Clone)]
 pub struct ProgramEnvironment {
@@ -188,6 +189,34 @@ impl ProgramEnvironment {
             .insert(function.name.clone(), function_index);
         self.functions.push(Some(function));
         function_index
+    }
+
+    /// Applies resolved bodies and effect metadata for user-defined functions.
+    pub fn apply_resolved_functions(
+        &mut self,
+        resolved_functions: Vec<ResolvedFunction>,
+    ) -> OcelotResult<()> {
+        for resolved_function in resolved_functions {
+            let function_definition =
+                self.function_definition_mut(resolved_function.function_index)?;
+            let FunctionKind::UserDefined {
+                function: stored_function,
+                ..
+            } = &mut function_definition.kind
+            else {
+                ocelot_base::bail!(
+                    "internal error: function index did not reference a user-defined function"
+                );
+            };
+
+            *stored_function = resolved_function.function;
+            function_definition.direct_effects = resolved_function.direct_effects;
+            function_definition.direct_effect_sources = resolved_function.direct_effect_sources;
+            function_definition.inferred_effects = resolved_function.inferred_effects;
+            function_definition.called_functions = resolved_function.called_functions;
+        }
+
+        Ok(())
     }
 
     /// Returns the indices of all user-defined functions in insertion order.

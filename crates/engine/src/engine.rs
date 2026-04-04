@@ -265,7 +265,7 @@ impl Engine {
                 module.module_name.as_str(),
                 &module.source_file,
                 &mut compilation_context,
-                &mut environment,
+                &environment,
                 module_environments
                     .get_mut(&module.source_file.path)
                     .expect("module environment should exist for loaded module"),
@@ -273,12 +273,13 @@ impl Engine {
             )?;
         }
 
-        ocelot_resolver::resolve_user_defined_function_definitions(
+        let resolved_functions = ocelot_resolver::resolve_user_defined_function_definitions(
             &mut compilation_context,
-            &mut environment,
-            &mut module_environments,
+            &environment,
+            &module_environments,
             &compilation_session,
         )?;
+        environment.apply_resolved_functions(resolved_functions)?;
         ocelot_resolver::finish_resolution(&compilation_context)?;
 
         Ok(LoadedProgram::new(entry_module_index, modules, environment))
