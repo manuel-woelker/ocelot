@@ -11,6 +11,7 @@ pub enum TokenType {
     Not,
     True,
     Use,
+    Colon,
     Comma,
     DoubleColon,
     LeftParen,

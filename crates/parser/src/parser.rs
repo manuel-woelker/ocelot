@@ -9,6 +9,7 @@ use ocelot_ast::expression_kind::ExpressionKind;
 use ocelot_ast::expression_statement::ExpressionStatement;
 use ocelot_ast::function_effect_clause::FunctionEffectClause;
 use ocelot_ast::function_item::FunctionItem;
+use ocelot_ast::function_parameter::FunctionParameter;
 use ocelot_ast::identifier::Identifier;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
@@ -115,6 +116,7 @@ impl<'a> Parser<'a> {
         let name_token = self.expect(TokenType::Identifier, "expected function name")?;
         let name = self.source_text(&name_token.span).to_owned();
         self.expect(TokenType::LeftParen, "expected `(` after function name")?;
+        let parameters = self.parse_function_parameters()?;
         self.expect(TokenType::RightParen, "expected `)` after parameter list")?;
         let can_clause = if self.at(TokenType::Can) {
             Some(self.parse_function_effect_clause(TokenType::Can, "expected `can` effect clause")?)
@@ -155,6 +157,7 @@ impl<'a> Parser<'a> {
         Ok(Item::new(
             ItemKind::Function(FunctionItem::new(
                 Identifier::new(name, name_token.span),
+                parameters,
                 can_clause,
                 cannot_clause,
                 body,
@@ -177,6 +180,38 @@ impl<'a> Parser<'a> {
             Identifier::new(self.source_text(&effect_token.span), effect_token.span),
             span,
         ))
+    }
+
+    fn parse_function_parameters(&mut self) -> OcelotResult<Vec<FunctionParameter>> {
+        let mut parameters = Vec::new();
+
+        if self.at(TokenType::RightParen) {
+            return Ok(parameters);
+        }
+
+        loop {
+            let identifier = self.parse_identifier_token("expected parameter name")?;
+            self.expect(TokenType::Colon, "expected `:` after parameter name")?;
+            let type_name = self.parse_identifier_token("expected parameter type")?;
+            let span = Span::new(identifier.span.start(), type_name.span.end());
+            parameters.push(FunctionParameter::new(identifier, type_name, span));
+
+            if !self.at(TokenType::Comma) {
+                break;
+            }
+
+            self.position += 1;
+
+            if self.at(TokenType::RightParen) {
+                return self.emit_fatal_diagnostic(
+                    "expected parameter after `,`",
+                    self.current().span.clone(),
+                    "parameter expected here",
+                );
+            }
+        }
+
+        Ok(parameters)
     }
 
     fn parse_test_item(&mut self) -> OcelotResult<Item> {

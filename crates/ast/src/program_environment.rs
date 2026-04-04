@@ -64,7 +64,7 @@ impl ProgramEnvironment {
     fn seed_builtin_types(&mut self) {
         self.add_type(Ty::new("any", TypeKind::Any));
         self.add_type(Ty::new("string", TypeKind::String));
-        self.add_type(Ty::new("boolean", TypeKind::Boolean));
+        self.add_type(Ty::new("bool", TypeKind::Boolean));
     }
 
     fn seed_native_functions(&mut self) {
@@ -155,8 +155,8 @@ impl ProgramEnvironment {
 
     /// Returns the canonical boolean type handle.
     pub fn boolean_type_index(&self) -> TypeIndex {
-        self.resolve_type("boolean")
-            .expect("boolean type should always be seeded")
+        self.resolve_type("bool")
+            .expect("bool type should always be seeded")
     }
 
     /// Returns the canonical unresolved type handle.
@@ -300,6 +300,7 @@ impl ProgramEnvironment {
             function,
             Box::new(FunctionItem::new(
                 Identifier::new("", ocelot_base::span::Span::default()),
+                Vec::new(),
                 None,
                 None,
                 Vec::new(),
@@ -405,7 +406,7 @@ mod tests {
         );
         assert_eq!(
             environment
-                .type_definition(environment.resolve_type("boolean").unwrap())
+                .type_definition(environment.resolve_type("bool").unwrap())
                 .unwrap()
                 .kind,
             TypeKind::Boolean
@@ -418,7 +419,7 @@ mod tests {
 
         assert_eq!(environment.resolve_type("any"), Some(TypeIndex::new(1)));
         assert_eq!(environment.resolve_type("string"), Some(TypeIndex::new(2)));
-        assert_eq!(environment.resolve_type("boolean"), Some(TypeIndex::new(3)));
+        assert_eq!(environment.resolve_type("bool"), Some(TypeIndex::new(3)));
     }
 
     #[test]
@@ -464,11 +465,13 @@ mod tests {
             "greetings::greet",
             FunctionItem::new(
                 Identifier::new("greet", Span::new(4, 9)),
+                Vec::new(),
                 None,
                 None,
                 Vec::new(),
                 Span::new(0, 13),
             ),
+            Vec::new(),
             BTreeSet::new(),
             BTreeSet::new(),
             SourceFile::new("greetings.ocelot", "fun greet() {}"),
@@ -495,11 +498,13 @@ mod tests {
             "greetings::greet",
             FunctionItem::new(
                 Identifier::new("greet", Span::new(4, 9)),
+                Vec::new(),
                 None,
                 None,
                 Vec::new(),
                 Span::new(0, 13),
             ),
+            Vec::new(),
             BTreeSet::new(),
             BTreeSet::new(),
             SourceFile::new("greetings.ocelot", "fun greet() {}"),
@@ -519,11 +524,13 @@ mod tests {
             "greetings::greet",
             FunctionItem::new(
                 Identifier::new("greet", Span::new(4, 9)),
+                Vec::new(),
                 None,
                 None,
                 Vec::new(),
                 Span::new(0, 13),
             ),
+            Vec::new(),
             BTreeSet::new(),
             BTreeSet::new(),
             SourceFile::new("greetings.ocelot", "fun greet() {}"),
@@ -555,11 +562,13 @@ mod tests {
             "math::greet",
             FunctionItem::new(
                 Identifier::new("greet", Span::new(4, 9)),
+                Vec::new(),
                 None,
                 None,
                 Vec::new(),
                 Span::new(0, 13),
             ),
+            Vec::new(),
             BTreeSet::new(),
             BTreeSet::new(),
             SourceFile::new("math.ocelot", "fun greet() {}"),
@@ -589,11 +598,13 @@ mod tests {
             "helper::greet",
             FunctionItem::new(
                 Identifier::new("greet", Span::new(4, 9)),
+                Vec::new(),
                 None,
                 None,
                 Vec::new(),
                 Span::new(0, 13),
             ),
+            Vec::new(),
             BTreeSet::new(),
             BTreeSet::new(),
             SourceFile::new("helper.ocelot", "fun greet() {}"),

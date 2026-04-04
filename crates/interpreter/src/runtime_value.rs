@@ -158,7 +158,7 @@ mod tests {
     fn expect_boolean_returns_the_inner_boolean() {
         let value = RuntimeValue::boolean(true);
 
-        let actual = value.expect_boolean("expected boolean").unwrap();
+        let actual = value.expect_boolean("expected bool").unwrap();
 
         assert!(actual);
     }
@@ -168,14 +168,10 @@ mod tests {
         let value = RuntimeValue::string("hello");
 
         let error = value
-            .expect_boolean("type error: expected boolean")
+            .expect_boolean("type error: expected bool")
             .unwrap_err();
 
-        assert!(
-            error
-                .to_test_string()
-                .contains("type error: expected boolean")
-        );
+        assert!(error.to_test_string().contains("type error: expected bool"));
     }
 
     #[test]

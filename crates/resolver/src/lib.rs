@@ -12,6 +12,7 @@ use ocelot_ast::function_effect_clause::FunctionEffectClause;
 use ocelot_ast::function_index::FunctionIndex;
 use ocelot_ast::function_item::FunctionItem;
 use ocelot_ast::function_kind::FunctionKind;
+use ocelot_ast::function_parameter::FunctionParameter;
 use ocelot_ast::identifier::Identifier;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
@@ -36,6 +37,7 @@ use ocelot_base::source_excerpt::SourceExcerpt;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 use std::collections::BTreeSet;
+use std::collections::HashMap;
 
 /// Resolves one script as though it were the only loaded module.
 pub fn resolve(
@@ -205,6 +207,7 @@ struct Resolver<'a> {
     compilation_context: &'a mut CompilationContext,
     environment: &'a mut ProgramEnvironment,
     current_function_index: Option<FunctionIndex>,
+    local_value_types: HashMap<SharedString, TypeIndex>,
 }
 
 impl<'a> Resolver<'a> {
@@ -221,6 +224,7 @@ impl<'a> Resolver<'a> {
             compilation_context,
             environment,
             current_function_index,
+            local_value_types: HashMap::new(),
         }
     }
 
@@ -333,7 +337,7 @@ impl<'a> Resolver<'a> {
         ));
     }
 
-    fn register_function_item(&mut self, function_item: FunctionItem) {
+    fn register_function_item(&mut self, mut function_item: FunctionItem) {
         let qualified_name = self
             .environment
             .qualify_function_name(self.module_name, function_item.identifier.name.as_str());
@@ -375,12 +379,14 @@ impl<'a> Resolver<'a> {
 
         let can_effects = self.resolve_effect_clause(function_item.can_clause.as_ref());
         let cannot_effects = self.resolve_effect_clause(function_item.cannot_clause.as_ref());
+        let argument_types = self.resolve_function_parameter_types(&mut function_item);
 
         self.environment
             .add_function(FunctionDefinition::user_defined(
                 self.module_name,
                 qualified_name,
                 function_item,
+                argument_types,
                 can_effects,
                 cannot_effects,
                 self.source_file.clone(),
@@ -463,9 +469,18 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_function_item(&mut self, function_item: &mut FunctionItem) {
+        self.local_value_types.clear();
+
+        for parameter in &function_item.parameters {
+            self.local_value_types
+                .insert(parameter.identifier.name.clone(), parameter.ty);
+        }
+
         for statement in &mut function_item.body {
             self.resolve_statement(statement);
         }
+
+        self.local_value_types.clear();
     }
 
     fn resolve_test_item(&mut self, test_item: &mut TestItem) {
@@ -505,20 +520,32 @@ impl<'a> Resolver<'a> {
 
         let resolved = match &call_expression.callee.kind {
             ExpressionKind::Identifier(identifier) => {
-                let Some(function_index) = self.environment.resolve_local_function(
-                    &self.source_file.path,
-                    self.module_name,
-                    identifier.name.as_str(),
-                ) else {
+                if self
+                    .local_value_types
+                    .contains_key(identifier.name.as_str())
+                {
                     self.add_diagnostic(
-                        format!("unknown function `{}`", identifier.name),
+                        format!("`{}` is a value, not a function", identifier.name),
                         identifier.span.clone(),
-                        "unknown function",
+                        "callable function required",
                     );
                     return;
-                };
+                } else {
+                    let Some(function_index) = self.environment.resolve_local_function(
+                        &self.source_file.path,
+                        self.module_name,
+                        identifier.name.as_str(),
+                    ) else {
+                        self.add_diagnostic(
+                            format!("unknown function `{}`", identifier.name),
+                            identifier.span.clone(),
+                            "unknown function",
+                        );
+                        return;
+                    };
 
-                Some((function_index, identifier.name.clone()))
+                    Some((function_index, identifier.name.clone()))
+                }
             }
             ExpressionKind::QualifiedIdentifier(identifier) => {
                 self.resolve_qualified_call(identifier)
@@ -536,6 +563,10 @@ impl<'a> Resolver<'a> {
         let Some((function_index, function_name)) = resolved else {
             return;
         };
+
+        if !self.validate_call_arity(function_name.as_str(), call_expression, function_index) {
+            return;
+        }
 
         call_expression.resolve_to(function_index);
         self.record_effect_dependency(function_index, call_expression.callee.span.clone());
@@ -590,12 +621,17 @@ impl<'a> Resolver<'a> {
             ExpressionKind::BooleanLiteral(_) => {
                 expression.ty = boolean_type_index;
             }
+            ExpressionKind::Identifier(identifier) => {
+                expression.ty = self
+                    .local_value_types
+                    .get(identifier.name.as_str())
+                    .copied()
+                    .unwrap_or_else(TypeIndex::unresolved);
+            }
             ExpressionKind::StringLiteral(_) => {
                 expression.ty = string_type_index;
             }
-            ExpressionKind::Identifier(_)
-            | ExpressionKind::QualifiedIdentifier(_)
-            | ExpressionKind::Call(_) => {
+            ExpressionKind::QualifiedIdentifier(_) | ExpressionKind::Call(_) => {
                 expression.ty = TypeIndex::unresolved();
             }
             ExpressionKind::Not(not_expression) => {
@@ -606,9 +642,9 @@ impl<'a> Resolver<'a> {
 
                 if !not_expression.operand.ty.is_unresolved() {
                     self.add_diagnostic(
-                        "operator `not` expects a boolean operand",
+                        "operator `not` expects a bool operand",
                         not_expression.operand.span.clone(),
-                        "boolean operand required",
+                        "bool operand required",
                     );
                 }
 
@@ -710,6 +746,34 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    fn validate_call_arity(
+        &mut self,
+        function_name: &str,
+        call_expression: &CallExpression,
+        function_index: FunctionIndex,
+    ) -> bool {
+        let Ok(function_definition) = self.environment.function_definition(function_index) else {
+            return true;
+        };
+        let expected = function_definition.argument_types.len();
+        let actual = call_expression.arguments.len();
+
+        if expected == actual {
+            return true;
+        }
+
+        self.add_diagnostic(
+            self.argument_arity_error_message(function_name, expected),
+            self.call_arity_span(call_expression, actual, expected),
+            if actual < expected {
+                "missing argument"
+            } else {
+                "extra argument"
+            },
+        );
+        false
+    }
+
     fn argument_type_error_message(
         &self,
         function_name: &str,
@@ -720,7 +784,7 @@ impl<'a> Resolver<'a> {
             && function_name == "assert"
             && expected_type == self.environment.boolean_type_index()
         {
-            return "type error: `assert` expects a boolean argument".into();
+            return "type error: `assert` expects a bool argument".into();
         }
 
         format!(
@@ -730,6 +794,37 @@ impl<'a> Resolver<'a> {
             self.type_label(expected_type)
         )
         .into()
+    }
+
+    fn argument_arity_error_message(
+        &self,
+        function_name: &str,
+        expected_argument_count: usize,
+    ) -> SharedString {
+        match expected_argument_count {
+            0 => format!("type error: `{function_name}` expects no arguments").into(),
+            1 => format!("type error: `{function_name}` expects exactly one argument").into(),
+            2 => format!("type error: `{function_name}` expects exactly two arguments").into(),
+            _ => format!(
+                "type error: `{function_name}` expects exactly {expected_argument_count} arguments"
+            )
+            .into(),
+        }
+    }
+
+    fn call_arity_span(
+        &self,
+        call_expression: &CallExpression,
+        actual_argument_count: usize,
+        expected_argument_count: usize,
+    ) -> Span {
+        if actual_argument_count > expected_argument_count {
+            return call_expression.arguments[expected_argument_count]
+                .span
+                .clone();
+        }
+
+        call_expression.callee.span.clone()
     }
 
     fn type_label(&self, type_index: TypeIndex) -> SharedString {
@@ -771,6 +866,66 @@ impl<'a> Resolver<'a> {
                 "already defined here",
             ));
         self.compilation_context.add_diagnostic(diagnostic);
+    }
+
+    fn add_duplicate_parameter_diagnostic(
+        &mut self,
+        duplicate_parameter: &FunctionParameter,
+        original_parameter: &FunctionParameter,
+    ) {
+        let diagnostic = self
+            .source_diagnostic(
+                self.source_file,
+                format!(
+                    "duplicate parameter `{}`",
+                    duplicate_parameter.identifier.name
+                ),
+                duplicate_parameter.identifier.span.clone(),
+                "duplicate parameter",
+            )
+            .with_excerpt(self.source_excerpt(
+                self.source_file,
+                original_parameter.identifier.span.clone(),
+                "already defined here",
+            ));
+        self.compilation_context.add_diagnostic(diagnostic);
+    }
+
+    fn resolve_function_parameter_types(
+        &mut self,
+        function_item: &mut FunctionItem,
+    ) -> Vec<TypeIndex> {
+        let mut seen_parameters = HashMap::<SharedString, FunctionParameter>::new();
+
+        for parameter in &function_item.parameters {
+            if let Some(original_parameter) =
+                seen_parameters.insert(parameter.identifier.name.clone(), parameter.clone())
+            {
+                self.add_duplicate_parameter_diagnostic(parameter, &original_parameter);
+            }
+        }
+
+        function_item
+            .parameters
+            .iter_mut()
+            .map(|parameter| {
+                let Some(type_index) = self
+                    .environment
+                    .resolve_type(parameter.type_name.name.as_str())
+                else {
+                    self.add_diagnostic(
+                        format!("unknown type `{}`", parameter.type_name.name),
+                        parameter.type_name.span.clone(),
+                        "unknown type",
+                    );
+                    parameter.ty = TypeIndex::unresolved();
+                    return TypeIndex::unresolved();
+                };
+
+                parameter.ty = type_index;
+                type_index
+            })
+            .collect()
     }
 
     fn source_diagnostic(
@@ -993,6 +1148,7 @@ mod tests {
     use ocelot_ast::function_effect_clause::FunctionEffectClause;
     use ocelot_ast::function_item::FunctionItem;
     use ocelot_ast::function_kind::FunctionKind;
+    use ocelot_ast::function_parameter::FunctionParameter;
     use ocelot_ast::identifier::Identifier;
     use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
@@ -1048,6 +1204,17 @@ mod tests {
         FunctionEffectClause::new(Identifier::new(name, span.clone()), span)
     }
 
+    fn parameter(name: &str, type_name: &str, span: Span) -> FunctionParameter {
+        FunctionParameter::new(
+            Identifier::new(name, Span::new(span.start(), span.start() + name.len())),
+            Identifier::new(
+                type_name,
+                Span::new(span.end() - type_name.len(), span.end()),
+            ),
+            span,
+        )
+    }
+
     #[test]
     fn resolves_native_call_expressions() {
         let mut script = Script::new(
@@ -1083,6 +1250,241 @@ mod tests {
     }
 
     #[test]
+    fn resolves_parameter_references_inside_function_bodies() {
+        let mut script = Script::new(
+            vec![
+                Item::new(
+                    ItemKind::Function(FunctionItem::new(
+                        Identifier::new("greet", Span::new(4, 9)),
+                        vec![parameter("name", "string", Span::new(10, 22))],
+                        None,
+                        None,
+                        vec![Statement::new(
+                            StatementKind::Expression(ExpressionStatement::new(call(
+                                identifier("println", Span::new(27, 34)),
+                                vec![identifier("name", Span::new(35, 39))],
+                                Span::new(27, 40),
+                            ))),
+                            Span::new(27, 41),
+                        )],
+                        Span::new(0, 43),
+                    )),
+                    Span::new(0, 43),
+                ),
+                Item::new(
+                    ItemKind::Statement(Statement::new(
+                        StatementKind::Expression(ExpressionStatement::new(call(
+                            identifier("greet", Span::new(44, 49)),
+                            vec![string_literal("hello", Span::new(50, 57))],
+                            Span::new(44, 58),
+                        ))),
+                        Span::new(44, 59),
+                    )),
+                    Span::new(44, 59),
+                ),
+            ],
+            Span::new(0, 59),
+        );
+        let source_file = SourceFile::new(
+            "examples/functions.ocelot",
+            "fun greet(name: string) { println(name); } greet(\"hello\");",
+        );
+        let mut environment = ProgramEnvironment::new();
+        let mut context = CompilationContext::default();
+
+        resolve(&mut script, &source_file, &mut context, &mut environment).unwrap();
+
+        let function_definition = environment
+            .function_definition(environment.resolve_function("functions::greet").unwrap())
+            .unwrap();
+        assert_eq!(
+            function_definition.argument_types,
+            vec![environment.string_type_index()]
+        );
+
+        let FunctionKind::UserDefined { function, .. } = &function_definition.kind else {
+            panic!("expected user-defined function");
+        };
+        let StatementKind::Expression(ExpressionStatement { expression }) = &function.body[0].kind;
+        let ExpressionKind::Call(call_expression) = &expression.kind else {
+            panic!("expected call expression");
+        };
+        assert_eq!(
+            call_expression.arguments[0].ty,
+            environment.string_type_index()
+        );
+    }
+
+    #[test]
+    fn reports_duplicate_function_parameter_names() {
+        let mut script = Script::new(
+            vec![Item::new(
+                ItemKind::Function(FunctionItem::new(
+                    Identifier::new("greet", Span::new(4, 9)),
+                    vec![
+                        parameter("name", "string", Span::new(10, 22)),
+                        parameter("name", "bool", Span::new(24, 34)),
+                    ],
+                    None,
+                    None,
+                    Vec::new(),
+                    Span::new(0, 38),
+                )),
+                Span::new(0, 38),
+            )],
+            Span::new(0, 38),
+        );
+        let source_file = SourceFile::new(
+            "examples/functions.ocelot",
+            "fun greet(name: string, name: bool) {}",
+        );
+        let mut environment = ProgramEnvironment::new();
+        let mut context = CompilationContext::default();
+
+        register_module_functions(
+            &mut script,
+            "functions",
+            &source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+
+        let error = finish_resolution(&context).unwrap_err();
+        assert!(
+            error
+                .to_test_string()
+                .contains("duplicate parameter `name`")
+        );
+    }
+
+    #[test]
+    fn reports_unknown_function_parameter_types() {
+        let mut script = Script::new(
+            vec![Item::new(
+                ItemKind::Function(FunctionItem::new(
+                    Identifier::new("greet", Span::new(4, 9)),
+                    vec![parameter("name", "number", Span::new(10, 22))],
+                    None,
+                    None,
+                    Vec::new(),
+                    Span::new(0, 26),
+                )),
+                Span::new(0, 26),
+            )],
+            Span::new(0, 26),
+        );
+        let source_file =
+            SourceFile::new("examples/functions.ocelot", "fun greet(name: number) {}");
+        let mut environment = ProgramEnvironment::new();
+        let mut context = CompilationContext::default();
+
+        register_module_functions(
+            &mut script,
+            "functions",
+            &source_file,
+            &mut context,
+            &mut environment,
+        )
+        .unwrap();
+
+        let error = finish_resolution(&context).unwrap_err();
+        assert!(error.to_test_string().contains("unknown type `number`"));
+    }
+
+    #[test]
+    fn reports_wrong_user_defined_call_arity() {
+        let mut script = Script::new(
+            vec![
+                Item::new(
+                    ItemKind::Function(FunctionItem::new(
+                        Identifier::new("greet", Span::new(4, 9)),
+                        vec![parameter("name", "string", Span::new(10, 22))],
+                        None,
+                        None,
+                        Vec::new(),
+                        Span::new(0, 26),
+                    )),
+                    Span::new(0, 26),
+                ),
+                Item::new(
+                    ItemKind::Statement(Statement::new(
+                        StatementKind::Expression(ExpressionStatement::new(call(
+                            identifier("greet", Span::new(27, 32)),
+                            Vec::new(),
+                            Span::new(27, 34),
+                        ))),
+                        Span::new(27, 35),
+                    )),
+                    Span::new(27, 35),
+                ),
+            ],
+            Span::new(0, 35),
+        );
+        let source_file = SourceFile::new(
+            "examples/functions.ocelot",
+            "fun greet(name: string) {} greet();",
+        );
+        let mut environment = ProgramEnvironment::new();
+        let mut context = CompilationContext::default();
+
+        resolve(&mut script, &source_file, &mut context, &mut environment).unwrap_err();
+
+        let error = finish_resolution(&context).unwrap_err();
+        assert!(
+            error
+                .to_test_string()
+                .contains("type error: `greet` expects exactly one argument")
+        );
+    }
+
+    #[test]
+    fn reports_wrong_user_defined_call_argument_types() {
+        let mut script = Script::new(
+            vec![
+                Item::new(
+                    ItemKind::Function(FunctionItem::new(
+                        Identifier::new("greet", Span::new(4, 9)),
+                        vec![parameter("excited", "bool", Span::new(10, 23))],
+                        None,
+                        None,
+                        Vec::new(),
+                        Span::new(0, 27),
+                    )),
+                    Span::new(0, 27),
+                ),
+                Item::new(
+                    ItemKind::Statement(Statement::new(
+                        StatementKind::Expression(ExpressionStatement::new(call(
+                            identifier("greet", Span::new(28, 33)),
+                            vec![string_literal("hello", Span::new(34, 41))],
+                            Span::new(28, 42),
+                        ))),
+                        Span::new(28, 43),
+                    )),
+                    Span::new(28, 43),
+                ),
+            ],
+            Span::new(0, 43),
+        );
+        let source_file = SourceFile::new(
+            "examples/functions.ocelot",
+            "fun greet(excited: bool) {} greet(\"hello\");",
+        );
+        let mut environment = ProgramEnvironment::new();
+        let mut context = CompilationContext::default();
+
+        resolve(&mut script, &source_file, &mut context, &mut environment).unwrap_err();
+
+        let error = finish_resolution(&context).unwrap_err();
+        assert!(
+            error
+                .to_test_string()
+                .contains("type error: argument 1 to `greet` must be bool")
+        );
+    }
+
+    #[test]
     fn resolves_module_qualified_calls() {
         let mut main_script = Script::new(
             vec![Item::new(
@@ -1105,6 +1507,7 @@ mod tests {
             vec![Item::new(
                 ItemKind::Function(FunctionItem::new(
                     Identifier::new("hello", Span::new(4, 9)),
+                    Vec::new(),
                     None,
                     None,
                     Vec::new(),
@@ -1183,6 +1586,7 @@ mod tests {
             vec![Item::new(
                 ItemKind::Function(FunctionItem::new(
                     Identifier::new("greet", Span::new(4, 9)),
+                    Vec::new(),
                     None,
                     None,
                     Vec::new(),
@@ -1255,6 +1659,7 @@ mod tests {
                 Item::new(
                     ItemKind::Function(FunctionItem::new(
                         Identifier::new("run", Span::new(23, 26)),
+                        Vec::new(),
                         None,
                         None,
                         vec![Statement::new(
@@ -1276,6 +1681,7 @@ mod tests {
             vec![Item::new(
                 ItemKind::Function(FunctionItem::new(
                     Identifier::new("greet", Span::new(4, 9)),
+                    Vec::new(),
                     None,
                     None,
                     Vec::new(),
@@ -1359,6 +1765,7 @@ mod tests {
                 Item::new(
                     ItemKind::Function(FunctionItem::new(
                         Identifier::new("greet", Span::new(23, 28)),
+                        Vec::new(),
                         None,
                         None,
                         Vec::new(),
@@ -1384,6 +1791,7 @@ mod tests {
             vec![Item::new(
                 ItemKind::Function(FunctionItem::new(
                     Identifier::new("greet", Span::new(4, 9)),
+                    Vec::new(),
                     None,
                     None,
                     Vec::new(),
@@ -1466,6 +1874,7 @@ mod tests {
             vec![Item::new(
                 ItemKind::Function(FunctionItem::new(
                     Identifier::new("greet", Span::new(4, 9)),
+                    Vec::new(),
                     None,
                     None,
                     Vec::new(),
@@ -1523,6 +1932,7 @@ mod tests {
             vec![Item::new(
                 ItemKind::Function(FunctionItem::new(
                     Identifier::new("wave", Span::new(4, 8)),
+                    Vec::new(),
                     None,
                     None,
                     Vec::new(),
@@ -1616,6 +2026,7 @@ mod tests {
                 Item::new(
                     ItemKind::Function(FunctionItem::new(
                         Identifier::new("helper", Span::new(4, 10)),
+                        Vec::new(),
                         None,
                         None,
                         Vec::new(),
@@ -1690,6 +2101,7 @@ mod tests {
                 Item::new(
                     ItemKind::Function(FunctionItem::new(
                         Identifier::new("child", Span::new(17, 22)),
+                        Vec::new(),
                         Some(effect_clause("exec", Span::new(25, 33))),
                         None,
                         Vec::new(),
@@ -1700,6 +2112,7 @@ mod tests {
                 Item::new(
                     ItemKind::Function(FunctionItem::new(
                         Identifier::new("parent", Span::new(41, 47)),
+                        Vec::new(),
                         None,
                         None,
                         vec![Statement::new(
@@ -1766,6 +2179,7 @@ mod tests {
                 Item::new(
                     ItemKind::Function(FunctionItem::new(
                         Identifier::new("child", Span::new(17, 22)),
+                        Vec::new(),
                         Some(effect_clause("exec", Span::new(25, 33))),
                         None,
                         Vec::new(),
@@ -1776,6 +2190,7 @@ mod tests {
                 Item::new(
                     ItemKind::Function(FunctionItem::new(
                         Identifier::new("parent", Span::new(41, 47)),
+                        Vec::new(),
                         None,
                         Some(effect_clause("exec", Span::new(50, 61))),
                         vec![Statement::new(
@@ -1838,6 +2253,7 @@ mod tests {
             vec![Item::new(
                 ItemKind::Function(FunctionItem::new(
                     Identifier::new("quiet", Span::new(4, 9)),
+                    Vec::new(),
                     None,
                     Some(effect_clause("write_stdout", Span::new(12, 32))),
                     vec![Statement::new(
@@ -1882,6 +2298,7 @@ mod tests {
             vec![Item::new(
                 ItemKind::Function(FunctionItem::new(
                     Identifier::new("quiet", Span::new(4, 9)),
+                    Vec::new(),
                     Some(effect_clause("exec", Span::new(12, 20))),
                     None,
                     Vec::new(),

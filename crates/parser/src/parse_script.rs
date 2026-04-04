@@ -350,10 +350,37 @@ mod tests {
         match &script.items[0].kind {
             ItemKind::Function(function_item) => {
                 assert_eq!(function_item.identifier.name, "greet");
+                assert!(function_item.parameters.is_empty());
                 assert_eq!(function_item.body.len(), 1);
             }
             other => panic!("expected function item, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_typed_function_parameters() {
+        let source_file = SourceFile::new(
+            "examples/functions.ocelot",
+            "fun greet(name: string, excited: bool) {}",
+        );
+        let mut context = CompilationContext::default();
+
+        let script = parse_script(&source_file, &mut context).unwrap();
+
+        assert_eq!(script.items.len(), 1);
+        assert!(!context.has_errors());
+
+        let ItemKind::Function(function_item) = &script.items[0].kind else {
+            panic!("expected function item");
+        };
+
+        assert_eq!(function_item.parameters.len(), 2);
+        assert_eq!(function_item.parameters[0].identifier.name, "name");
+        assert_eq!(function_item.parameters[0].type_name.name, "string");
+        assert_eq!(function_item.parameters[0].ty, TypeIndex::unresolved());
+        assert_eq!(function_item.parameters[1].identifier.name, "excited");
+        assert_eq!(function_item.parameters[1].type_name.name, "bool");
+        assert_eq!(function_item.parameters[1].ty, TypeIndex::unresolved());
     }
 
     #[test]
@@ -458,6 +485,33 @@ mod tests {
         assert_eq!(
             context.source_diagnostics.diagnostics[0].message,
             "expected function name"
+        );
+    }
+
+    #[test]
+    fn reports_a_missing_parameter_type_as_a_source_diagnostic() {
+        let source_file = SourceFile::new("examples/invalid.ocelot", "fun greet(name:) {}");
+        let mut context = CompilationContext::default();
+
+        parse_script(&source_file, &mut context).unwrap_err();
+        assert!(context.has_errors());
+        assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
+        assert_eq!(
+            context.source_diagnostics.diagnostics[0].message,
+            "expected parameter type"
+        );
+    }
+
+    #[test]
+    fn reports_trailing_commas_in_parameter_lists() {
+        let source_file = SourceFile::new("examples/invalid.ocelot", "fun greet(name: string,) {}");
+        let mut context = CompilationContext::default();
+
+        parse_script(&source_file, &mut context).unwrap_err();
+        assert!(context.has_errors());
+        assert_eq!(
+            context.source_diagnostics.diagnostics[0].message,
+            "expected parameter after `,`"
         );
     }
 

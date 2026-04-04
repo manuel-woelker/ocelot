@@ -212,21 +212,34 @@ Verification should include:
 
 # What assumptions, risks, and open questions should stay explicit?
 
-- The spec chapter for booleans already uses `bool`, but the current internal type table still seeds `"boolean"`. This plan assumes that parameter syntax should follow the spec-facing `bool` spelling and that implementation names/diagnostics will be aligned as part of this work.
+- This work aligned the canonical public type name to `bool`. Future diagnostics and examples should prefer `bool` consistently.
 - This plan assumes copied runtime values are sufficient for both supported primitive argument types. If future runtime values become reference-like, the call semantics will need to stay explicit.
 - This plan assumes parameter bindings are immutable and function-local only. Adding assignment or shadowing rules in the same change would overengineer the slice.
 - The resolver currently does not have a general value-resolution model. This work should add only the minimum local parameter lookup needed for function bodies rather than trying to solve full lexical name resolution.
 - If call arity errors already have a preferred wording for native functions, user-defined diagnostics should align with that style instead of inventing a new voice.
 
+# What landed from this plan?
+
+This change landed the first slice of typed function arguments:
+
+- [`FunctionParameter`](/data/projects/ocelot/crates/ast/src/function_parameter.rs) now models typed user-defined parameters in the AST
+- [`FunctionItem`](/data/projects/ocelot/crates/ast/src/function_item.rs) now stores parameter lists, and [`FunctionDefinition`](/data/projects/ocelot/crates/ast/src/function_definition.rs) now keeps resolved user-defined `argument_types`
+- the lexer and parser now accept `fun name(param: type, ...)` syntax, including `:` tokens and parameter-list diagnostics
+- the resolver now resolves parameter type names, reports duplicate parameter names and unknown types, seeds function-local parameter types while resolving function bodies, and enforces user-defined call arity and argument types
+- the interpreter now evaluates call arguments in the caller, copies them into a fresh callee-local binding map, and resolves identifier reads from that local environment
+- the type environment now exposes `bool` as the canonical type name while keeping `"boolean"` as an alias for compatibility
+- spec chapters and executable examples were updated for typed parameter declarations and user-defined calls
+- `cargo test -q -p ocelot-parser -p ocelot-resolver -p ocelot-interpreter -p ocelot-engine -p ocelot-spec-validation` and `nao check` pass
+
 # What concrete tasks should track this plan?
 
-- [ ] Add AST support for typed function parameters.
-- [ ] Extend parser support to accept `fun name(param: type, ...)` declarations and report stable parameter-syntax diagnostics.
-- [ ] Populate user-defined `FunctionDefinition.argument_types` from declared parameters during resolution.
-- [ ] Add resolver diagnostics for unknown parameter types and duplicate parameter names.
-- [ ] Add minimal function-local parameter binding resolution inside function bodies.
-- [ ] Enforce user-defined call arity and argument types in the resolver.
-- [ ] Add interpreter support for evaluating call arguments in the caller and copying them into a fresh callee environment.
-- [ ] Update spec chapters and executable examples for typed function parameters and calls.
-- [ ] Add parser, resolver, interpreter, engine, and spec-validation tests for the new behavior.
-- [ ] Run `nao check`.
+- [x] Add AST support for typed function parameters.
+- [x] Extend parser support to accept `fun name(param: type, ...)` declarations and report stable parameter-syntax diagnostics.
+- [x] Populate user-defined `FunctionDefinition.argument_types` from declared parameters during resolution.
+- [x] Add resolver diagnostics for unknown parameter types and duplicate parameter names.
+- [x] Add minimal function-local parameter binding resolution inside function bodies.
+- [x] Enforce user-defined call arity and argument types in the resolver.
+- [x] Add interpreter support for evaluating call arguments in the caller and copying them into a fresh callee environment.
+- [x] Update spec chapters and executable examples for typed function parameters and calls.
+- [x] Add parser, resolver, interpreter, engine, and spec-validation tests for the new behavior.
+- [x] Run `nao check`.

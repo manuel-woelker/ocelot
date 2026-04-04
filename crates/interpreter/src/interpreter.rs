@@ -23,10 +23,12 @@ use ocelot_base::source_excerpt::SourceExcerpt;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 use ocelot_pal::pal::Pal;
+use std::collections::HashMap;
 
 /// Stateful AST-walking interpreter context.
 pub struct Interpreter<'a> {
     environment: &'a ProgramEnvironment,
+    local_bindings: HashMap<SharedString, RuntimeValue>,
     pal: &'a dyn Pal,
     source_file: &'a SourceFile,
 }
@@ -38,8 +40,19 @@ impl<'a> Interpreter<'a> {
         source_file: &'a SourceFile,
         environment: &'a ProgramEnvironment,
     ) -> Self {
+        Self::new_with_bindings(pal, source_file, environment, HashMap::new())
+    }
+
+    /// Creates an interpreter with explicit local bindings.
+    pub fn new_with_bindings(
+        pal: &'a dyn Pal,
+        source_file: &'a SourceFile,
+        environment: &'a ProgramEnvironment,
+        local_bindings: HashMap<SharedString, RuntimeValue>,
+    ) -> Self {
         Self {
             environment,
+            local_bindings,
             pal,
             source_file,
         }
@@ -95,11 +108,20 @@ impl<'a> Interpreter<'a> {
             ExpressionKind::QualifiedIdentifier(identifier) => {
                 self.unresolved_qualified_identifier_error(expression, identifier)
             }
-            ExpressionKind::Identifier(identifier) => self.runtime_source_error(
-                format!("unresolved identifier `{}`", identifier.name),
-                expression.span.clone(),
-                "not found",
-            ),
+            ExpressionKind::Identifier(identifier) => self
+                .local_bindings
+                .get(identifier.name.as_str())
+                .cloned()
+                .map_or_else(
+                    || {
+                        self.runtime_source_error(
+                            format!("unresolved identifier `{}`", identifier.name),
+                            expression.span.clone(),
+                            "not found",
+                        )
+                    },
+                    Ok,
+                ),
         }
     }
 
@@ -135,7 +157,7 @@ impl<'a> Interpreter<'a> {
         not_expression: &NotExpression,
     ) -> OcelotResult<RuntimeValue> {
         let operand = self.evaluate_expression(&not_expression.operand)?;
-        let operand = operand.expect_boolean("type error: `not` expects a boolean operand")?;
+        let operand = operand.expect_boolean("type error: `not` expects a bool operand")?;
         Ok(RuntimeValue::boolean(!operand))
     }
 
@@ -151,7 +173,7 @@ impl<'a> Interpreter<'a> {
         let text = match &value {
             RuntimeValue::Boolean(_) | RuntimeValue::String(_) => value.render_for_display(),
             RuntimeValue::Unit => {
-                ocelot_base::bail!("type error: `println` expects a string or boolean argument")
+                ocelot_base::bail!("type error: `println` expects a string or bool argument")
             }
         };
 
@@ -169,8 +191,7 @@ impl<'a> Interpreter<'a> {
         }
 
         let condition = self.evaluate_expression(&call_expression.arguments[0])?;
-        let condition =
-            condition.expect_boolean("type error: `assert` expects a boolean argument")?;
+        let condition = condition.expect_boolean("type error: `assert` expects a bool argument")?;
 
         if condition {
             return Ok(RuntimeValue::unit());
@@ -216,11 +237,16 @@ impl<'a> Interpreter<'a> {
         function: &FunctionItem,
         source_file: &SourceFile,
     ) -> OcelotResult<RuntimeValue> {
-        if !call_expression.arguments.is_empty() {
-            ocelot_base::bail!("type error: user-defined functions do not accept arguments yet");
+        let mut local_bindings = HashMap::new();
+
+        for (parameter, argument) in function.parameters.iter().zip(&call_expression.arguments) {
+            local_bindings.insert(
+                parameter.identifier.name.clone(),
+                self.evaluate_expression(argument)?,
+            );
         }
 
-        Interpreter::new(self.pal, source_file, self.environment)
+        Interpreter::new_with_bindings(self.pal, source_file, self.environment, local_bindings)
             .interpret_statements(&function.body)?;
         Ok(RuntimeValue::unit())
     }

@@ -54,6 +54,7 @@ impl FunctionDefinition {
         module_name: impl Into<SharedString>,
         qualified_name: impl Into<SharedString>,
         function: crate::function_item::FunctionItem,
+        argument_types: Vec<TypeIndex>,
         can_effects: BTreeSet<EffectIndex>,
         cannot_effects: BTreeSet<EffectIndex>,
         source_file: SourceFile,
@@ -61,7 +62,7 @@ impl FunctionDefinition {
         Self {
             name: qualified_name.into(),
             module_name: module_name.into(),
-            argument_types: Vec::new(),
+            argument_types,
             direct_effects: can_effects.clone(),
             direct_effect_sources: BTreeMap::new(),
             inferred_effects: can_effects.clone(),

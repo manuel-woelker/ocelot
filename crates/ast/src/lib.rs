@@ -13,6 +13,7 @@ pub mod function_effect_clause;
 pub mod function_index;
 pub mod function_item;
 pub mod function_kind;
+pub mod function_parameter;
 pub mod identifier;
 pub mod imported_function_symbols;
 pub mod item;

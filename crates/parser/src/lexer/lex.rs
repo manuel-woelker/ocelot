@@ -42,6 +42,10 @@ pub fn lex(source_file: &SourceFile, context: &mut CompilationContext) -> Vec<To
                 tokens.push(Token::new(TokenType::DoubleColon, index, index + 2));
                 index += 2;
             }
+            b':' => {
+                tokens.push(Token::new(TokenType::Colon, index, index + 1));
+                index += 1;
+            }
             b')' => {
                 tokens.push(Token::new(TokenType::RightParen, index, index + 1));
                 index += 1;
@@ -339,6 +343,40 @@ mod tests {
                 TokenType::String,
                 TokenType::RightParen,
                 TokenType::Semicolon,
+                TokenType::RightBrace,
+                TokenType::EndOfFile,
+            ]
+        );
+        assert!(!context.has_errors());
+    }
+
+    #[test]
+    fn lexes_colons_in_function_parameter_lists() {
+        let source_file = SourceFile::new(
+            "examples/functions.ocelot",
+            "fun greet(name: string, excited: bool) {}",
+        );
+        let mut context = CompilationContext::default();
+        let token_types: Vec<_> = lex(&source_file, &mut context)
+            .into_iter()
+            .map(|token| token.token_type)
+            .collect();
+
+        assert_eq!(
+            token_types,
+            vec![
+                TokenType::Fun,
+                TokenType::Identifier,
+                TokenType::LeftParen,
+                TokenType::Identifier,
+                TokenType::Colon,
+                TokenType::Identifier,
+                TokenType::Comma,
+                TokenType::Identifier,
+                TokenType::Colon,
+                TokenType::Identifier,
+                TokenType::RightParen,
+                TokenType::LeftBrace,
                 TokenType::RightBrace,
                 TokenType::EndOfFile,
             ]

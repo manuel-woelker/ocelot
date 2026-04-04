@@ -1,4 +1,5 @@
 use crate::function_effect_clause::FunctionEffectClause;
+use crate::function_parameter::FunctionParameter;
 use crate::identifier::Identifier;
 use crate::statement::Statement;
 use ocelot_base::span::Span;
@@ -7,6 +8,7 @@ use ocelot_base::span::Span;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionItem {
     pub identifier: Identifier,
+    pub parameters: Vec<FunctionParameter>,
     pub can_clause: Option<FunctionEffectClause>,
     pub cannot_clause: Option<FunctionEffectClause>,
     pub body: Vec<Statement>,
@@ -17,6 +19,7 @@ impl FunctionItem {
     /// Creates a function item from its identifier, body, and source span.
     pub fn new(
         identifier: Identifier,
+        parameters: Vec<FunctionParameter>,
         can_clause: Option<FunctionEffectClause>,
         cannot_clause: Option<FunctionEffectClause>,
         body: Vec<Statement>,
@@ -24,6 +27,7 @@ impl FunctionItem {
     ) -> Self {
         Self {
             identifier,
+            parameters,
             can_clause,
             cannot_clause,
             body,

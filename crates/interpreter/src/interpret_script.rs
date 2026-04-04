@@ -24,6 +24,7 @@ mod tests {
     use ocelot_ast::expression_kind::ExpressionKind;
     use ocelot_ast::expression_statement::ExpressionStatement;
     use ocelot_ast::function_item::FunctionItem;
+    use ocelot_ast::function_parameter::FunctionParameter;
     use ocelot_ast::identifier::Identifier;
     use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
@@ -77,6 +78,17 @@ mod tests {
 
     fn not_expression(operand: Expression, span: Span) -> Expression {
         Expression::new(ExpressionKind::Not(NotExpression::new(operand)), span)
+    }
+
+    fn parameter(name: &str, type_name: &str, span: Span) -> FunctionParameter {
+        FunctionParameter::new(
+            Identifier::new(name, Span::new(span.start(), span.start() + name.len())),
+            Identifier::new(
+                type_name,
+                Span::new(span.end() - type_name.len(), span.end()),
+            ),
+            span,
+        )
     }
 
     #[test]
@@ -193,6 +205,7 @@ mod tests {
                 Item::new(
                     ItemKind::Function(FunctionItem::new(
                         Identifier::new("greet", Span::new(4, 9)),
+                        Vec::new(),
                         None,
                         None,
                         vec![Statement::new(
@@ -235,6 +248,118 @@ mod tests {
         interpret_script(&script, &source_file, &pal).unwrap();
 
         assert_eq!(pal.take_printed_output(), "hello\n");
+    }
+
+    #[test]
+    fn interprets_user_defined_functions_with_string_parameters() {
+        let script = Script::new(
+            vec![
+                Item::new(
+                    ItemKind::Function(FunctionItem::new(
+                        Identifier::new("greet", Span::new(4, 9)),
+                        vec![parameter("name", "string", Span::new(10, 22))],
+                        None,
+                        None,
+                        vec![Statement::new(
+                            StatementKind::Expression(ExpressionStatement::new(call_expression(
+                                "println",
+                                vec![Expression::new(
+                                    ExpressionKind::Identifier(Identifier::new(
+                                        "name",
+                                        Span::new(33, 37),
+                                    )),
+                                    Span::new(33, 37),
+                                )],
+                                Span::new(25, 38),
+                            ))),
+                            Span::new(25, 39),
+                        )],
+                        Span::new(0, 41),
+                    )),
+                    Span::new(0, 41),
+                ),
+                Item::new(
+                    ItemKind::Statement(Statement::new(
+                        StatementKind::Expression(ExpressionStatement::new(call_expression(
+                            "greet",
+                            vec![Expression::new(
+                                ExpressionKind::StringLiteral(StringLiteralExpression::new(
+                                    "hello",
+                                )),
+                                Span::new(48, 55),
+                            )],
+                            Span::new(42, 56),
+                        ))),
+                        Span::new(42, 57),
+                    )),
+                    Span::new(42, 57),
+                ),
+            ],
+            Span::new(0, 57),
+        );
+        let pal = PalMock::new();
+        let source_file = SourceFile::new(
+            "examples/functions.ocelot",
+            "fun greet(name: string) { println(name); } greet(\"hello\");",
+        );
+
+        interpret_script(&script, &source_file, &pal).unwrap();
+
+        assert_eq!(pal.take_printed_output(), "hello\n");
+    }
+
+    #[test]
+    fn interprets_user_defined_functions_with_boolean_parameters() {
+        let script = Script::new(
+            vec![
+                Item::new(
+                    ItemKind::Function(FunctionItem::new(
+                        Identifier::new("check", Span::new(4, 9)),
+                        vec![parameter("value", "bool", Span::new(10, 21))],
+                        None,
+                        None,
+                        vec![Statement::new(
+                            StatementKind::Expression(ExpressionStatement::new(call_expression(
+                                "assert",
+                                vec![Expression::new(
+                                    ExpressionKind::Identifier(Identifier::new(
+                                        "value",
+                                        Span::new(31, 36),
+                                    )),
+                                    Span::new(31, 36),
+                                )],
+                                Span::new(24, 37),
+                            ))),
+                            Span::new(24, 38),
+                        )],
+                        Span::new(0, 40),
+                    )),
+                    Span::new(0, 40),
+                ),
+                Item::new(
+                    ItemKind::Statement(Statement::new(
+                        StatementKind::Expression(ExpressionStatement::new(call_expression(
+                            "check",
+                            vec![Expression::new(
+                                ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(true)),
+                                Span::new(45, 49),
+                            )],
+                            Span::new(39, 50),
+                        ))),
+                        Span::new(39, 51),
+                    )),
+                    Span::new(39, 51),
+                ),
+            ],
+            Span::new(0, 51),
+        );
+        let pal = PalMock::new();
+        let source_file = SourceFile::new(
+            "examples/functions.ocelot",
+            "fun check(value: bool) { assert(value); } check(true);",
+        );
+
+        interpret_script(&script, &source_file, &pal).unwrap();
     }
 
     #[test]
@@ -700,7 +825,7 @@ mod tests {
         assert!(
             error
                 .to_test_string()
-                .contains("type error: `assert` expects a boolean argument")
+                .contains("type error: `assert` expects a bool argument")
         );
     }
 
@@ -740,7 +865,7 @@ mod tests {
         assert!(
             error
                 .to_test_string()
-                .contains("operator `not` expects a boolean operand")
+                .contains("operator `not` expects a bool operand")
         );
     }
 }
