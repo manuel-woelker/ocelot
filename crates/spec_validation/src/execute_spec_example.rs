@@ -5,7 +5,6 @@ use crate::render_validation_error::render_validation_error;
 use crate::spec_example::SpecExample;
 use ocelot_base::file_path::FilePath;
 use ocelot_base::result::OcelotResult;
-use ocelot_base::result::OptionExt;
 use ocelot_base::shared_string::SharedString;
 use ocelot_engine::engine::Engine;
 use ocelot_pal::pal::{Pal, PalHandle};
@@ -25,7 +24,7 @@ pub fn execute_spec_example(
 
     let engine = Engine::new(PalHandle::new(pal.clone()));
     let entry_path = main_example_path(execution_root, example)?;
-    let observed = match engine.run_script(&entry_path) {
+    let observed = match engine.run_file(&entry_path) {
         Ok(()) => ObservedOutcome::Output(SharedString::from(normalize_validation_text(
             &normalize_example_text(&pal.take_printed_output(), execution_root),
         ))),
@@ -44,11 +43,25 @@ fn main_example_path(
     execution_root: &std::path::Path,
     example: &SpecExample,
 ) -> OcelotResult<FilePath> {
-    let main_file = example
+    let script_file = example
         .source_files
         .iter()
-        .find(|source_file| source_file.path.as_str() == "main.ocelot")
-        .context("spec example is missing `main.ocelot`")?;
+        .find(|source_file| source_file.path.as_str() == "main.ocelot-script");
+    let module_file = example
+        .source_files
+        .iter()
+        .find(|source_file| source_file.path.as_str() == "main.ocelot");
+    let main_file = match (script_file, module_file) {
+        (Some(_), Some(_)) => {
+            ocelot_base::bail!(
+                "spec example must not declare both `main.ocelot` and `main.ocelot-script`"
+            )
+        }
+        (Some(file), None) | (None, Some(file)) => file,
+        (None, None) => {
+            ocelot_base::bail!("spec example must declare `main.ocelot` or `main.ocelot-script`")
+        }
+    };
     Ok(build_example_file_path(execution_root, &main_file.path))
 }
 
@@ -91,7 +104,10 @@ mod tests {
             &SpecExample {
                 chapter_path: FilePath::from("docs/spec/30.01 Standard library - println.md"),
                 name: SharedString::from("writes one line"),
-                source_files: vec![SpecExampleFile::new("main.ocelot", "println(\"hello\");")],
+                source_files: vec![SpecExampleFile::new(
+                    "main.ocelot-script",
+                    "println(\"hello\");",
+                )],
                 expected_outcome: ExpectedOutcome::Output(SharedString::from("hello")),
                 line_number: 10,
             },
@@ -103,7 +119,7 @@ mod tests {
             ObservedOutcome::Output(SharedString::from("hello"))
         );
         assert_eq!(
-            pal.read_file_to_string(&FilePath::from("/tmp/spec-validation/main.ocelot"))
+            pal.read_file_to_string(&FilePath::from("/tmp/spec-validation/main.ocelot-script",))
                 .unwrap(),
             "println(\"hello\");"
         );
@@ -120,7 +136,7 @@ mod tests {
                 chapter_path: FilePath::from("docs/spec/25.01 Modules - File modules.md"),
                 name: SharedString::from("calls a sibling module"),
                 source_files: vec![
-                    SpecExampleFile::new("main.ocelot", "helper::greet();"),
+                    SpecExampleFile::new("main.ocelot-script", "helper::greet();"),
                     SpecExampleFile::new("helper.ocelot", "fun greet() { println(\"hello\"); }"),
                 ],
                 expected_outcome: ExpectedOutcome::Output(SharedString::from("hello")),
@@ -145,7 +161,7 @@ mod tests {
             &SpecExample {
                 chapter_path: FilePath::from("docs/spec/30.01 Standard library - println.md"),
                 name: SharedString::from("requires one argument"),
-                source_files: vec![SpecExampleFile::new("main.ocelot", "println();")],
+                source_files: vec![SpecExampleFile::new("main.ocelot-script", "println();")],
                 expected_outcome: ExpectedOutcome::Error(SharedString::from("type error")),
                 line_number: 18,
             },
@@ -155,7 +171,7 @@ mod tests {
         assert_eq!(
             observed,
             ObservedOutcome::Error(SharedString::from(
-                "error: type error: `println` expects exactly one argument\n  ╭▸ main.ocelot:1:9\n  │\n1 │ println();\n  ╰╴        ━ missing argument\nat main.ocelot:1:9"
+                "error: type error: `println` expects exactly one argument\n  ╭▸ main.ocelot-script:1:9\n  │\n1 │ println();\n  ╰╴        ━ missing argument\nat main.ocelot-script:1:9"
             ))
         );
     }
@@ -170,7 +186,10 @@ mod tests {
             &SpecExample {
                 chapter_path: FilePath::from("docs/spec/25.01 Modules - File modules.md"),
                 name: SharedString::from("calling an unknown module is a resolver error"),
-                source_files: vec![SpecExampleFile::new("main.ocelot", "helper::greet();")],
+                source_files: vec![SpecExampleFile::new(
+                    "main.ocelot-script",
+                    "helper::greet();",
+                )],
                 expected_outcome: ExpectedOutcome::Error(SharedString::from("unknown module")),
                 line_number: 24,
             },
@@ -180,7 +199,7 @@ mod tests {
         assert_eq!(
             observed,
             ObservedOutcome::Error(SharedString::from(
-                "error: unknown module `helper`\n  ╭▸ main.ocelot:1:1\n  │\n1 │ helper::greet();\n  ╰╴━━━━━━━━━━━━━ unknown module\nat main.ocelot:1:1"
+                "error: unknown module `helper`\n  ╭▸ main.ocelot-script:1:1\n  │\n1 │ helper::greet();\n  ╰╴━━━━━━━━━━━━━ unknown module\nat main.ocelot-script:1:1"
             ))
         );
     }

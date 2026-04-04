@@ -11,7 +11,7 @@ use std::process::ExitCode;
 
 #[derive(Debug, PartialEq, Eq)]
 enum CliCommand {
-    Run { script_path: String },
+    Run { path: String },
     Test { script_paths: Vec<String> },
 }
 
@@ -44,8 +44,8 @@ fn parse_command(args: Vec<OsString>) -> Option<CliCommand> {
         "test" => Some(CliCommand::Test {
             script_paths: args.collect(),
         }),
-        script_path => Some(CliCommand::Run {
-            script_path: script_path.to_owned(),
+        path => Some(CliCommand::Run {
+            path: path.to_owned(),
         }),
     }
 }
@@ -68,8 +68,8 @@ fn try_execute_command(pal: PalHandle, command: &CliCommand) -> OcelotResult<Exi
     let engine = Engine::new(pal.clone());
 
     match command {
-        CliCommand::Run { script_path } => {
-            engine.run_script(script_path.as_str())?;
+        CliCommand::Run { path } => {
+            engine.run_file(path.as_str())?;
             Ok(ExitCode::SUCCESS)
         }
         CliCommand::Test { script_paths } => {
@@ -117,7 +117,10 @@ fn run_test_file(engine: &Engine, script_path: &FilePath) -> TestRunSummary {
 
 fn discover_ocelot_files(pal: &PalHandle) -> OcelotResult<Vec<FilePath>> {
     let mut script_paths = pal
-        .walk_directory(&FilePath::from(""), &[String::from("*.ocelot")])?
+        .walk_directory(
+            &FilePath::from(""),
+            &[String::from("*.ocelot"), String::from("*.ocelot-script")],
+        )?
         .collect::<OcelotResult<Vec<_>>>()?;
     script_paths.retain(is_ocelot_file);
     script_paths.sort();
@@ -125,7 +128,7 @@ fn discover_ocelot_files(pal: &PalHandle) -> OcelotResult<Vec<FilePath>> {
 }
 
 fn is_ocelot_file(path: &FilePath) -> bool {
-    path.extension() == Some("ocelot")
+    matches!(path.extension(), Some("ocelot" | "ocelot-script"))
 }
 
 fn merge_test_summary(summary: &mut TestRunSummary, other: TestRunSummary) {
@@ -142,7 +145,7 @@ fn exit_code_for_test_summary(summary: &TestRunSummary) -> ExitCode {
 }
 
 fn print_usage() {
-    eprintln!("Usage:\n  ocelot <script-file>\n  ocelot test [script-file...]");
+    eprintln!("Usage:\n  ocelot <source-file>\n  ocelot test [source-file...]");
 }
 
 fn report_test_summary(summary: &TestRunSummary) {
@@ -207,9 +210,9 @@ mod tests {
     #[test]
     fn parses_run_command() {
         assert_eq!(
-            parse_command(vec![OsString::from("examples/hello.ocelot")]),
+            parse_command(vec![OsString::from("examples/hello.ocelot-script")]),
             Some(CliCommand::Run {
-                script_path: "examples/hello.ocelot".into(),
+                path: "examples/hello.ocelot-script".into(),
             })
         );
     }
@@ -219,12 +222,12 @@ mod tests {
         assert_eq!(
             parse_command(vec![
                 OsString::from("test"),
-                OsString::from("examples/first.ocelot"),
+                OsString::from("examples/first.ocelot-script"),
                 OsString::from("examples/second.ocelot"),
             ]),
             Some(CliCommand::Test {
                 script_paths: vec![
-                    "examples/first.ocelot".into(),
+                    "examples/first.ocelot-script".into(),
                     "examples/second.ocelot".into()
                 ],
             })
@@ -244,8 +247,17 @@ mod tests {
     #[test]
     fn parses_plain_script_execution() {
         let pal = PalMock::new();
-        pal.set_file("examples/hello.ocelot", "println(\"hello\");");
-        pal.set_args(["examples/hello.ocelot"]);
+        pal.set_file("examples/hello.ocelot-script", "println(\"hello\");");
+        pal.set_args(["examples/hello.ocelot-script"]);
+
+        assert_eq!(run_command(PalHandle::new(pal.clone())), ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn parses_module_execution() {
+        let pal = PalMock::new();
+        pal.set_file("examples/tool.ocelot", "fun main() { println(\"hello\"); }");
+        pal.set_args(["examples/tool.ocelot"]);
 
         assert_eq!(run_command(PalHandle::new(pal.clone())), ExitCode::SUCCESS);
     }
@@ -266,7 +278,7 @@ mod tests {
     fn runs_all_discovered_test_files_when_no_paths_are_given() {
         let pal = PalMock::new();
         pal.set_file(
-            "examples/first.ocelot",
+            "examples/first.ocelot-script",
             "test \"first\" { println(\"one\"); }",
         );
         pal.set_file(
@@ -278,7 +290,7 @@ mod tests {
 
         assert_eq!(run_command(PalHandle::new(pal.clone())), ExitCode::SUCCESS);
         let effects = pal.get_effects();
-        assert!(effects.contains("READ FILE: examples/first.ocelot"));
+        assert!(effects.contains("READ FILE: examples/first.ocelot-script"));
         assert!(effects.contains("READ FILE: examples/second.ocelot"));
         assert_eq!(pal.take_printed_output(), "one\ntwo\n");
     }
@@ -287,18 +299,22 @@ mod tests {
     fn runs_all_explicit_test_files() {
         let pal = PalMock::new();
         pal.set_file(
-            "examples/first.ocelot",
+            "examples/first.ocelot-script",
             "test \"first\" { println(\"one\"); }",
         );
         pal.set_file(
             "examples/second.ocelot",
             "test \"second\" { println(\"two\"); }",
         );
-        pal.set_args(["test", "examples/first.ocelot", "examples/second.ocelot"]);
+        pal.set_args([
+            "test",
+            "examples/first.ocelot-script",
+            "examples/second.ocelot",
+        ]);
 
         assert_eq!(run_command(PalHandle::new(pal.clone())), ExitCode::SUCCESS);
         let effects = pal.get_effects();
-        assert!(effects.contains("READ FILE: examples/first.ocelot"));
+        assert!(effects.contains("READ FILE: examples/first.ocelot-script"));
         assert!(effects.contains("READ FILE: examples/second.ocelot"));
         assert_eq!(pal.take_printed_output(), "one\ntwo\n");
     }
@@ -307,7 +323,7 @@ mod tests {
     fn collects_parse_errors_without_stopping_other_test_roots() {
         let pal = PalMock::new();
         pal.set_file(
-            "examples/good/good.ocelot",
+            "examples/good/good.ocelot-script",
             "test \"passes\" { println(\"ok\"); }",
         );
         pal.set_file("examples/bad/bad.ocelot", "println(\"hello);");
@@ -318,7 +334,7 @@ mod tests {
             &engine,
             &pal,
             &[
-                "examples/good/good.ocelot".into(),
+                "examples/good/good.ocelot-script".into(),
                 "examples/bad/bad.ocelot".into(),
             ],
         )
@@ -342,8 +358,8 @@ mod tests {
     #[test]
     fn parses_arguments_from_pal() {
         let pal = PalMock::new();
-        pal.set_args(["examples/hello.ocelot"]);
-        pal.set_file("examples/hello.ocelot", "println(\"hello\");");
+        pal.set_args(["examples/hello.ocelot-script"]);
+        pal.set_file("examples/hello.ocelot-script", "println(\"hello\");");
 
         assert_eq!(run_command(PalHandle::new(pal.clone())), ExitCode::SUCCESS);
     }

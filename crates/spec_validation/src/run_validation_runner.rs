@@ -38,7 +38,7 @@ mod tests {
             r#"
 ## Example: mismatch
 
-main.ocelot:
+main.ocelot-script:
 
 ```ocelot
 println("hello");

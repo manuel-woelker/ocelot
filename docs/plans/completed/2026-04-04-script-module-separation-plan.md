@@ -130,15 +130,30 @@ Verification should include colocated tests for:
 - Open question: if a `.ocelot-script` file also defines a `main()` function, should that have any special meaning or remain an ordinary function?
 - Open question: should spec examples keep using visible filenames with mixed extensions, or should there be a higher-level notation for executable file versus module file?
 
+# What landed from this plan?
+
+This slice landed the extension-based source split plus direct module entrypoint execution:
+
+- the engine now classifies `.ocelot` files as modules and `.ocelot-script` files as scripts
+- the CLI now routes both extensions through one `run_file` entrypoint and project-wide test discovery now includes both source kinds
+- module loading now discovers only `.ocelot` siblings while ignoring `.ocelot-script` neighbors
+- module files now produce a source diagnostic when they contain ordinary top-level statements
+- directly executing a `.ocelot` file now resolves that module's `main()` function and runs it
+- the spec validation harness now accepts either `main.ocelot-script` or `main.ocelot` as the example entry file
+- the spec chapters and repository examples now use the new extension split consistently
+- `cargo test -p ocelot`
+- `cargo test -p ocelot-engine -p ocelot-spec-validation`
+- `nao check`
+
 # What concrete tasks should track this plan?
 
-- [ ] Document the script-versus-module distinction in `docs/spec`.
-- [ ] Document `.ocelot` for modules and `.ocelot-script` for executable scripts.
-- [ ] Introduce an explicit internal source-file kind for scripts and modules.
-- [ ] Update CLI and engine entrypoint selection for script files versus module files.
-- [ ] Update module discovery to load the module extension.
-- [ ] Reject top-level statements in non-entry module files with a source diagnostic.
-- [ ] Execute `.ocelot` files by resolving and invoking module `main()`.
-- [ ] Rename or update examples, fixtures, and spec-validation inputs to use the module extension.
-- [ ] Add or update engine, resolver, and spec-validation tests for the new restriction.
-- [ ] Run `nao check`.
+- [x] Document the script-versus-module distinction in `docs/spec`.
+- [x] Document `.ocelot` for modules and `.ocelot-script` for executable scripts.
+- [x] Introduce an explicit internal source-file kind for scripts and modules.
+- [x] Update CLI and engine entrypoint selection for script files versus module files.
+- [x] Update module discovery to load the module extension.
+- [x] Reject top-level statements in non-entry module files with a source diagnostic.
+- [x] Execute `.ocelot` files by resolving and invoking module `main()`.
+- [x] Rename or update examples, fixtures, and spec-validation inputs to use the module extension.
+- [x] Add or update engine, resolver, and spec-validation tests for the new restriction.
+- [x] Run `nao check`.

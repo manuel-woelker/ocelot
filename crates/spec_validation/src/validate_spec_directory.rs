@@ -114,7 +114,7 @@ mod tests {
             r#"
 ## Example: output example
 
-main.ocelot:
+main.ocelot-script:
 
 ```ocelot
 println("hello");
@@ -132,7 +132,7 @@ hello
             r#"
 ## Example: error example
 
-main.ocelot:
+main.ocelot-script:
 
 ```ocelot
 helper::greet();
@@ -142,11 +142,11 @@ helper::greet();
 
 ```text
 error: unknown module `helper`
-  ╭▸ main.ocelot:1:1
+  ╭▸ main.ocelot-script:1:1
   │
 1 │ helper::greet();
   ╰╴━━━━━━━━━━━━━ unknown module
-at main.ocelot:1:1
+at main.ocelot-script:1:1
 ```
 "#,
         );
@@ -155,7 +155,7 @@ at main.ocelot:1:1
             r#"
 ## Example: missing expectation
 
-main.ocelot:
+main.ocelot-script:
 
 ```ocelot
 println("oops");
@@ -197,7 +197,7 @@ println("oops");
             r#"
 ## Example: mismatch
 
-main.ocelot:
+main.ocelot-script:
 
 ```ocelot
 println("hello");
@@ -238,7 +238,7 @@ goodbye
             r#"
 ## Example: requires one argument
 
-main.ocelot:
+main.ocelot-script:
 
 ```ocelot
 println();
@@ -276,7 +276,7 @@ different error
             r#"
 ## Example: should fail
 
-main.ocelot:
+main.ocelot-script:
 
 ```ocelot
 println("hello");
@@ -312,7 +312,7 @@ some error
             r#"
 ## Example: should print
 
-main.ocelot:
+main.ocelot-script:
 
 ```ocelot
 println();

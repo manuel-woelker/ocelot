@@ -2,10 +2,14 @@ use crate::discovered_test::DiscoveredTest;
 use crate::failed_test_result::FailedTestResult;
 use crate::loaded_module::LoadedModule;
 use crate::loaded_program::LoadedProgram;
+use crate::source_file_kind::SourceFileKind;
 use crate::test_run_summary::TestRunSummary;
+use ocelot_ast::function_kind::FunctionKind;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_ast::program_environment::ProgramEnvironment;
 use ocelot_base::assertion_error::render_assertion_error;
+use ocelot_base::compilation_context::CompilationContext;
+use ocelot_base::diagnostic_level::DiagnosticLevel;
 use ocelot_base::error::ErrorKind;
 use ocelot_base::error::OcelotError;
 use ocelot_base::file_path::FilePath;
@@ -14,7 +18,11 @@ use ocelot_base::result::OcelotResult;
 use ocelot_base::result::OptionExt;
 use ocelot_base::result::ResultExt;
 use ocelot_base::shared_string::SharedString;
+use ocelot_base::source_annotation::SourceAnnotation;
+use ocelot_base::source_diagnostic::SourceDiagnostic;
+use ocelot_base::source_excerpt::SourceExcerpt;
 use ocelot_base::source_file::SourceFile;
+use ocelot_base::span::Span;
 use ocelot_pal::pal::PalHandle;
 
 #[derive(Debug, Clone)]
@@ -27,16 +35,21 @@ impl Engine {
         Self { pal }
     }
 
-    pub fn run_script(&self, path: impl Into<FilePath>) -> OcelotResult<()> {
+    pub fn run_file(&self, path: impl Into<FilePath>) -> OcelotResult<()> {
         let program = self.compile_program(path.into())?;
         let entry_module = program.entry_module();
-        ocelot_interpreter::interpret_script::interpret_script(
-            &entry_module.script,
-            &entry_module.source_file,
-            &program.environment,
-            &*self.pal,
-        )?;
-        Ok(())
+
+        match entry_module.kind {
+            SourceFileKind::Script => ocelot_interpreter::interpret_script::interpret_script(
+                &entry_module.script,
+                &entry_module.source_file,
+                &program.environment,
+                &*self.pal,
+            ),
+            SourceFileKind::Module => {
+                self.run_module_entrypoint(entry_module, &program.environment)
+            }
+        }
     }
 
     pub fn discover_tests(&self, path: impl Into<FilePath>) -> OcelotResult<Vec<DiscoveredTest>> {
@@ -150,6 +163,7 @@ impl Engine {
     }
 
     fn compile_program(&self, entry_path: FilePath) -> OcelotResult<LoadedProgram> {
+        let entry_kind = SourceFileKind::from_path(&entry_path)?;
         let execution_root = entry_path.parent().unwrap_or_else(|| FilePath::from(""));
         let mut module_paths = self
             .pal
@@ -169,11 +183,22 @@ impl Engine {
             .context("internal error: entry module was not loaded")?;
         let mut modules = module_paths
             .into_iter()
-            .map(|path| self.load_module(&execution_root, path))
+            .map(|path| {
+                let module_kind = if path == entry_path {
+                    entry_kind
+                } else {
+                    SourceFileKind::Module
+                };
+                self.load_module(&execution_root, path, module_kind)
+            })
             .collect::<OcelotResult<Vec<_>>>()?;
 
-        let mut compilation_context =
-            ocelot_base::compilation_context::CompilationContext::default();
+        let mut compilation_context = CompilationContext::default();
+        for module in &modules {
+            validate_loaded_module(module, &mut compilation_context);
+        }
+        ocelot_resolver::finish_resolution(&compilation_context)?;
+
         let mut environment = self.create_program_environment();
 
         for module in &modules {
@@ -209,14 +234,19 @@ impl Engine {
         Ok(LoadedProgram::new(entry_module_index, modules, environment))
     }
 
-    fn load_module(&self, execution_root: &FilePath, path: FilePath) -> OcelotResult<LoadedModule> {
+    fn load_module(
+        &self,
+        execution_root: &FilePath,
+        path: FilePath,
+        kind: SourceFileKind,
+    ) -> OcelotResult<LoadedModule> {
         let source_file = self.load_source_file(path.clone())?;
-        let mut compilation_context =
-            ocelot_base::compilation_context::CompilationContext::default();
+        let mut compilation_context = CompilationContext::default();
         let script =
             ocelot_parser::parse_script::parse_script(&source_file, &mut compilation_context)?;
         Ok(LoadedModule::new(
             module_name_from_path(execution_root, &path)?,
+            kind,
             source_file,
             script,
         ))
@@ -229,6 +259,33 @@ impl Engine {
 
     fn create_program_environment(&self) -> ProgramEnvironment {
         ProgramEnvironment::new()
+    }
+
+    fn run_module_entrypoint(
+        &self,
+        entry_module: &LoadedModule,
+        environment: &ProgramEnvironment,
+    ) -> OcelotResult<()> {
+        let entrypoint_name = environment.qualify_function_name(&entry_module.module_name, "main");
+        let function_index = environment
+            .resolve_function_exact(entrypoint_name.as_str())
+            .context(format!(
+                "module `{}` does not define a `main()` entrypoint",
+                entry_module.module_name
+            ))?;
+        let function_definition = environment.function_definition(function_index)?;
+        let FunctionKind::UserDefined {
+            function,
+            source_file,
+        } = &function_definition.kind
+        else {
+            ocelot_base::bail!(
+                "internal error: module entrypoint `{entrypoint_name}` must be user-defined"
+            );
+        };
+
+        ocelot_interpreter::interpreter::Interpreter::new(&*self.pal, source_file, environment)
+            .interpret_statements(&function.body)
     }
 }
 
@@ -250,10 +307,61 @@ fn module_name_from_path(execution_root: &FilePath, path: &FilePath) -> OcelotRe
     Ok(segments.join("::").into())
 }
 
+fn validate_loaded_module(module: &LoadedModule, compilation_context: &mut CompilationContext) {
+    if module.kind.allows_top_level_statements() {
+        return;
+    }
+
+    let Some(statement) = module.script.statements().next() else {
+        return;
+    };
+
+    compilation_context.add_diagnostic(module_statement_diagnostic(
+        &module.source_file,
+        statement.span.clone(),
+    ));
+}
+
+fn module_statement_diagnostic(source_file: &SourceFile, span: Span) -> SourceDiagnostic {
+    let (line_number, line_start, line_end) = line_bounds(source_file.source(), span.start());
+    let source_line = &source_file.source()[line_start..line_end];
+    let relative_start = span.start().saturating_sub(line_start);
+    let relative_end = span.end().saturating_sub(line_start);
+
+    SourceDiagnostic::new(
+        DiagnosticLevel::Error,
+        &source_file.path,
+        "top-level statements are only allowed in `.ocelot-script` files",
+    )
+    .with_excerpt(
+        SourceExcerpt::new(&source_file.path, line_number, source_line).with_annotation(
+            SourceAnnotation::new(
+                Span::new(relative_start, relative_end),
+                "move this statement into `main()` or rename the file to `.ocelot-script`",
+            ),
+        ),
+    )
+}
+
+fn line_bounds(source: &str, index: usize) -> (usize, usize, usize) {
+    let line_start = source[..index].rfind('\n').map_or(0, |offset| offset + 1);
+    let line_end = source[index..]
+        .find('\n')
+        .map_or(source.len(), |offset| index + offset);
+    let line_number = source[..line_start]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count()
+        + 1;
+
+    (line_number, line_start, line_end)
+}
+
 #[cfg(test)]
 mod tests {
     use super::Engine;
     use super::module_name_from_path;
+    use crate::source_file_kind::SourceFileKind;
     use expect_test::expect;
     use ocelot_base::compilation_stage::CompilationStage;
     use ocelot_base::error::ErrorKind;
@@ -275,16 +383,21 @@ mod tests {
     }
 
     #[test]
-    fn run_script_reads_and_executes_a_file() {
+    fn run_file_executes_a_script_file() {
         let pal = PalMock::new();
-        pal.set_file("examples/hello_world.ocelot", "println(\"hello, world\");");
+        pal.set_file(
+            "examples/hello_world.ocelot-script",
+            "println(\"hello, world\");",
+        );
 
         let engine = Engine::new(PalHandle::new(pal.clone()));
 
-        engine.run_script("examples/hello_world.ocelot").unwrap();
+        engine
+            .run_file("examples/hello_world.ocelot-script")
+            .unwrap();
 
         expect![[r#"
-            READ FILE: examples/hello_world.ocelot
+            READ FILE: examples/hello_world.ocelot-script
             PRINT: hello, world
 
         "#]]
@@ -293,9 +406,9 @@ mod tests {
     }
 
     #[test]
-    fn run_script_executes_functions_from_sibling_modules() {
+    fn run_file_executes_functions_from_sibling_modules() {
         let pal = PalMock::new();
-        pal.set_file("examples/main.ocelot", "helper::greet();");
+        pal.set_file("examples/main.ocelot-script", "helper::greet();");
         pal.set_file(
             "examples/helper.ocelot",
             "fun greet() { println(\"hello\"); }",
@@ -303,15 +416,15 @@ mod tests {
 
         let engine = Engine::new(PalHandle::new(pal.clone()));
 
-        engine.run_script("examples/main.ocelot").unwrap();
+        engine.run_file("examples/main.ocelot-script").unwrap();
 
         assert_eq!(pal.take_printed_output(), "hello\n");
     }
 
     #[test]
-    fn run_script_executes_functions_from_nested_modules() {
+    fn run_file_executes_functions_from_nested_modules() {
         let pal = PalMock::new();
-        pal.set_file("examples/main.ocelot", "math::greet::hello();");
+        pal.set_file("examples/main.ocelot-script", "math::greet::hello();");
         pal.set_file(
             "examples/math/greet.ocelot",
             "fun hello() { println(\"hello\"); }",
@@ -319,35 +432,80 @@ mod tests {
 
         let engine = Engine::new(PalHandle::new(pal.clone()));
 
-        engine.run_script("examples/main.ocelot").unwrap();
+        engine.run_file("examples/main.ocelot-script").unwrap();
 
         assert_eq!(pal.take_printed_output(), "hello\n");
     }
 
     #[test]
-    fn run_script_does_not_execute_top_level_statements_from_non_entry_modules() {
+    fn run_file_executes_main_in_a_module_file() {
         let pal = PalMock::new();
-        pal.set_file("examples/main.ocelot", "helper::greet();");
+        pal.set_file("examples/main.ocelot", "fun main() { helper::greet(); }");
+        pal.set_file(
+            "examples/helper.ocelot",
+            "fun greet() { println(\"hello\"); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal.clone()));
+
+        engine.run_file("examples/main.ocelot").unwrap();
+
+        assert_eq!(pal.take_printed_output(), "hello\n");
+    }
+
+    #[test]
+    fn run_file_ignores_sibling_script_files_when_loading_modules() {
+        let pal = PalMock::new();
+        pal.set_file("examples/main.ocelot-script", "helper::greet();");
+        pal.set_file(
+            "examples/helper.ocelot",
+            "fun greet() { println(\"hello\"); }",
+        );
+        pal.set_file("examples/side_effect.ocelot-script", "println(\"wrong\");");
+
+        let engine = Engine::new(PalHandle::new(pal.clone()));
+
+        engine.run_file("examples/main.ocelot-script").unwrap();
+
+        let effects = pal.get_effects();
+        assert!(effects.contains("READ FILE: examples/helper.ocelot"));
+        assert!(!effects.contains("READ FILE: examples/side_effect.ocelot-script"));
+        assert_eq!(pal.take_printed_output(), "hello\n");
+    }
+
+    #[test]
+    fn run_file_rejects_top_level_statements_in_module_files() {
+        let pal = PalMock::new();
+        pal.set_file("examples/main.ocelot-script", "helper::greet();");
         pal.set_file(
             "examples/helper.ocelot",
             "println(\"setup\"); fun greet() { println(\"hello\"); }",
         );
 
-        let engine = Engine::new(PalHandle::new(pal.clone()));
+        let engine = Engine::new(PalHandle::new(pal));
 
-        engine.run_script("examples/main.ocelot").unwrap();
+        let error = engine.run_file("examples/main.ocelot-script").unwrap_err();
 
-        assert_eq!(pal.take_printed_output(), "hello\n");
+        assert!(matches!(
+            error.kind(),
+            ErrorKind::CompilationError(CompilationStage::Resolver)
+        ));
+        assert!(
+            error
+                .to_test_string()
+                .contains("top-level statements are only allowed in `.ocelot-script` files")
+        );
+        assert!(error.to_test_string().contains("examples/helper.ocelot"));
     }
 
     #[test]
-    fn run_script_reports_unknown_modules() {
+    fn run_file_reports_unknown_modules() {
         let pal = PalMock::new();
-        pal.set_file("examples/main.ocelot", "helper::greet();");
+        pal.set_file("examples/main.ocelot-script", "helper::greet();");
 
         let engine = Engine::new(PalHandle::new(pal));
 
-        let error = engine.run_script("examples/main.ocelot").unwrap_err();
+        let error = engine.run_file("examples/main.ocelot-script").unwrap_err();
 
         assert!(matches!(
             error.kind(),
@@ -357,14 +515,14 @@ mod tests {
     }
 
     #[test]
-    fn run_script_reports_missing_functions_in_loaded_modules() {
+    fn run_file_reports_missing_functions_in_loaded_modules() {
         let pal = PalMock::new();
-        pal.set_file("examples/main.ocelot", "helper::greet();");
+        pal.set_file("examples/main.ocelot-script", "helper::greet();");
         pal.set_file("examples/helper.ocelot", "fun wave() {}");
 
         let engine = Engine::new(PalHandle::new(pal));
 
-        let error = engine.run_script("examples/main.ocelot").unwrap_err();
+        let error = engine.run_file("examples/main.ocelot-script").unwrap_err();
 
         assert!(matches!(
             error.kind(),
@@ -378,9 +536,28 @@ mod tests {
     }
 
     #[test]
+    fn run_file_reports_missing_module_main_function() {
+        let pal = PalMock::new();
+        pal.set_file("examples/tool.ocelot", "fun helper() {}");
+
+        let engine = Engine::new(PalHandle::new(pal));
+
+        let error = engine.run_file("examples/tool.ocelot").unwrap_err();
+
+        assert!(
+            error
+                .to_test_string()
+                .contains("module `tool` does not define a `main()` entrypoint")
+        );
+    }
+
+    #[test]
     fn run_test_executes_only_entry_module_tests() {
         let pal = PalMock::new();
-        pal.set_file("examples/main.ocelot", "test \"main\" { helper::greet(); }");
+        pal.set_file(
+            "examples/main.ocelot-script",
+            "test \"main\" { helper::greet(); }",
+        );
         pal.set_file(
             "examples/helper.ocelot",
             "test \"helper\" { println(\"wrong\"); } fun greet() { println(\"hello\"); }",
@@ -388,7 +565,9 @@ mod tests {
 
         let engine = Engine::new(PalHandle::new(pal.clone()));
 
-        engine.run_test("examples/main.ocelot", "main").unwrap();
+        engine
+            .run_test("examples/main.ocelot-script", "main")
+            .unwrap();
 
         assert_eq!(pal.take_printed_output(), "hello\n");
     }
@@ -397,7 +576,7 @@ mod tests {
     fn run_test_reports_cross_file_runtime_diagnostics_with_the_called_file_path() {
         let pal = PalMock::new();
         pal.set_file(
-            "examples/main.ocelot",
+            "examples/main.ocelot-script",
             "test \"broken\" { helper::greet(); }",
         );
         pal.set_file(
@@ -408,7 +587,7 @@ mod tests {
         let engine = Engine::new(PalHandle::new(pal));
 
         let error = engine
-            .run_test("examples/main.ocelot", "broken")
+            .run_test("examples/main.ocelot-script", "broken")
             .unwrap_err();
 
         assert!(
@@ -417,5 +596,17 @@ mod tests {
                 .contains("unresolved identifier `missing_value`")
         );
         assert!(error.to_test_string().contains("examples/helper.ocelot"));
+    }
+
+    #[test]
+    fn source_file_kind_is_part_of_loaded_modules() {
+        assert_eq!(
+            SourceFileKind::Module,
+            SourceFileKind::from_path(&FilePath::from("x.ocelot")).unwrap()
+        );
+        assert_eq!(
+            SourceFileKind::Script,
+            SourceFileKind::from_path(&FilePath::from("x.ocelot-script")).unwrap()
+        );
     }
 }

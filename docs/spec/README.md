@@ -38,7 +38,7 @@ Each example should use a visible heading, one or more named `ocelot` fenced blo
 
 Use:
 
-- a visible filename label such as `main.ocelot:` immediately before each `ocelot` block
+- a visible filename label such as `main.ocelot-script:` or `helper.ocelot:` immediately before each `ocelot` block
 - `### Output` for examples that should execute successfully
 - `### Error` for examples that should fail with a stable error message
 
@@ -47,7 +47,7 @@ Example:
 ~~~markdown
 ## Example: integer addition
 
-main.ocelot:
+main.ocelot-script:
 
 ```ocelot
 println("hello");

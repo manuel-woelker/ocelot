@@ -141,7 +141,7 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
                         .as_ref()
                         .map(|(_, line_number)| *line_number)
                         .unwrap_or_default(),
-                    "`ocelot` blocks must have a preceding `path/to/file.ocelot:` label",
+                    "`ocelot` blocks must have a preceding `path/to/file.ocelot:` or `path/to/file.ocelot-script:` label",
                 ));
                 line_index = block_end + 1;
                 continue;
@@ -280,15 +280,29 @@ fn finalize_example(
                 return;
             }
 
-            if !example_source_files
+            let has_script_entry = example_source_files
                 .iter()
-                .any(|source_file| source_file.path.as_str() == "main.ocelot")
-            {
+                .any(|source_file| source_file.path.as_str() == "main.ocelot-script");
+            let has_module_entry = example_source_files
+                .iter()
+                .any(|source_file| source_file.path.as_str() == "main.ocelot");
+
+            if has_script_entry && has_module_entry {
                 malformed_failures.push(new_malformed_failure(
                     path,
                     &name,
                     example_line_number,
-                    "example must declare `main.ocelot`",
+                    "example must not declare both `main.ocelot` and `main.ocelot-script`",
+                ));
+                return;
+            }
+
+            if !has_script_entry && !has_module_entry {
+                malformed_failures.push(new_malformed_failure(
+                    path,
+                    &name,
+                    example_line_number,
+                    "example must declare `main.ocelot` or `main.ocelot-script`",
                 ));
                 return;
             }
@@ -327,7 +341,11 @@ fn parse_expectation_heading(trimmed_line: &str) -> Option<ExpectationKind> {
 
 fn parse_source_file_label(trimmed_line: &str) -> Option<&str> {
     let path = trimmed_line.strip_suffix(':')?;
-    (Path::new(path).extension().and_then(|ext| ext.to_str()) == Some("ocelot")).then_some(path)
+    matches!(
+        Path::new(path).extension().and_then(|ext| ext.to_str()),
+        Some("ocelot" | "ocelot-script")
+    )
+    .then_some(path)
 }
 
 fn find_closing_fence(lines: &[&str], start_index: usize) -> Option<usize> {
@@ -392,7 +410,7 @@ mod tests {
         );
         assert_eq!(
             chapters[0].examples[0].source_files[0].path.as_str(),
-            "main.ocelot"
+            "main.ocelot-script"
         );
     }
 
@@ -428,7 +446,7 @@ hello
             r#"
 ## Example: sibling module
 
-main.ocelot:
+main.ocelot-script:
 
 ```ocelot
 helper::greet();
@@ -481,7 +499,7 @@ hello
 
         let chapters = load_spec_chapters(&pal, &FilePath::from("docs/spec")).unwrap();
 
-        expect!["`ocelot` blocks must have a preceding `path/to/file.ocelot:` label"]
+        expect!["`ocelot` blocks must have a preceding `path/to/file.ocelot:` or `path/to/file.ocelot-script:` label"]
             .assert_eq(chapters[0].malformed_failures[0].message.as_str());
     }
 
@@ -508,13 +526,13 @@ fun greet() {}
 
         let chapters = load_spec_chapters(&pal, &FilePath::from("docs/spec")).unwrap();
 
-        expect!["example must declare `main.ocelot`"]
+        expect!["example must declare `main.ocelot` or `main.ocelot-script`"]
             .assert_eq(chapters[0].malformed_failures[0].message.as_str());
     }
 
     fn chapter(name: &str) -> String {
         format!(
-            "## Example: {name}\n\nmain.ocelot:\n\n```ocelot\nprintln(\"hello\");\n```\n\n### Output\n\n```text\nhello\n```\n"
+            "## Example: {name}\n\nmain.ocelot-script:\n\n```ocelot\nprintln(\"hello\");\n```\n\n### Output\n\n```text\nhello\n```\n"
         )
     }
 }
