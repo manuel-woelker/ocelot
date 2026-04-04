@@ -57,13 +57,13 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_script(&mut self, script: &mut Script) -> OcelotResult<()> {
-        for (item_index, item) in script.items.iter().enumerate() {
-            self.register_item(item, item_index);
-        }
+        self.lower_function_items(script);
 
         for item in &mut script.items {
             self.resolve_item(item);
         }
+
+        self.resolve_user_defined_function_definitions()?;
 
         if self.compilation_context.has_errors() {
             return Err(
@@ -78,23 +78,30 @@ impl<'a> Resolver<'a> {
         Ok(())
     }
 
-    fn register_item(&mut self, item: &Item, item_index: usize) {
-        let ItemKind::Function(function_item) = &item.kind else {
-            return;
-        };
+    fn lower_function_items(&mut self, script: &mut Script) {
+        let mut retained_items = Vec::with_capacity(script.items.len());
 
-        self.register_function_item(function_item, item_index);
+        for item in std::mem::take(&mut script.items) {
+            match item.kind {
+                ItemKind::Function(function_item) => self.register_function_item(function_item),
+                _ => retained_items.push(item),
+            }
+        }
+
+        script.items = retained_items;
     }
 
     fn resolve_item(&mut self, item: &mut Item) {
         match &mut item.kind {
-            ItemKind::Function(function_item) => self.resolve_function_item(function_item),
             ItemKind::Statement(statement) => self.resolve_statement(statement),
             ItemKind::Test(test_item) => self.resolve_test_item(test_item),
+            ItemKind::Function(_) => {
+                unreachable!("function items should be lowered before item resolution")
+            }
         }
     }
 
-    fn register_function_item(&mut self, function_item: &FunctionItem, item_index: usize) {
+    fn register_function_item(&mut self, function_item: FunctionItem) {
         if let Some(function_index) = self.environment.resolve_function(&function_item.name) {
             let existing_function = self
                 .environment
@@ -117,16 +124,28 @@ impl<'a> Resolver<'a> {
         }
 
         self.environment
-            .add_function(FunctionDefinition::user_defined(
-                function_item.name.clone(),
-                item_index,
-            ));
+            .add_function(FunctionDefinition::user_defined(function_item));
     }
 
     fn resolve_function_item(&mut self, function_item: &mut FunctionItem) {
         for statement in &mut function_item.body {
             self.resolve_statement(statement);
         }
+    }
+
+    fn resolve_user_defined_function_definitions(&mut self) -> OcelotResult<()> {
+        let function_indices = self.environment.user_defined_function_indices();
+
+        for function_index in function_indices {
+            let mut function = self
+                .environment
+                .take_user_defined_function(function_index)?;
+            self.resolve_function_item(&mut function);
+            self.environment
+                .put_user_defined_function(function_index, function)?;
+        }
+
+        Ok(())
     }
 
     fn resolve_test_item(&mut self, test_item: &mut TestItem) {
@@ -237,6 +256,7 @@ mod tests {
     use ocelot_ast::expression_statement::ExpressionStatement;
     use ocelot_ast::function_definition::FunctionDefinition;
     use ocelot_ast::function_item::FunctionItem;
+    use ocelot_ast::function_kind::FunctionKind;
     use ocelot_ast::identifier_expression::IdentifierExpression;
     use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
@@ -505,7 +525,8 @@ mod tests {
         resolve(&mut script, &source_file, &mut context, &mut environment).unwrap();
 
         let greet_index = environment.resolve_function("greet").unwrap();
-        let ItemKind::Statement(statement) = &script.items[1].kind else {
+        assert_eq!(script.items.len(), 1);
+        let ItemKind::Statement(statement) = &script.items[0].kind else {
             panic!("expected statement");
         };
         let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
@@ -544,6 +565,7 @@ mod tests {
 
         resolve(&mut script, &source_file, &mut context, &mut environment).unwrap();
 
+        assert_eq!(script.items.len(), 1);
         let greet_index = environment.resolve_function("greet").unwrap();
         let ItemKind::Statement(statement) = &script.items[0].kind else {
             panic!("expected statement");
@@ -586,11 +608,13 @@ mod tests {
 
         resolve(&mut script, &source_file, &mut context, &mut environment).unwrap();
 
-        let ItemKind::Function(function_item) = &script.items[0].kind else {
-            panic!("expected function item");
+        assert!(script.items.is_empty());
+        let greet_index = environment.resolve_function("greet").unwrap();
+        let function_definition = environment.function_definition(greet_index).unwrap();
+        let FunctionKind::UserDefined { function } = &function_definition.kind else {
+            panic!("expected user-defined function");
         };
-        let StatementKind::Expression(ExpressionStatement { expression }) =
-            &function_item.body[0].kind;
+        let StatementKind::Expression(ExpressionStatement { expression }) = &function.body[0].kind;
         let ExpressionKind::Call(call_expression) = &expression.kind else {
             panic!("expected call expression");
         };

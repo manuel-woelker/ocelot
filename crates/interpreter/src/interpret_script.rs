@@ -12,7 +12,7 @@ pub fn interpret_script(
     environment: &ProgramEnvironment,
     pal: &dyn Pal,
 ) -> OcelotResult<()> {
-    Interpreter::new(pal, script, source_file, environment).interpret_script(script)
+    Interpreter::new(pal, source_file, environment).interpret_script(script)
 }
 
 #[cfg(test)]

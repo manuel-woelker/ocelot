@@ -69,7 +69,6 @@ impl Engine {
 
         if let Err(error) = ocelot_interpreter::interpreter::Interpreter::new(
             &*self.pal,
-            &script,
             &source_file,
             &environment,
         )
@@ -98,7 +97,6 @@ impl Engine {
         let (script, environment) = self.compile_script(&source_file)?;
         let interpreter = ocelot_interpreter::interpreter::Interpreter::new(
             &*self.pal,
-            &script,
             &source_file,
             &environment,
         );
