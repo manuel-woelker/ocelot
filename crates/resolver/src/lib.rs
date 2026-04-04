@@ -4,6 +4,9 @@ use ocelot_ast::call_expression::CallExpression;
 use ocelot_ast::expression::Expression;
 use ocelot_ast::expression_kind::ExpressionKind;
 use ocelot_ast::expression_statement::ExpressionStatement;
+use ocelot_ast::function_definition::FunctionDefinition;
+use ocelot_ast::function_item::FunctionItem;
+use ocelot_ast::function_kind::FunctionKind;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_ast::program_environment::ProgramEnvironment;
@@ -29,7 +32,7 @@ pub fn resolve(
     script: &mut Script,
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
-    environment: &ProgramEnvironment,
+    environment: &mut ProgramEnvironment,
 ) -> OcelotResult<()> {
     Resolver::new(source_file, compilation_context, environment).resolve_script(script)
 }
@@ -37,14 +40,14 @@ pub fn resolve(
 struct Resolver<'a> {
     source_file: &'a SourceFile,
     compilation_context: &'a mut CompilationContext,
-    environment: &'a ProgramEnvironment,
+    environment: &'a mut ProgramEnvironment,
 }
 
 impl<'a> Resolver<'a> {
     fn new(
         source_file: &'a SourceFile,
         compilation_context: &'a mut CompilationContext,
-        environment: &'a ProgramEnvironment,
+        environment: &'a mut ProgramEnvironment,
     ) -> Self {
         Self {
             source_file,
@@ -54,6 +57,10 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_script(&mut self, script: &mut Script) -> OcelotResult<()> {
+        for (item_index, item) in script.items.iter().enumerate() {
+            self.register_item(item, item_index);
+        }
+
         for item in &mut script.items {
             self.resolve_item(item);
         }
@@ -71,10 +78,54 @@ impl<'a> Resolver<'a> {
         Ok(())
     }
 
+    fn register_item(&mut self, item: &Item, item_index: usize) {
+        let ItemKind::Function(function_item) = &item.kind else {
+            return;
+        };
+
+        self.register_function_item(function_item, item_index);
+    }
+
     fn resolve_item(&mut self, item: &mut Item) {
         match &mut item.kind {
+            ItemKind::Function(function_item) => self.resolve_function_item(function_item),
             ItemKind::Statement(statement) => self.resolve_statement(statement),
             ItemKind::Test(test_item) => self.resolve_test_item(test_item),
+        }
+    }
+
+    fn register_function_item(&mut self, function_item: &FunctionItem, item_index: usize) {
+        if let Some(function_index) = self.environment.resolve_function(&function_item.name) {
+            let existing_function = self
+                .environment
+                .function_definition(function_index)
+                .expect("resolved function index should point at a definition");
+            let message = match existing_function.kind {
+                FunctionKind::Native { .. } => {
+                    format!(
+                        "function `{}` conflicts with native function",
+                        function_item.name
+                    )
+                }
+                FunctionKind::UserDefined { .. } => {
+                    format!("duplicate function `{}`", function_item.name)
+                }
+            };
+
+            self.add_diagnostic(message, function_item.span.clone(), "duplicate function");
+            return;
+        }
+
+        self.environment
+            .add_function(FunctionDefinition::user_defined(
+                function_item.name.clone(),
+                item_index,
+            ));
+    }
+
+    fn resolve_function_item(&mut self, function_item: &mut FunctionItem) {
+        for statement in &mut function_item.body {
+            self.resolve_statement(statement);
         }
     }
 
@@ -185,6 +236,7 @@ mod tests {
     use ocelot_ast::expression_kind::ExpressionKind;
     use ocelot_ast::expression_statement::ExpressionStatement;
     use ocelot_ast::function_definition::FunctionDefinition;
+    use ocelot_ast::function_item::FunctionItem;
     use ocelot_ast::identifier_expression::IdentifierExpression;
     use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
@@ -223,9 +275,9 @@ mod tests {
 
     fn test_program_environment() -> ProgramEnvironment {
         ProgramEnvironment::new(vec![
-            FunctionDefinition::new("println", NativeFunction::Println),
-            FunctionDefinition::new("assert", NativeFunction::Assert),
-            FunctionDefinition::new("assert_eq", NativeFunction::AssertEq),
+            FunctionDefinition::native("println", NativeFunction::Println),
+            FunctionDefinition::native("assert", NativeFunction::Assert),
+            FunctionDefinition::native("assert_eq", NativeFunction::AssertEq),
         ])
     }
 
@@ -246,11 +298,11 @@ mod tests {
             Span::new(0, 17),
         );
         let source_file = SourceFile::new("examples/hello.ocelot", "println(\"hello\");");
-        let environment = test_program_environment();
+        let mut environment = test_program_environment();
         let println_index = environment.resolve_function("println").unwrap();
         let mut context = CompilationContext::default();
 
-        resolve(&mut script, &source_file, &mut context, &environment).unwrap();
+        resolve(&mut script, &source_file, &mut context, &mut environment).unwrap();
 
         let ItemKind::Statement(statement) = &script.items[0].kind else {
             panic!("expected statement");
@@ -284,11 +336,11 @@ mod tests {
         );
         let source_file =
             SourceFile::new("examples/tests.ocelot", "test \"prints\" { assert(true); }");
-        let environment = test_program_environment();
+        let mut environment = test_program_environment();
         let assert_index = environment.resolve_function("assert").unwrap();
         let mut context = CompilationContext::default();
 
-        resolve(&mut script, &source_file, &mut context, &environment).unwrap();
+        resolve(&mut script, &source_file, &mut context, &mut environment).unwrap();
 
         let ItemKind::Test(test_item) = &script.items[0].kind else {
             panic!("expected test item");
@@ -321,11 +373,11 @@ mod tests {
             Span::new(0, 26),
         );
         let source_file = SourceFile::new("examples/nested.ocelot", "println(println(\"hello\"));");
-        let environment = test_program_environment();
+        let mut environment = test_program_environment();
         let println_index = environment.resolve_function("println").unwrap();
         let mut context = CompilationContext::default();
 
-        resolve(&mut script, &source_file, &mut context, &environment).unwrap();
+        resolve(&mut script, &source_file, &mut context, &mut environment).unwrap();
 
         let ItemKind::Statement(statement) = &script.items[0].kind else {
             panic!("expected statement");
@@ -359,10 +411,10 @@ mod tests {
             Span::new(0, 19),
         );
         let source_file = SourceFile::new("examples/broken.ocelot", "printline(\"hello\");");
-        let environment = test_program_environment();
+        let mut environment = test_program_environment();
         let mut context = CompilationContext::default();
 
-        let error = resolve(&mut script, &source_file, &mut context, &environment).unwrap_err();
+        let error = resolve(&mut script, &source_file, &mut context, &mut environment).unwrap_err();
 
         assert!(matches!(
             error.kind(),
@@ -398,15 +450,202 @@ mod tests {
             Span::new(0, 10),
         );
         let source_file = SourceFile::new("examples/broken.ocelot", "\"hello\"();");
-        let environment = test_program_environment();
+        let mut environment = test_program_environment();
         let mut context = CompilationContext::default();
 
-        let error = resolve(&mut script, &source_file, &mut context, &environment).unwrap_err();
+        let error = resolve(&mut script, &source_file, &mut context, &mut environment).unwrap_err();
 
         assert!(
             error
                 .to_test_string()
                 .contains("only identifier calls are supported")
+        );
+    }
+
+    #[test]
+    fn resolves_calls_to_user_defined_functions() {
+        let mut script = Script::new(
+            vec![
+                Item::new(
+                    ItemKind::Function(FunctionItem::new(
+                        "greet",
+                        vec![Statement::new(
+                            StatementKind::Expression(ExpressionStatement::new(call(
+                                identifier("println", Span::new(14, 21)),
+                                vec![string_literal("hello", Span::new(22, 29))],
+                                Span::new(14, 30),
+                            ))),
+                            Span::new(14, 31),
+                        )],
+                        Span::new(0, 33),
+                    )),
+                    Span::new(0, 33),
+                ),
+                Item::new(
+                    ItemKind::Statement(Statement::new(
+                        StatementKind::Expression(ExpressionStatement::new(call(
+                            identifier("greet", Span::new(34, 39)),
+                            Vec::new(),
+                            Span::new(34, 41),
+                        ))),
+                        Span::new(34, 42),
+                    )),
+                    Span::new(34, 42),
+                ),
+            ],
+            Span::new(0, 42),
+        );
+        let source_file = SourceFile::new(
+            "examples/functions.ocelot",
+            "fun greet() { println(\"hello\"); } greet();",
+        );
+        let mut environment = test_program_environment();
+        let mut context = CompilationContext::default();
+
+        resolve(&mut script, &source_file, &mut context, &mut environment).unwrap();
+
+        let greet_index = environment.resolve_function("greet").unwrap();
+        let ItemKind::Statement(statement) = &script.items[1].kind else {
+            panic!("expected statement");
+        };
+        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+        let ExpressionKind::Call(call_expression) = &expression.kind else {
+            panic!("expected call expression");
+        };
+
+        assert_eq!(call_expression.function_index().unwrap(), greet_index);
+    }
+
+    #[test]
+    fn resolves_forward_references_to_later_function_definitions() {
+        let mut script = Script::new(
+            vec![
+                Item::new(
+                    ItemKind::Statement(Statement::new(
+                        StatementKind::Expression(ExpressionStatement::new(call(
+                            identifier("greet", Span::new(0, 5)),
+                            Vec::new(),
+                            Span::new(0, 7),
+                        ))),
+                        Span::new(0, 8),
+                    )),
+                    Span::new(0, 8),
+                ),
+                Item::new(
+                    ItemKind::Function(FunctionItem::new("greet", Vec::new(), Span::new(9, 22))),
+                    Span::new(9, 22),
+                ),
+            ],
+            Span::new(0, 22),
+        );
+        let source_file = SourceFile::new("examples/functions.ocelot", "greet(); fun greet() {}");
+        let mut environment = test_program_environment();
+        let mut context = CompilationContext::default();
+
+        resolve(&mut script, &source_file, &mut context, &mut environment).unwrap();
+
+        let greet_index = environment.resolve_function("greet").unwrap();
+        let ItemKind::Statement(statement) = &script.items[0].kind else {
+            panic!("expected statement");
+        };
+        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+        let ExpressionKind::Call(call_expression) = &expression.kind else {
+            panic!("expected call expression");
+        };
+
+        assert_eq!(call_expression.function_index().unwrap(), greet_index);
+    }
+
+    #[test]
+    fn resolves_calls_inside_function_bodies() {
+        let mut script = Script::new(
+            vec![Item::new(
+                ItemKind::Function(FunctionItem::new(
+                    "greet",
+                    vec![Statement::new(
+                        StatementKind::Expression(ExpressionStatement::new(call(
+                            identifier("println", Span::new(14, 21)),
+                            vec![string_literal("hello", Span::new(22, 29))],
+                            Span::new(14, 30),
+                        ))),
+                        Span::new(14, 31),
+                    )],
+                    Span::new(0, 33),
+                )),
+                Span::new(0, 33),
+            )],
+            Span::new(0, 33),
+        );
+        let source_file = SourceFile::new(
+            "examples/functions.ocelot",
+            "fun greet() { println(\"hello\"); }",
+        );
+        let mut environment = test_program_environment();
+        let println_index = environment.resolve_function("println").unwrap();
+        let mut context = CompilationContext::default();
+
+        resolve(&mut script, &source_file, &mut context, &mut environment).unwrap();
+
+        let ItemKind::Function(function_item) = &script.items[0].kind else {
+            panic!("expected function item");
+        };
+        let StatementKind::Expression(ExpressionStatement { expression }) =
+            &function_item.body[0].kind;
+        let ExpressionKind::Call(call_expression) = &expression.kind else {
+            panic!("expected call expression");
+        };
+
+        assert_eq!(call_expression.function_index().unwrap(), println_index);
+    }
+
+    #[test]
+    fn reports_duplicate_user_defined_function_names() {
+        let mut script = Script::new(
+            vec![
+                Item::new(
+                    ItemKind::Function(FunctionItem::new("greet", Vec::new(), Span::new(0, 13))),
+                    Span::new(0, 13),
+                ),
+                Item::new(
+                    ItemKind::Function(FunctionItem::new("greet", Vec::new(), Span::new(14, 27))),
+                    Span::new(14, 27),
+                ),
+            ],
+            Span::new(0, 27),
+        );
+        let source_file =
+            SourceFile::new("examples/functions.ocelot", "fun greet() {} fun greet() {}");
+        let mut environment = test_program_environment();
+        let mut context = CompilationContext::default();
+
+        let error = resolve(&mut script, &source_file, &mut context, &mut environment).unwrap_err();
+
+        assert!(
+            error
+                .to_test_string()
+                .contains("duplicate function `greet`")
+        );
+    }
+
+    #[test]
+    fn reports_collisions_with_native_function_names() {
+        let mut script = Script::new(
+            vec![Item::new(
+                ItemKind::Function(FunctionItem::new("println", Vec::new(), Span::new(0, 15))),
+                Span::new(0, 15),
+            )],
+            Span::new(0, 15),
+        );
+        let source_file = SourceFile::new("examples/functions.ocelot", "fun println() {}");
+        let mut environment = test_program_environment();
+        let mut context = CompilationContext::default();
+
+        let error = resolve(&mut script, &source_file, &mut context, &mut environment).unwrap_err();
+
+        assert!(
+            error
+                .to_test_string()
+                .contains("function `println` conflicts with native function")
         );
     }
 }

@@ -32,6 +32,7 @@ mod tests {
     use ocelot_ast::expression::Expression;
     use ocelot_ast::expression_kind::ExpressionKind;
     use ocelot_ast::expression_statement::ExpressionStatement;
+    use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
     use ocelot_ast::not_expression::NotExpression;
     use ocelot_ast::statement_kind::StatementKind;
@@ -314,6 +315,55 @@ mod tests {
     }
 
     #[test]
+    fn parses_function_items_alongside_script_statements() {
+        let source_file = SourceFile::new(
+            "examples/functions.ocelot",
+            "fun greet() { println(\"hello\"); } greet();",
+        );
+        let mut context = CompilationContext::default();
+
+        let script = parse_script(&source_file, &mut context).unwrap();
+
+        assert_eq!(script.items.len(), 2);
+        assert!(!context.has_errors());
+
+        match &script.items[0].kind {
+            ItemKind::Function(function_item) => {
+                assert_eq!(function_item.name, "greet");
+                assert_eq!(function_item.body.len(), 1);
+            }
+            other => panic!("expected function item, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_multiple_function_items() {
+        let source_file = SourceFile::new(
+            "examples/functions.ocelot",
+            "fun first() {} fun second() {}",
+        );
+        let mut context = CompilationContext::default();
+
+        let script = parse_script(&source_file, &mut context).unwrap();
+
+        assert_eq!(script.items.len(), 2);
+        assert!(matches!(
+            script.items[0],
+            Item {
+                kind: ItemKind::Function(_),
+                ..
+            }
+        ));
+        assert!(matches!(
+            script.items[1],
+            Item {
+                kind: ItemKind::Function(_),
+                ..
+            }
+        ));
+    }
+
+    #[test]
     fn parses_test_items_alongside_script_statements() {
         let source_file = SourceFile::new(
             "examples/tests.ocelot",
@@ -327,6 +377,7 @@ mod tests {
         assert!(!context.has_errors());
 
         match &script.items[1].kind {
+            ItemKind::Function(_) => panic!("expected test item, got function item"),
             ItemKind::Test(test_item) => {
                 assert_eq!(test_item.name, "prints one line");
                 assert_eq!(test_item.body.len(), 1);
@@ -349,6 +400,7 @@ mod tests {
         assert!(!context.has_errors());
 
         match &script.items[0].kind {
+            ItemKind::Function(_) => panic!("expected test item, got function item"),
             ItemKind::Test(test_item) => {
                 assert_eq!(test_item.name, "prints one line");
                 assert_eq!(test_item.body.len(), 1);
@@ -372,6 +424,37 @@ mod tests {
         assert_eq!(
             context.source_diagnostics.diagnostics[0].excerpts[0].annotations[0].span,
             Span::new(5, 6)
+        );
+    }
+
+    #[test]
+    fn reports_a_missing_function_name_as_a_source_diagnostic() {
+        let source_file = SourceFile::new("examples/invalid.ocelot", "fun () { println(\"x\"); }");
+        let mut context = CompilationContext::default();
+
+        parse_script(&source_file, &mut context).unwrap_err();
+        assert!(context.has_errors());
+        assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
+        assert_eq!(
+            context.source_diagnostics.diagnostics[0].message,
+            "expected function name"
+        );
+    }
+
+    #[test]
+    fn reports_an_unterminated_function_body_as_a_source_diagnostic() {
+        let source_file = SourceFile::new(
+            "examples/invalid.ocelot",
+            "fun greet() { println(\"hello\");",
+        );
+        let mut context = CompilationContext::default();
+
+        parse_script(&source_file, &mut context).unwrap_err();
+        assert!(context.has_errors());
+        assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
+        assert_eq!(
+            context.source_diagnostics.diagnostics[0].message,
+            "expected `}` to close function body"
         );
     }
 

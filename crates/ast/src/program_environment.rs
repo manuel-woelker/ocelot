@@ -49,20 +49,29 @@ impl ProgramEnvironment {
             .and_then(Option::as_ref)
             .context("internal error: function index points outside the function table")
     }
+
+    /// Appends one new function definition and returns its table handle.
+    pub fn add_function(&mut self, function: FunctionDefinition) -> FunctionIndex {
+        let function_index = FunctionIndex::new(self.functions.len() as u32);
+        self.function_symbols
+            .insert(function.name.clone(), function_index);
+        self.functions.push(Some(function));
+        function_index
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::ProgramEnvironment;
     use crate::function_definition::FunctionDefinition;
+    use crate::function_kind::FunctionKind;
     use crate::native_function::NativeFunction;
-
     #[test]
     fn program_environment_indexes_functions_by_name() {
         let environment = ProgramEnvironment::new(vec![
-            FunctionDefinition::new("println", NativeFunction::Println),
-            FunctionDefinition::new("assert", NativeFunction::Assert),
-            FunctionDefinition::new("assert_eq", NativeFunction::AssertEq),
+            FunctionDefinition::native("println", NativeFunction::Println),
+            FunctionDefinition::native("assert", NativeFunction::Assert),
+            FunctionDefinition::native("assert_eq", NativeFunction::AssertEq),
         ]);
 
         assert!(environment.resolve_function("println").is_some());
@@ -72,7 +81,7 @@ mod tests {
 
     #[test]
     fn function_definition_looks_up_native_function_metadata() {
-        let environment = ProgramEnvironment::new(vec![FunctionDefinition::new(
+        let environment = ProgramEnvironment::new(vec![FunctionDefinition::native(
             "println",
             NativeFunction::Println,
         )]);
@@ -80,16 +89,40 @@ mod tests {
         let function = environment.function_definition(function_index).unwrap();
 
         assert_eq!(function.name, "println");
-        assert_eq!(function.native_function, NativeFunction::Println);
+        assert_eq!(
+            function.kind,
+            FunctionKind::Native {
+                native_function: NativeFunction::Println,
+            }
+        );
     }
 
     #[test]
     fn program_environment_reserves_table_entry_zero() {
-        let environment = ProgramEnvironment::new(vec![FunctionDefinition::new(
+        let environment = ProgramEnvironment::new(vec![FunctionDefinition::native(
             "println",
             NativeFunction::Println,
         )]);
 
         assert!(environment.functions[0].is_none());
+    }
+
+    #[test]
+    fn add_function_appends_user_defined_entries() {
+        let mut environment = ProgramEnvironment::new(vec![FunctionDefinition::native(
+            "println",
+            NativeFunction::Println,
+        )]);
+
+        let function_index = environment.add_function(FunctionDefinition::user_defined("greet", 3));
+
+        assert_eq!(environment.resolve_function("greet"), Some(function_index));
+        assert_eq!(
+            environment
+                .function_definition(function_index)
+                .unwrap()
+                .kind,
+            FunctionKind::UserDefined { item_index: 3 }
+        );
     }
 }

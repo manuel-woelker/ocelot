@@ -12,7 +12,7 @@ pub fn interpret_script(
     environment: &ProgramEnvironment,
     pal: &dyn Pal,
 ) -> OcelotResult<()> {
-    Interpreter::new(pal, source_file, environment).interpret_script(script)
+    Interpreter::new(pal, script, source_file, environment).interpret_script(script)
 }
 
 #[cfg(test)]
@@ -24,6 +24,7 @@ mod tests {
     use ocelot_ast::expression_kind::ExpressionKind;
     use ocelot_ast::expression_statement::ExpressionStatement;
     use ocelot_ast::function_definition::FunctionDefinition;
+    use ocelot_ast::function_item::FunctionItem;
     use ocelot_ast::identifier_expression::IdentifierExpression;
     use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
@@ -45,9 +46,9 @@ mod tests {
 
     fn test_program_environment() -> ProgramEnvironment {
         ProgramEnvironment::new(vec![
-            FunctionDefinition::new("println", NativeFunction::Println),
-            FunctionDefinition::new("assert", NativeFunction::Assert),
-            FunctionDefinition::new("assert_eq", NativeFunction::AssertEq),
+            FunctionDefinition::native("println", NativeFunction::Println),
+            FunctionDefinition::native("assert", NativeFunction::Assert),
+            FunctionDefinition::native("assert_eq", NativeFunction::AssertEq),
         ])
     }
 
@@ -59,7 +60,8 @@ mod tests {
         let environment = test_program_environment();
         let mut script = script.clone();
         let mut context = CompilationContext::default();
-        resolve(&mut script, source_file, &mut context, &environment)?;
+        let mut environment = environment;
+        resolve(&mut script, source_file, &mut context, &mut environment)?;
         interpret_resolved_script(&script, source_file, &environment, pal)
     }
 
@@ -180,6 +182,55 @@ mod tests {
         interpret_script(&script, &source_file, &pal).unwrap();
 
         assert_eq!(pal.take_printed_output(), "setup\n");
+    }
+
+    #[test]
+    fn interprets_user_defined_zero_argument_functions() {
+        let script = Script::new(
+            vec![
+                Item::new(
+                    ItemKind::Function(FunctionItem::new(
+                        "greet",
+                        vec![Statement::new(
+                            StatementKind::Expression(ExpressionStatement::new(call_expression(
+                                "println",
+                                vec![Expression::new(
+                                    ExpressionKind::StringLiteral(StringLiteralExpression::new(
+                                        "hello",
+                                    )),
+                                    Span::new(22, 29),
+                                )],
+                                Span::new(14, 30),
+                            ))),
+                            Span::new(14, 31),
+                        )],
+                        Span::new(0, 33),
+                    )),
+                    Span::new(0, 33),
+                ),
+                Item::new(
+                    ItemKind::Statement(Statement::new(
+                        StatementKind::Expression(ExpressionStatement::new(call_expression(
+                            "greet",
+                            Vec::new(),
+                            Span::new(34, 41),
+                        ))),
+                        Span::new(34, 42),
+                    )),
+                    Span::new(34, 42),
+                ),
+            ],
+            Span::new(0, 42),
+        );
+        let pal = PalMock::new();
+        let source_file = SourceFile::new(
+            "examples/functions.ocelot",
+            "fun greet() { println(\"hello\"); } greet();",
+        );
+
+        interpret_script(&script, &source_file, &pal).unwrap();
+
+        assert_eq!(pal.take_printed_output(), "hello\n");
     }
 
     #[test]

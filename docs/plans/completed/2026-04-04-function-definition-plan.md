@@ -3,8 +3,8 @@
 The language can already parse and resolve call expressions, but it still only knows about native functions seeded into [`ProgramEnvironment`](/data/projects/ocelot/crates/ast/src/program_environment.rs).
 That makes function calls useful for `println`, `assert`, and `assert_eq`, but it leaves no syntax for declaring user-defined functions and no way for the resolver to discover them from source.
 
-Adding a first slice of function definitions now should focus on declaration and resolution, not full execution.
-That keeps the work small, gives the language a real `fun` declaration surface, and sets up the next slice to interpret user-defined calls without redesigning the symbol table again.
+Adding a first slice of function definitions now should focus on declaration and resolution first, with only the minimum execution support needed to keep spec examples real.
+That keeps the work small, gives the language a real `fun` declaration surface, and sets up the next slice to interpret richer user-defined calls without redesigning the symbol table again.
 
 # What should this slice include?
 
@@ -23,7 +23,7 @@ This slice should not yet include:
 - function parameters
 - return values or `return` statements
 - closures, nested functions, or local function declarations
-- execution of user-defined functions unless the implementation turns out to need a minimal stub for invariants
+- parameters or argument binding for user-defined functions
 
 # What is the current implementation gap?
 
@@ -186,18 +186,31 @@ Verification should include:
 - This plan assumes function definitions are allowed only at top level for now. Allowing them inside tests or other function bodies would complicate scope rules immediately.
 - This plan assumes function bodies reuse existing statement syntax and do not need a special terminator or implicit return behavior yet.
 - This plan assumes [`FunctionDefinition`](/data/projects/ocelot/crates/ast/src/function_definition.rs) will be generalized into an enum-backed table entry rather than split into separate native and user-defined table types. That is the cleaner model unless the implementation reveals a strong reason to separate declaration AST nodes from runtime function metadata more aggressively.
-- This plan intentionally stops short of user-defined function execution. Trying to add parsing, resolution, and interpretation in one slice would be too much at once and would blur whether failures belong to parsing, resolution, or runtime.
+- This work ended up adding minimal execution for zero-argument user-defined functions so spec examples could remain executable end to end. That is a small, justified scope expansion, not a full function-runtime design.
 - If the interpreter still builds `ProgramEnvironment` entirely in the engine before parsing, that setup will need to shift so parsed function declarations can be merged in deterministically during resolution.
+
+# What landed from this plan?
+
+This change landed the first slice of function definitions:
+
+- the lexer and parser now recognize top-level `fun name() { ... }` items
+- the AST now has a dedicated [`FunctionItem`](/data/projects/ocelot/crates/ast/src/function_item.rs) alongside statements and tests
+- [`FunctionDefinition`](/data/projects/ocelot/crates/ast/src/function_definition.rs) now uses [`FunctionKind`](/data/projects/ocelot/crates/ast/src/function_kind.rs) so native and user-defined functions share one function table model
+- the resolver now performs a declaration-registration phase before resolving call expressions, which enables forward references and duplicate-name diagnostics
+- function bodies now participate in resolution
+- the interpreter now executes zero-argument user-defined functions by resolved function index
+- the engine, spec docs, spec chapter index, and TextMate bundle were updated for the new declaration form
+- `cargo test -q -p ocelot-ast -p ocelot-parser -p ocelot-resolver -p ocelot-interpreter -p ocelot-engine -p ocelot-spec-validation` and `nao check` pass
 
 # What concrete tasks should track this plan?
 
-- [ ] Add lexer support for the `fun` keyword.
-- [ ] Add AST support for top-level function definitions with empty parameter lists and statement-list bodies.
-- [ ] Update the parser to parse `fun name() { ... }` items and report stable diagnostics for malformed declarations.
-- [ ] Refactor `FunctionDefinition` into an enum-backed table entry so native and user-defined functions can share one `ProgramEnvironment`.
-- [ ] Split resolver work into a declaration-registration phase and a call-resolution phase.
-- [ ] Extend resolution to walk function bodies as well as top-level statements and test bodies.
-- [ ] Add parser and resolver tests for declarations, forward references, duplicate names, and native-name collisions.
-- [ ] Add spec chapters and examples for function definitions and update [`docs/spec/README.md`](/data/projects/ocelot/docs/spec/README.md).
-- [ ] Update the TextMate bundle so `fun` is highlighted as a declaration keyword.
-- [ ] Run `nao check`.
+- [x] Add lexer support for the `fun` keyword.
+- [x] Add AST support for top-level function definitions with empty parameter lists and statement-list bodies.
+- [x] Update the parser to parse `fun name() { ... }` items and report stable diagnostics for malformed declarations.
+- [x] Refactor `FunctionDefinition` into an enum-backed table entry so native and user-defined functions can share one `ProgramEnvironment`.
+- [x] Split resolver work into a declaration-registration phase and a call-resolution phase.
+- [x] Extend resolution to walk function bodies as well as top-level statements and test bodies.
+- [x] Add parser and resolver tests for declarations, forward references, duplicate names, and native-name collisions.
+- [x] Add spec chapters and examples for function definitions and update [`docs/spec/README.md`](/data/projects/ocelot/docs/spec/README.md).
+- [x] Update the TextMate bundle so `fun` is highlighted as a declaration keyword.
+- [x] Run `nao check`.

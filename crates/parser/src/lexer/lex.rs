@@ -88,6 +88,7 @@ pub fn lex(source_file: &SourceFile, context: &mut CompilationContext) -> Vec<To
 
                 let token_type = match &source[start..index] {
                     "false" => TokenType::False,
+                    "fun" => TokenType::Fun,
                     "not" => TokenType::Not,
                     "test" => TokenType::Test,
                     "true" => TokenType::True,
@@ -292,6 +293,38 @@ mod tests {
             vec![
                 TokenType::Test,
                 TokenType::String,
+                TokenType::LeftBrace,
+                TokenType::Identifier,
+                TokenType::LeftParen,
+                TokenType::String,
+                TokenType::RightParen,
+                TokenType::Semicolon,
+                TokenType::RightBrace,
+                TokenType::EndOfFile,
+            ]
+        );
+        assert!(!context.has_errors());
+    }
+
+    #[test]
+    fn lexes_function_item_tokens() {
+        let source_file = SourceFile::new(
+            "examples/functions.ocelot",
+            "fun greet() { println(\"hello\"); }",
+        );
+        let mut context = CompilationContext::default();
+        let token_types: Vec<_> = lex(&source_file, &mut context)
+            .into_iter()
+            .map(|token| token.token_type)
+            .collect();
+
+        assert_eq!(
+            token_types,
+            vec![
+                TokenType::Fun,
+                TokenType::Identifier,
+                TokenType::LeftParen,
+                TokenType::RightParen,
                 TokenType::LeftBrace,
                 TokenType::Identifier,
                 TokenType::LeftParen,

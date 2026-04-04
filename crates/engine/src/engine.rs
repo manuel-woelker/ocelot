@@ -46,6 +46,7 @@ impl Engine {
             .items
             .into_iter()
             .filter_map(|item| match item.kind {
+                ItemKind::Function(_) => None,
                 ItemKind::Test(test_item) => {
                     Some(DiscoveredTest::new(test_item.name, test_item.span))
                 }
@@ -68,6 +69,7 @@ impl Engine {
 
         if let Err(error) = ocelot_interpreter::interpreter::Interpreter::new(
             &*self.pal,
+            &script,
             &source_file,
             &environment,
         )
@@ -96,6 +98,7 @@ impl Engine {
         let (script, environment) = self.compile_script(&source_file)?;
         let interpreter = ocelot_interpreter::interpreter::Interpreter::new(
             &*self.pal,
+            &script,
             &source_file,
             &environment,
         );
@@ -157,21 +160,21 @@ impl Engine {
             ocelot_base::compilation_context::CompilationContext::default();
         let mut script =
             ocelot_parser::parse_script::parse_script(source_file, &mut compilation_context)?;
-        let environment = self.create_program_environment();
+        let mut environment = self.create_program_environment();
         ocelot_resolver::resolve(
             &mut script,
             source_file,
             &mut compilation_context,
-            &environment,
+            &mut environment,
         )?;
         Ok((script, environment))
     }
 
     fn create_program_environment(&self) -> ProgramEnvironment {
         ProgramEnvironment::new(vec![
-            FunctionDefinition::new("println", NativeFunction::Println),
-            FunctionDefinition::new("assert", NativeFunction::Assert),
-            FunctionDefinition::new("assert_eq", NativeFunction::AssertEq),
+            FunctionDefinition::native("println", NativeFunction::Println),
+            FunctionDefinition::native("assert", NativeFunction::Assert),
+            FunctionDefinition::native("assert_eq", NativeFunction::AssertEq),
         ])
     }
 }
@@ -249,6 +252,36 @@ mod tests {
     }
 
     #[test]
+    fn run_script_executes_user_defined_functions() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/functions.ocelot",
+            "fun greet() { println(\"hello\"); } greet();",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal.clone()));
+
+        engine.run_script("examples/functions.ocelot").unwrap();
+
+        assert_eq!(pal.take_printed_output(), "hello\n");
+    }
+
+    #[test]
+    fn run_script_resolves_forward_references_to_function_definitions() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/functions.ocelot",
+            "greet(); fun greet() { println(\"hello\"); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal.clone()));
+
+        engine.run_script("examples/functions.ocelot").unwrap();
+
+        assert_eq!(pal.take_printed_output(), "hello\n");
+    }
+
+    #[test]
     fn discover_tests_returns_names_in_source_order() {
         let pal = PalMock::new();
         pal.set_file(
@@ -263,6 +296,22 @@ mod tests {
         assert_eq!(tests.len(), 2);
         assert_eq!(tests[0].name, "first");
         assert_eq!(tests[1].name, "second");
+    }
+
+    #[test]
+    fn discover_tests_ignores_function_items() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/tests.ocelot",
+            "fun helper() {} test \"first\" { helper(); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal));
+
+        let tests = engine.discover_tests("examples/tests.ocelot").unwrap();
+
+        assert_eq!(tests.len(), 1);
+        assert_eq!(tests[0].name, "first");
     }
 
     #[test]

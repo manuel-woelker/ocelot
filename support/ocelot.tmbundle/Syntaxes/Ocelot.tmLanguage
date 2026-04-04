@@ -118,6 +118,12 @@
         </dict>
         <dict>
           <key>match</key>
+          <string>\bfun\b</string>
+          <key>name</key>
+          <string>keyword.declaration.ocelot</string>
+        </dict>
+        <dict>
+          <key>match</key>
           <string>\btest\b</string>
           <key>name</key>
           <string>keyword.declaration.ocelot</string>

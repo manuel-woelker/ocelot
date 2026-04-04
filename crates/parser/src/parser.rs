@@ -6,6 +6,7 @@ use ocelot_ast::call_expression::CallExpression;
 use ocelot_ast::expression::Expression;
 use ocelot_ast::expression_kind::ExpressionKind;
 use ocelot_ast::expression_statement::ExpressionStatement;
+use ocelot_ast::function_item::FunctionItem;
 use ocelot_ast::identifier_expression::IdentifierExpression;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
@@ -75,6 +76,7 @@ impl<'a> Parser<'a> {
 
     fn parse_item(&mut self) -> OcelotResult<Item> {
         match self.current().token_type {
+            TokenType::Fun => self.parse_function_item(),
             TokenType::Test => self.parse_test_item(),
             _ => Ok({
                 let statement = self.parse_statement()?;
@@ -82,6 +84,34 @@ impl<'a> Parser<'a> {
                 Item::new(ItemKind::Statement(statement), span)
             }),
         }
+    }
+
+    fn parse_function_item(&mut self) -> OcelotResult<Item> {
+        let fun_token = self.expect(TokenType::Fun, "expected `fun` item")?;
+        let name_token = self.expect(TokenType::Identifier, "expected function name")?;
+        let name = self.source_text(&name_token.span).to_owned();
+        self.expect(TokenType::LeftParen, "expected `(` after function name")?;
+        self.expect(TokenType::RightParen, "expected `)` after parameter list")?;
+        self.expect(TokenType::LeftBrace, "expected `{` before function body")?;
+
+        let mut body = Vec::new();
+        while !self.at(TokenType::RightBrace) {
+            if self.at(TokenType::EndOfFile) {
+                return self.emit_fatal_diagnostic(
+                    "expected `}` to close function body",
+                    self.current().span.clone(),
+                    "function body ends here",
+                );
+            }
+            body.push(self.parse_statement()?);
+        }
+
+        let right_brace = self.expect(TokenType::RightBrace, "expected `}` after function body")?;
+        let span = Span::new(fun_token.span.start(), right_brace.span.end());
+        Ok(Item::new(
+            ItemKind::Function(FunctionItem::new(name, body, span.clone())),
+            span,
+        ))
     }
 
     fn parse_test_item(&mut self) -> OcelotResult<Item> {

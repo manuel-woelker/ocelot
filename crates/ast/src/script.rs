@@ -19,6 +19,7 @@ impl Script {
     /// Returns executable top-level statements in source order.
     pub fn statements(&self) -> impl Iterator<Item = &Statement> {
         self.items.iter().filter_map(|item| match &item.kind {
+            ItemKind::Function(_) => None,
             ItemKind::Statement(statement) => Some(statement),
             ItemKind::Test(_) => None,
         })

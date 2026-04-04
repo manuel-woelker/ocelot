@@ -4,9 +4,10 @@ use ocelot_ast::call_expression::CallExpression;
 use ocelot_ast::expression::Expression;
 use ocelot_ast::expression_kind::ExpressionKind;
 use ocelot_ast::expression_statement::ExpressionStatement;
+use ocelot_ast::function_item::FunctionItem;
+use ocelot_ast::function_kind::FunctionKind;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
-use ocelot_ast::native_function::NativeFunction;
 use ocelot_ast::not_expression::NotExpression;
 use ocelot_ast::program_environment::ProgramEnvironment;
 use ocelot_ast::script::Script;
@@ -15,7 +16,7 @@ use ocelot_ast::statement_kind::StatementKind;
 use ocelot_base::assertion_error::AssertionError;
 use ocelot_base::diagnostic_level::DiagnosticLevel;
 use ocelot_base::error::OcelotError;
-use ocelot_base::result::OcelotResult;
+use ocelot_base::result::{OcelotResult, OptionExt};
 use ocelot_base::shared_string::SharedString;
 use ocelot_base::source_annotation::SourceAnnotation;
 use ocelot_base::source_diagnostic::SourceDiagnostic;
@@ -28,6 +29,7 @@ use ocelot_pal::pal::Pal;
 pub struct Interpreter<'a> {
     environment: &'a ProgramEnvironment,
     pal: &'a dyn Pal,
+    script: &'a Script,
     source_file: &'a SourceFile,
 }
 
@@ -35,12 +37,14 @@ impl<'a> Interpreter<'a> {
     /// Creates an interpreter bound to one PAL implementation.
     pub fn new(
         pal: &'a dyn Pal,
+        script: &'a Script,
         source_file: &'a SourceFile,
         environment: &'a ProgramEnvironment,
     ) -> Self {
         Self {
             environment,
             pal,
+            script,
             source_file,
         }
     }
@@ -63,6 +67,7 @@ impl<'a> Interpreter<'a> {
 
     fn interpret_item(&self, item: &Item) -> OcelotResult<()> {
         match &item.kind {
+            ItemKind::Function(_) => Ok(()),
             ItemKind::Statement(statement) => self.interpret_statement(statement),
             ItemKind::Test(_) => Ok(()),
         }
@@ -105,10 +110,21 @@ impl<'a> Interpreter<'a> {
         let function_index = call_expression.function_index()?;
         let function = self.environment.function_definition(function_index)?;
 
-        match function.native_function {
-            NativeFunction::Assert => self.evaluate_assert_call(expression, call_expression),
-            NativeFunction::AssertEq => self.evaluate_assert_eq_call(expression, call_expression),
-            NativeFunction::Println => self.evaluate_println_call(call_expression),
+        match &function.kind {
+            FunctionKind::Native { native_function } => match native_function {
+                ocelot_ast::native_function::NativeFunction::Assert => {
+                    self.evaluate_assert_call(expression, call_expression)
+                }
+                ocelot_ast::native_function::NativeFunction::AssertEq => {
+                    self.evaluate_assert_eq_call(expression, call_expression)
+                }
+                ocelot_ast::native_function::NativeFunction::Println => {
+                    self.evaluate_println_call(call_expression)
+                }
+            },
+            FunctionKind::UserDefined { item_index } => {
+                self.evaluate_user_defined_call(call_expression, *item_index)
+            }
         }
     }
 
@@ -190,6 +206,34 @@ impl<'a> Interpreter<'a> {
             expected.render_for_assertion(),
             actual.render_for_assertion(),
         )))
+    }
+
+    fn evaluate_user_defined_call(
+        &self,
+        call_expression: &CallExpression,
+        item_index: usize,
+    ) -> OcelotResult<RuntimeValue> {
+        if !call_expression.arguments.is_empty() {
+            ocelot_base::bail!("type error: user-defined functions do not accept arguments yet");
+        }
+
+        let function_item = self.lookup_function_item(item_index)?;
+        self.interpret_statements(&function_item.body)?;
+        Ok(RuntimeValue::unit())
+    }
+
+    fn lookup_function_item(&self, item_index: usize) -> OcelotResult<&FunctionItem> {
+        let item = self
+            .script
+            .items
+            .get(item_index)
+            .context("internal error: function item index points outside the script")?;
+
+        let ItemKind::Function(function_item) = &item.kind else {
+            ocelot_base::bail!("internal error: function item index did not reference a function");
+        };
+
+        Ok(function_item)
     }
 
     fn runtime_source_error<T>(

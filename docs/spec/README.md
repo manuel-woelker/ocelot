@@ -68,6 +68,7 @@ The first numbered spec chapters are:
 - [02.02 Expressions - Prefix negation](./02.02%20Expressions%20-%20Prefix%20negation.md)
 - [10.01 Types - Booleans](./10.01%20Types%20-%20Booleans.md)
 - [15.01 Declarations - Test items](./15.01%20Declarations%20-%20Test%20items.md)
+- [15.02 Declarations - Function definitions](./15.02%20Declarations%20-%20Function%20definitions.md)
 - [28.01 Runtime behavior - Scripts](./28.01%20Runtime%20behavior%20-%20Scripts.md)
 - [28.02 Runtime behavior - Test items](./28.02%20Runtime%20behavior%20-%20Test%20items.md)
 - [30.01 Standard library - println](./30.01%20Standard%20library%20-%20println.md)
