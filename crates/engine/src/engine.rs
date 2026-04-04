@@ -367,9 +367,21 @@ mod tests {
         assert!(
             error
                 .to_test_string()
-                .contains("type error: `println` expects a string argument")
+                .contains("type error: `println` expects a string or boolean argument")
         );
         assert_eq!(pal.take_printed_output(), "hello\n");
+    }
+
+    #[test]
+    fn run_script_prints_boolean_values() {
+        let pal = PalMock::new();
+        pal.set_file("examples/booleans.ocelot", "println(true); println(false);");
+
+        let engine = Engine::new(PalHandle::new(pal.clone()));
+
+        engine.run_script("examples/booleans.ocelot").unwrap();
+
+        assert_eq!(pal.take_printed_output(), "true\nfalse\n");
     }
 
     #[test]

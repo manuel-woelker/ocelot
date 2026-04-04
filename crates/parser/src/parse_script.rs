@@ -27,6 +27,7 @@ pub fn parse_script(
 #[cfg(test)]
 mod tests {
     use super::parse_script;
+    use ocelot_ast::boolean_literal_expression::BooleanLiteralExpression;
     use ocelot_ast::call_expression::CallExpression;
     use ocelot_ast::expression_kind::ExpressionKind;
     use ocelot_ast::expression_statement::ExpressionStatement;
@@ -90,6 +91,84 @@ mod tests {
         assert_eq!(script.span.start(), 0);
         assert_eq!(script.span.end(), source_file.source().len());
         assert!(!context.has_errors());
+    }
+
+    #[test]
+    fn parses_true_as_a_boolean_literal_expression() {
+        let source_file = SourceFile::new("examples/booleans.ocelot", "true;");
+        let mut context = CompilationContext::default();
+
+        let script = parse_script(&source_file, &mut context).unwrap();
+
+        assert_eq!(script.items.len(), 1);
+        assert!(!context.has_errors());
+
+        match &script.items[0].kind {
+            ItemKind::Statement(statement) => match &statement.kind {
+                StatementKind::Expression(ExpressionStatement { expression }) => {
+                    assert_eq!(
+                        expression.kind,
+                        ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(true))
+                    );
+                }
+            },
+            other => panic!("expected statement item, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_false_as_a_boolean_literal_expression() {
+        let source_file = SourceFile::new("examples/booleans.ocelot", "false;");
+        let mut context = CompilationContext::default();
+
+        let script = parse_script(&source_file, &mut context).unwrap();
+
+        assert_eq!(script.items.len(), 1);
+        assert!(!context.has_errors());
+
+        match &script.items[0].kind {
+            ItemKind::Statement(statement) => match &statement.kind {
+                StatementKind::Expression(ExpressionStatement { expression }) => {
+                    assert_eq!(
+                        expression.kind,
+                        ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(false))
+                    );
+                }
+            },
+            other => panic!("expected statement item, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_boolean_literals_as_call_arguments() {
+        let source_file = SourceFile::new("examples/booleans.ocelot", "assert_eq(true, false);");
+        let mut context = CompilationContext::default();
+
+        let script = parse_script(&source_file, &mut context).unwrap();
+
+        assert_eq!(script.items.len(), 1);
+        assert!(!context.has_errors());
+
+        match &script.items[0].kind {
+            ItemKind::Statement(statement) => match &statement.kind {
+                StatementKind::Expression(ExpressionStatement { expression }) => {
+                    let ExpressionKind::Call(CallExpression { arguments, .. }) = &expression.kind
+                    else {
+                        panic!("expected call expression, got {:?}", expression.kind);
+                    };
+
+                    assert_eq!(
+                        arguments[0].kind,
+                        ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(true))
+                    );
+                    assert_eq!(
+                        arguments[1].kind,
+                        ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(false))
+                    );
+                }
+            },
+            other => panic!("expected statement item, got {other:?}"),
+        }
     }
 
     #[test]

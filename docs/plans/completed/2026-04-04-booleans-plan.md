@@ -100,11 +100,11 @@ The intended behavior is:
 
 This is still a small change and does not imply a general-purpose `Display` protocol.
 
-# What spec chapters should describe booleans?
+# What spec chapters describe booleans?
 
 Booleans need a proper type chapter plus at least one example in a user-facing behavior chapter.
 
-The recommended spec work is:
+The implemented spec work is:
 
 - add `10.01 Types - Booleans`
 - update [`docs/spec/30.01 Standard library - println.md`](/data/projects/ocelot/docs/spec/30.01%20Standard%20library%20-%20println.md) so it explicitly accepts booleans
@@ -121,7 +121,7 @@ The standard-library chapter should say this explicitly instead of quietly relyi
 
 # What examples should the repository add?
 
-The repository should add a small example file such as `examples/booleans.ocelot`.
+The repository now adds a small example file, `examples/booleans.ocelot`.
 
 That example should demonstrate something real but still stay within scope, for example:
 
@@ -130,7 +130,7 @@ That example should demonstrate something real but still stay within scope, for 
 
 The example should not fake operators or conditionals that the language does not support yet.
 
-# What tests should verify the feature?
+# What tests verified the feature?
 
 Verification should stay colocated and black-box where possible.
 
@@ -158,12 +158,12 @@ Interpreter or engine tests should cover:
 - `assert_eq(true, true);` succeeds
 - `assert_eq(true, false);` reports boolean values in the assertion output
 
-Spec validation should cover:
+Spec validation now covers:
 
 - successful boolean examples
 - updated `println()` examples showing boolean output
 
-# What implementation order is recommended?
+# What implementation order was used?
 
 1. Add a boolean literal AST node and extend `ExpressionKind`.
 2. Reserve `true` and `false` in the lexer.
@@ -178,21 +178,31 @@ Spec validation should cover:
 This order keeps the semantic model honest.
 Trying to document booleans before the runtime can actually carry them would just create churn.
 
-# What assumptions and open questions should stay explicit?
+# What assumptions and follow-up notes should stay explicit?
 
 - This plan assumes booleans are source literals only in the first slice and do not yet imply `if`, `&&`, `||`, or `!`.
 - The exact public source spelling of the primitive type should likely be `bool`, but the current implementation may not yet have any user-visible type annotation syntax.
   That is fine as long as the spec explains booleans as a primitive type in prose rather than pretending type annotations already exist.
 
+# What verification was completed?
+
+Verification completed with:
+
+- `cargo test -p ocelot-parser`
+- `cargo test -p ocelot-interpreter`
+- `cargo test -p ocelot-engine`
+- `cargo test -p ocelot-spec-validation`
+- `nao check`
+
 # What concrete tasks should track this plan?
 
-- [ ] Add a dedicated boolean literal AST node and extend `ExpressionKind` to use it.
-- [ ] Reserve `true` and `false` in the lexer without breaking longer identifiers.
-- [ ] Parse boolean literals as primary expressions.
-- [ ] Extend `RuntimeValue` with boolean support, equality behavior, and assertion rendering.
-- [ ] Teach the interpreter to evaluate boolean literals.
-- [ ] Update `println()` so it accepts booleans and renders them consistently.
-- [ ] Add colocated lexer, parser, runtime-value, interpreter, and engine coverage for boolean literals.
-- [ ] Add a `10.01 Types - Booleans` spec chapter and update related spec chapters as needed.
-- [ ] Add or update example `.ocelot` files that demonstrate boolean literals without introducing operators.
-- [ ] Run `nao check`.
+- [x] Add a dedicated boolean literal AST node and extend `ExpressionKind` to use it.
+- [x] Reserve `true` and `false` in the lexer without breaking longer identifiers.
+- [x] Parse boolean literals as primary expressions.
+- [x] Extend `RuntimeValue` with boolean support, equality behavior, and assertion rendering.
+- [x] Teach the interpreter to evaluate boolean literals.
+- [x] Update `println()` so it accepts booleans and renders them consistently.
+- [x] Add colocated lexer, parser, runtime-value, interpreter, and engine coverage for boolean literals.
+- [x] Add a `10.01 Types - Booleans` spec chapter and update related spec chapters as needed.
+- [x] Add or update example `.ocelot` files that demonstrate boolean literals without introducing operators.
+- [x] Run `nao check`.

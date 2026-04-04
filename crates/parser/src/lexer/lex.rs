@@ -87,7 +87,9 @@ pub fn lex(source_file: &SourceFile, context: &mut CompilationContext) -> Vec<To
                 }
 
                 let token_type = match &source[start..index] {
+                    "false" => TokenType::False,
                     "test" => TokenType::Test,
+                    "true" => TokenType::True,
                     _ => TokenType::Identifier,
                 };
                 tokens.push(Token::new(token_type, start, index));
@@ -296,6 +298,50 @@ mod tests {
                 TokenType::RightParen,
                 TokenType::Semicolon,
                 TokenType::RightBrace,
+                TokenType::EndOfFile,
+            ]
+        );
+        assert!(!context.has_errors());
+    }
+
+    #[test]
+    fn lexes_boolean_literals_as_reserved_tokens() {
+        let source_file = SourceFile::new("examples/booleans.ocelot", "true; false;");
+        let mut context = CompilationContext::default();
+        let token_types: Vec<_> = lex(&source_file, &mut context)
+            .into_iter()
+            .map(|token| token.token_type)
+            .collect();
+
+        assert_eq!(
+            token_types,
+            vec![
+                TokenType::True,
+                TokenType::Semicolon,
+                TokenType::False,
+                TokenType::Semicolon,
+                TokenType::EndOfFile,
+            ]
+        );
+        assert!(!context.has_errors());
+    }
+
+    #[test]
+    fn keeps_longer_identifiers_distinct_from_boolean_literals() {
+        let source_file = SourceFile::new("examples/booleans.ocelot", "true_value; falsey;");
+        let mut context = CompilationContext::default();
+        let token_types: Vec<_> = lex(&source_file, &mut context)
+            .into_iter()
+            .map(|token| token.token_type)
+            .collect();
+
+        assert_eq!(
+            token_types,
+            vec![
+                TokenType::Identifier,
+                TokenType::Semicolon,
+                TokenType::Identifier,
+                TokenType::Semicolon,
                 TokenType::EndOfFile,
             ]
         );

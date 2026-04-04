@@ -1,6 +1,7 @@
 use crate::lexer::lex::lex;
 use crate::lexer::token::Token;
 use crate::lexer::token_type::TokenType;
+use ocelot_ast::boolean_literal_expression::BooleanLiteralExpression;
 use ocelot_ast::call_expression::CallExpression;
 use ocelot_ast::expression::Expression;
 use ocelot_ast::expression_kind::ExpressionKind;
@@ -135,12 +136,26 @@ impl<'a> Parser<'a> {
         let token = self.current().clone();
 
         match token.token_type {
+            TokenType::False => {
+                self.position += 1;
+                Ok(Expression::new(
+                    ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(false)),
+                    token.span,
+                ))
+            }
             TokenType::String => {
                 self.position += 1;
                 let literal = self.source_text(&token.span);
                 let value = literal[1..literal.len() - 1].to_owned();
                 Ok(Expression::new(
                     ExpressionKind::StringLiteral(StringLiteralExpression::new(value)),
+                    token.span,
+                ))
+            }
+            TokenType::True => {
+                self.position += 1;
+                Ok(Expression::new(
+                    ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(true)),
                     token.span,
                 ))
             }

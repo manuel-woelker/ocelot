@@ -1,0 +1,6 @@
+println(true);
+println(false);
+
+test "boolean equality works" {
+    assert_eq(true, true);
+}

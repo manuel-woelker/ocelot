@@ -16,6 +16,7 @@ pub fn interpret_script(
 #[cfg(test)]
 mod tests {
     use super::interpret_script;
+    use ocelot_ast::boolean_literal_expression::BooleanLiteralExpression;
     use ocelot_ast::call_expression::CallExpression;
     use ocelot_ast::expression::Expression;
     use ocelot_ast::expression_kind::ExpressionKind;
@@ -149,6 +150,38 @@ mod tests {
     }
 
     #[test]
+    fn interprets_println_boolean_literal() {
+        let script = Script::new(
+            vec![Item::new(
+                ItemKind::Statement(Statement::new(
+                    StatementKind::Expression(ExpressionStatement::new(Expression::new(
+                        ExpressionKind::Call(CallExpression::new(
+                            Expression::new(
+                                ExpressionKind::Identifier(IdentifierExpression::new("println")),
+                                Span::new(0, 7),
+                            ),
+                            vec![Expression::new(
+                                ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(true)),
+                                Span::new(8, 12),
+                            )],
+                        )),
+                        Span::new(0, 13),
+                    ))),
+                    Span::new(0, 14),
+                )),
+                Span::new(0, 14),
+            )],
+            Span::new(0, 14),
+        );
+        let pal = PalMock::new();
+        let source_file = SourceFile::new("examples/booleans.ocelot", "println(true);");
+
+        interpret_script(&script, &source_file, &pal).unwrap();
+
+        assert_eq!(pal.take_printed_output(), "true\n");
+    }
+
+    #[test]
     fn interprets_assert_eq_when_values_match() {
         let script = Script::new(
             vec![Item::new(
@@ -177,6 +210,38 @@ mod tests {
             "examples/assertions.ocelot",
             "assert_eq(\"same\", \"same\");",
         );
+        let pal = PalMock::new();
+
+        interpret_script(&script, &source_file, &pal).unwrap();
+        assert_eq!(pal.take_printed_output(), "");
+    }
+
+    #[test]
+    fn interprets_assert_eq_for_boolean_values() {
+        let script = Script::new(
+            vec![Item::new(
+                ItemKind::Statement(Statement::new(
+                    StatementKind::Expression(ExpressionStatement::new(call_expression(
+                        "assert_eq",
+                        vec![
+                            Expression::new(
+                                ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(true)),
+                                Span::new(10, 14),
+                            ),
+                            Expression::new(
+                                ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(true)),
+                                Span::new(16, 20),
+                            ),
+                        ],
+                        Span::new(0, 21),
+                    ))),
+                    Span::new(0, 22),
+                )),
+                Span::new(0, 22),
+            )],
+            Span::new(0, 22),
+        );
+        let source_file = SourceFile::new("examples/assertions.ocelot", "assert_eq(true, true);");
         let pal = PalMock::new();
 
         interpret_script(&script, &source_file, &pal).unwrap();
@@ -214,6 +279,45 @@ mod tests {
         let error = interpret_script(&script, &source_file, &pal).unwrap_err();
 
         assert!(matches!(error.kind(), ErrorKind::AssertionError(_)));
+    }
+
+    #[test]
+    fn reports_boolean_assert_eq_mismatches_with_boolean_values() {
+        let script = Script::new(
+            vec![Item::new(
+                ItemKind::Statement(Statement::new(
+                    StatementKind::Expression(ExpressionStatement::new(call_expression(
+                        "assert_eq",
+                        vec![
+                            Expression::new(
+                                ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(true)),
+                                Span::new(10, 14),
+                            ),
+                            Expression::new(
+                                ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(
+                                    false,
+                                )),
+                                Span::new(16, 21),
+                            ),
+                        ],
+                        Span::new(0, 22),
+                    ))),
+                    Span::new(0, 23),
+                )),
+                Span::new(0, 23),
+            )],
+            Span::new(0, 23),
+        );
+        let source_file = SourceFile::new("examples/assertions.ocelot", "assert_eq(true, false);");
+        let pal = PalMock::new();
+
+        let error = interpret_script(&script, &source_file, &pal).unwrap_err();
+
+        let ErrorKind::AssertionError(assertion_error) = error.kind() else {
+            panic!("expected assertion error, got {:?}", error.kind());
+        };
+        assert_eq!(assertion_error.expected, "true");
+        assert_eq!(assertion_error.actual, "false");
     }
 
     #[test]

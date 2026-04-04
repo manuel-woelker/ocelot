@@ -15,11 +15,17 @@ ways.
 /// Runtime value used by the tree-walking interpreter.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeValue {
+    Boolean(bool),
     String(SharedString),
     Unit,
 }
 
 impl RuntimeValue {
+    /// Creates a boolean runtime value.
+    pub const fn boolean(value: bool) -> Self {
+        Self::Boolean(value)
+    }
+
     /// Creates a string runtime value.
     pub fn string(value: impl Into<SharedString>) -> Self {
         Self::String(value.into())
@@ -34,7 +40,16 @@ impl RuntimeValue {
     pub fn as_string(&self) -> Option<&SharedString> {
         match self {
             Self::String(value) => Some(value),
+            Self::Boolean(_) | Self::Unit => None,
+        }
+    }
+
+    /// Returns the inner boolean when this is a boolean value.
+    pub const fn as_boolean(&self) -> Option<bool> {
+        match self {
+            Self::Boolean(value) => Some(*value),
             Self::Unit => None,
+            Self::String(_) => None,
         }
     }
 
@@ -43,11 +58,20 @@ impl RuntimeValue {
         matches!(self, Self::Unit)
     }
 
+    /// Returns a stable user-facing rendering for printed output.
+    pub fn render_for_display(&self) -> SharedString {
+        match self {
+            Self::Boolean(value) => SharedString::from(if *value { "true" } else { "false" }),
+            Self::String(value) => value.clone(),
+            Self::Unit => SharedString::from("()"),
+        }
+    }
+
     /// Returns the inner string or a user-facing type error.
     pub fn expect_string(&self, message: impl AsRef<str>) -> OcelotResult<&SharedString> {
         match self {
             Self::String(value) => Ok(value),
-            Self::Unit => ocelot_base::bail!("{}", message.as_ref()),
+            Self::Boolean(_) | Self::Unit => ocelot_base::bail!("{}", message.as_ref()),
         }
     }
 
@@ -59,6 +83,7 @@ impl RuntimeValue {
     /// Returns a stable user-facing rendering for assertions.
     pub fn render_for_assertion(&self) -> SharedString {
         match self {
+            Self::Boolean(value) => SharedString::from(if *value { "true" } else { "false" }),
             Self::String(value) => SharedString::from(format!("\"{}\"", value)),
             Self::Unit => SharedString::from("()"),
         }
@@ -77,6 +102,15 @@ mod tests {
             value.as_string().map(|string| string.as_str()),
             Some("hello")
         );
+        assert!(!value.is_unit());
+    }
+
+    #[test]
+    fn boolean_constructor_builds_a_boolean_value() {
+        let value = RuntimeValue::boolean(true);
+
+        assert_eq!(value.as_boolean(), Some(true));
+        assert_eq!(value.as_string(), None);
         assert!(!value.is_unit());
     }
 
@@ -120,8 +154,23 @@ mod tests {
     }
 
     #[test]
+    fn render_for_assertion_renders_booleans_as_source_literals() {
+        let value = RuntimeValue::boolean(false);
+
+        assert_eq!(value.render_for_assertion(), "false");
+    }
+
+    #[test]
+    fn render_for_display_renders_booleans_and_strings() {
+        assert_eq!(RuntimeValue::boolean(true).render_for_display(), "true");
+        assert_eq!(RuntimeValue::string("hello").render_for_display(), "hello");
+    }
+
+    #[test]
     fn equals_compares_runtime_values() {
         assert!(RuntimeValue::string("hello").equals(&RuntimeValue::string("hello")));
+        assert!(RuntimeValue::boolean(true).equals(&RuntimeValue::boolean(true)));
+        assert!(!RuntimeValue::boolean(true).equals(&RuntimeValue::boolean(false)));
         assert!(!RuntimeValue::string("hello").equals(&RuntimeValue::unit()));
     }
 }

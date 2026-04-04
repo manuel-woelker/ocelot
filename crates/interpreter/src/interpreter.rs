@@ -1,4 +1,5 @@
 use crate::runtime_value::RuntimeValue;
+use ocelot_ast::boolean_literal_expression::BooleanLiteralExpression;
 use ocelot_ast::call_expression::CallExpression;
 use ocelot_ast::expression::Expression;
 use ocelot_ast::expression_kind::ExpressionKind;
@@ -66,6 +67,9 @@ impl<'a> Interpreter<'a> {
 
     fn evaluate_expression(&self, expression: &Expression) -> OcelotResult<RuntimeValue> {
         match &expression.kind {
+            ExpressionKind::BooleanLiteral(BooleanLiteralExpression { value }) => {
+                Ok(RuntimeValue::boolean(*value))
+            }
             ExpressionKind::Call(call_expression) => {
                 self.evaluate_call_expression(expression, call_expression)
             }
@@ -105,7 +109,12 @@ impl<'a> Interpreter<'a> {
         }
 
         let value = self.evaluate_expression(&call_expression.arguments[0])?;
-        let text = value.expect_string("type error: `println` expects a string argument")?;
+        let text = match &value {
+            RuntimeValue::Boolean(_) | RuntimeValue::String(_) => value.render_for_display(),
+            RuntimeValue::Unit => {
+                ocelot_base::bail!("type error: `println` expects a string or boolean argument")
+            }
+        };
 
         self.pal.print(&format!("{text}\n"))?;
         Ok(RuntimeValue::unit())

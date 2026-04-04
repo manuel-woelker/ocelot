@@ -131,6 +131,10 @@ mod tests {
                 .unwrap(),
         );
         inner_pal.set_file(
+            "docs/spec/10.01 Types - Booleans.md",
+            std::fs::read_to_string(repo_root.join("docs/spec/10.01 Types - Booleans.md")).unwrap(),
+        );
+        inner_pal.set_file(
             "docs/spec/28.01 Runtime behavior - Scripts.md",
             std::fs::read_to_string(
                 repo_root.join("docs/spec/28.01 Runtime behavior - Scripts.md"),
@@ -175,9 +179,9 @@ mod tests {
         .unwrap();
 
         expect![[r#"
-            8
-            15
-            15
+            9
+            18
+            18
             0
         "#]]
         .assert_eq(&format!(
