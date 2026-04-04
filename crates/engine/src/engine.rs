@@ -214,14 +214,14 @@ impl Engine {
         ocelot_resolver::resolution::finish_resolution(&compilation_context)?;
 
         let compilation_session = self.create_compilation_session();
-        let mut environment = self.create_program_environment();
+        let mut program_index = self.create_program_index();
         let mut module_environments: HashMap<FilePath, ModuleEnvironment> = modules
             .iter()
             .map(|module| (module.source_file.path.clone(), ModuleEnvironment::new()))
             .collect();
 
         for module in &modules {
-            environment.add_module(module.module_name.clone());
+            program_index.add_module(module.module_name.clone());
         }
 
         for module in &mut modules {
@@ -229,7 +229,7 @@ impl Engine {
                 &mut module.script,
                 &module.source_file,
                 &mut compilation_context,
-                &mut environment,
+                &mut program_index,
             )?;
         }
 
@@ -239,7 +239,7 @@ impl Engine {
                 module.module_name.as_str(),
                 &module.source_file,
                 &mut compilation_context,
-                &mut environment,
+                &mut program_index,
                 module_environments
                     .get_mut(&module.source_file.path)
                     .expect("module environment should exist for loaded module"),
@@ -253,14 +253,12 @@ impl Engine {
                 module.module_name.as_str(),
                 &module.source_file,
                 &mut compilation_context,
-                &mut environment,
+                &mut program_index,
                 module_environments
                     .get_mut(&module.source_file.path)
                     .expect("module environment should exist for loaded module"),
             )?;
         }
-
-        let program_index = ProgramIndex::from_environment(&environment);
 
         for module in &mut modules {
             ocelot_resolver::resolution::resolve_module_items(
@@ -283,6 +281,7 @@ impl Engine {
                 &module_environments,
                 &compilation_session,
             )?;
+        let mut environment = ProgramEnvironment::from_program_index(&program_index);
         environment.apply_resolved_functions(resolved_functions)?;
         ocelot_resolver::resolution::finish_resolution(&compilation_context)?;
 
@@ -325,8 +324,8 @@ impl Engine {
         ))
     }
 
-    fn create_program_environment(&self) -> ProgramEnvironment {
-        ProgramEnvironment::new()
+    fn create_program_index(&self) -> ProgramIndex {
+        ProgramIndex::new()
     }
 
     fn create_compilation_session(&self) -> CompilationSession {

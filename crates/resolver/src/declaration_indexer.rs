@@ -22,24 +22,167 @@ use ocelot_semantic::function_kind::FunctionKind;
 use ocelot_semantic::module_environment::ModuleEnvironment;
 use ocelot_semantic::native_function::native_type_label;
 use ocelot_semantic::program_environment::ProgramEnvironment;
+use ocelot_semantic::program_index::ProgramIndex;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 
-pub(crate) struct DeclarationIndexer<'a> {
+pub trait DeclarationIndex {
+    fn resolve_effect(&self, name: &str) -> Option<EffectIndex>;
+    fn effect_definition(&self, effect_index: EffectIndex) -> OcelotResult<&Effect>;
+    fn add_effect(&mut self, effect: Effect) -> EffectIndex;
+    fn qualify_function_name(&self, module_name: &str, function_name: &str) -> SharedString;
+    fn resolve_function_exact(
+        &self,
+        name: &str,
+    ) -> Option<ocelot_ast::function_index::FunctionIndex>;
+    fn function_definition(
+        &self,
+        function_index: ocelot_ast::function_index::FunctionIndex,
+    ) -> OcelotResult<&FunctionDefinition>;
+    fn add_function(
+        &mut self,
+        function: FunctionDefinition,
+    ) -> ocelot_ast::function_index::FunctionIndex;
+    fn add_module(&mut self, module_name: impl Into<SharedString>);
+    fn has_module(&self, module_name: &str) -> bool;
+    fn resolve_type(&self, name: &str) -> Option<TypeIndex>;
+    fn type_definition(&self, type_index: TypeIndex) -> OcelotResult<&ocelot_ast::ty::Ty>;
+    fn any_type_index(&self) -> TypeIndex;
+}
+
+impl DeclarationIndex for ProgramIndex {
+    fn resolve_effect(&self, name: &str) -> Option<EffectIndex> {
+        ProgramIndex::resolve_effect(self, name)
+    }
+
+    fn effect_definition(&self, effect_index: EffectIndex) -> OcelotResult<&Effect> {
+        ProgramIndex::effect_definition(self, effect_index)
+    }
+
+    fn add_effect(&mut self, effect: Effect) -> EffectIndex {
+        ProgramIndex::add_effect(self, effect)
+    }
+
+    fn qualify_function_name(&self, module_name: &str, function_name: &str) -> SharedString {
+        ProgramIndex::qualify_function_name(self, module_name, function_name)
+    }
+
+    fn resolve_function_exact(
+        &self,
+        name: &str,
+    ) -> Option<ocelot_ast::function_index::FunctionIndex> {
+        ProgramIndex::resolve_function_exact(self, name)
+    }
+
+    fn function_definition(
+        &self,
+        function_index: ocelot_ast::function_index::FunctionIndex,
+    ) -> OcelotResult<&FunctionDefinition> {
+        ProgramIndex::function_definition(self, function_index)
+    }
+
+    fn add_function(
+        &mut self,
+        function: FunctionDefinition,
+    ) -> ocelot_ast::function_index::FunctionIndex {
+        ProgramIndex::add_function(self, function)
+    }
+
+    fn add_module(&mut self, module_name: impl Into<SharedString>) {
+        ProgramIndex::add_module(self, module_name);
+    }
+
+    fn has_module(&self, module_name: &str) -> bool {
+        ProgramIndex::has_module(self, module_name)
+    }
+
+    fn resolve_type(&self, name: &str) -> Option<TypeIndex> {
+        ProgramIndex::resolve_type(self, name)
+    }
+
+    fn type_definition(&self, type_index: TypeIndex) -> OcelotResult<&ocelot_ast::ty::Ty> {
+        ProgramIndex::type_definition(self, type_index)
+    }
+
+    fn any_type_index(&self) -> TypeIndex {
+        ProgramIndex::any_type_index(self)
+    }
+}
+
+impl DeclarationIndex for ProgramEnvironment {
+    fn resolve_effect(&self, name: &str) -> Option<EffectIndex> {
+        ProgramEnvironment::resolve_effect(self, name)
+    }
+
+    fn effect_definition(&self, effect_index: EffectIndex) -> OcelotResult<&Effect> {
+        ProgramEnvironment::effect_definition(self, effect_index)
+    }
+
+    fn add_effect(&mut self, effect: Effect) -> EffectIndex {
+        ProgramEnvironment::add_effect(self, effect)
+    }
+
+    fn qualify_function_name(&self, module_name: &str, function_name: &str) -> SharedString {
+        ProgramEnvironment::qualify_function_name(self, module_name, function_name)
+    }
+
+    fn resolve_function_exact(
+        &self,
+        name: &str,
+    ) -> Option<ocelot_ast::function_index::FunctionIndex> {
+        ProgramEnvironment::resolve_function_exact(self, name)
+    }
+
+    fn function_definition(
+        &self,
+        function_index: ocelot_ast::function_index::FunctionIndex,
+    ) -> OcelotResult<&FunctionDefinition> {
+        ProgramEnvironment::function_definition(self, function_index)
+    }
+
+    fn add_function(
+        &mut self,
+        function: FunctionDefinition,
+    ) -> ocelot_ast::function_index::FunctionIndex {
+        ProgramEnvironment::add_function(self, function)
+    }
+
+    fn add_module(&mut self, module_name: impl Into<SharedString>) {
+        ProgramEnvironment::add_module(self, module_name);
+    }
+
+    fn has_module(&self, module_name: &str) -> bool {
+        ProgramEnvironment::has_module(self, module_name)
+    }
+
+    fn resolve_type(&self, name: &str) -> Option<TypeIndex> {
+        ProgramEnvironment::resolve_type(self, name)
+    }
+
+    fn type_definition(&self, type_index: TypeIndex) -> OcelotResult<&ocelot_ast::ty::Ty> {
+        ProgramEnvironment::type_definition(self, type_index)
+    }
+
+    fn any_type_index(&self) -> TypeIndex {
+        ProgramEnvironment::any_type_index(self)
+    }
+}
+
+pub(crate) struct DeclarationIndexer<'a, D: DeclarationIndex> {
     source_file: &'a SourceFile,
     module_name: &'a str,
     compilation_context: &'a mut CompilationContext,
-    environment: &'a mut ProgramEnvironment,
+    declaration_index: &'a mut D,
     module_environment: &'a mut ModuleEnvironment,
     compilation_session: &'a CompilationSession,
 }
 
-impl<'a> DeclarationIndexer<'a> {
+impl<'a, D: DeclarationIndex> DeclarationIndexer<'a, D> {
     pub(crate) fn new(
         source_file: &'a SourceFile,
         module_name: &'a str,
         compilation_context: &'a mut CompilationContext,
-        environment: &'a mut ProgramEnvironment,
+        declaration_index: &'a mut D,
         module_environment: &'a mut ModuleEnvironment,
         compilation_session: &'a CompilationSession,
     ) -> Self {
@@ -47,7 +190,7 @@ impl<'a> DeclarationIndexer<'a> {
             source_file,
             module_name,
             compilation_context,
-            environment,
+            declaration_index,
             module_environment,
             compilation_session,
         }
@@ -96,11 +239,11 @@ impl<'a> DeclarationIndexer<'a> {
 
     fn register_effect_item(&mut self, effect_item: EffectItem) {
         if let Some(effect_index) = self
-            .environment
+            .declaration_index
             .resolve_effect(effect_item.identifier.name.as_str())
         {
             let existing_effect = self
-                .environment
+                .declaration_index
                 .effect_definition(effect_index)
                 .expect("resolved effect index should point at a definition");
 
@@ -137,7 +280,7 @@ impl<'a> DeclarationIndexer<'a> {
             return;
         }
 
-        self.environment.add_effect(Effect::declared(
+        self.declaration_index.add_effect(Effect::declared(
             effect_item.identifier.name.clone(),
             effect_item.identifier.span.clone(),
             self.source_file.clone(),
@@ -146,15 +289,15 @@ impl<'a> DeclarationIndexer<'a> {
 
     fn register_function_item(&mut self, mut function_item: FunctionItem) -> OcelotResult<()> {
         let qualified_name = self
-            .environment
+            .declaration_index
             .qualify_function_name(self.module_name, function_item.identifier.name.as_str());
 
         if let Some(function_index) = self
-            .environment
+            .declaration_index
             .resolve_function_exact(qualified_name.as_str())
         {
             let existing_function = self
-                .environment
+                .declaration_index
                 .function_definition(function_index)
                 .expect("resolved function index should point at a definition");
             let duplicate_with_original = match &existing_function.kind {
@@ -218,7 +361,7 @@ impl<'a> DeclarationIndexer<'a> {
             for (declared_type, expected_type) in
                 argument_types.iter().zip(signature.argument_types.iter())
             {
-                let declared_kind = self.environment.type_definition(*declared_type)?.kind;
+                let declared_kind = self.declaration_index.type_definition(*declared_type)?.kind;
                 if declared_kind != *expected_type {
                     ocelot_base::bail!(
                         "internal error: native function `{qualified_name}` declaration type `{}` does not match registered type `{}`",
@@ -228,18 +371,19 @@ impl<'a> DeclarationIndexer<'a> {
                 }
             }
 
-            self.environment.add_function(FunctionDefinition::native(
-                self.module_name,
-                qualified_name,
-                argument_types,
-                native_function,
-                can_effects,
-                cannot_effects,
-            ));
+            self.declaration_index
+                .add_function(FunctionDefinition::native(
+                    self.module_name,
+                    qualified_name,
+                    argument_types,
+                    native_function,
+                    can_effects,
+                    cannot_effects,
+                ));
             return Ok(());
         }
 
-        self.environment
+        self.declaration_index
             .add_function(FunctionDefinition::user_defined(
                 self.module_name,
                 qualified_name,
@@ -255,7 +399,7 @@ impl<'a> DeclarationIndexer<'a> {
     fn register_use_item(&mut self, use_item: UseItem) {
         let module_name = use_item.module_path.render();
 
-        if !self.environment.has_module(module_name.as_str()) {
+        if !self.declaration_index.has_module(module_name.as_str()) {
             self.add_diagnostic(
                 format!("unknown module `{module_name}`"),
                 use_item.module_path.span(),
@@ -272,11 +416,11 @@ impl<'a> DeclarationIndexer<'a> {
     fn register_imported_name(&mut self, module_name: &str, imported_name: Identifier) {
         let local_name = imported_name.name.clone();
         let qualified_name = self
-            .environment
+            .declaration_index
             .qualify_function_name(module_name, local_name.as_str());
 
         let Some(function_index) = self
-            .environment
+            .declaration_index
             .resolve_function_exact(qualified_name.as_str())
         else {
             self.add_diagnostic(
@@ -288,9 +432,9 @@ impl<'a> DeclarationIndexer<'a> {
         };
 
         if self
-            .environment
+            .declaration_index
             .resolve_function_exact(
-                self.environment
+                self.declaration_index
                     .qualify_function_name(self.module_name, local_name.as_str())
                     .as_str(),
             )
@@ -332,7 +476,9 @@ impl<'a> DeclarationIndexer<'a> {
             return BTreeSet::new();
         };
 
-        let Some(effect_index) = self.environment.resolve_effect(clause.effect.name.as_str())
+        let Some(effect_index) = self
+            .declaration_index
+            .resolve_effect(clause.effect.name.as_str())
         else {
             self.add_diagnostic(
                 format!("unknown effect `{}`", clause.effect.name),
@@ -419,7 +565,7 @@ impl<'a> DeclarationIndexer<'a> {
             .iter_mut()
             .map(|parameter| {
                 let Some(type_index) = self
-                    .environment
+                    .declaration_index
                     .resolve_type(parameter.type_name.name.as_str())
                 else {
                     self.add_diagnostic(
@@ -432,7 +578,8 @@ impl<'a> DeclarationIndexer<'a> {
                 };
 
                 parameter.ty = type_index;
-                if !function_item.is_native && type_index == self.environment.any_type_index() {
+                if !function_item.is_native && type_index == self.declaration_index.any_type_index()
+                {
                     self.add_diagnostic(
                         "`any` may only be used in native function signatures",
                         parameter.type_name.span.clone(),
@@ -448,7 +595,7 @@ impl<'a> DeclarationIndexer<'a> {
     }
 
     fn type_label(&self, type_index: TypeIndex) -> SharedString {
-        self.environment
+        self.declaration_index
             .type_definition(type_index)
             .map(|ty| ty.name.clone())
             .unwrap_or_else(|_| "unknown".into())

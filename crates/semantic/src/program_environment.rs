@@ -5,7 +5,6 @@ use ocelot_ast::function_item::FunctionItem;
 use ocelot_ast::identifier::Identifier;
 use ocelot_ast::ty::Ty;
 use ocelot_ast::type_index::TypeIndex;
-use ocelot_ast::type_kind::TypeKind;
 use ocelot_base::result::{OcelotResult, OptionExt};
 use ocelot_base::shared_string::SharedString;
 use std::collections::HashMap;
@@ -13,6 +12,7 @@ use std::collections::HashSet;
 
 use crate::function_definition::FunctionDefinition;
 use crate::function_kind::FunctionKind;
+use crate::program_index::ProgramIndex;
 use crate::resolved_function::ResolvedFunction;
 /// Shared program-level data needed by resolution and interpretation.
 #[derive(Debug, Clone)]
@@ -35,24 +35,20 @@ impl Default for ProgramEnvironment {
 impl ProgramEnvironment {
     /// Creates a program environment seeded with primitive types and native implementations.
     pub fn new() -> Self {
-        let mut environment = Self {
-            functions: vec![None],
-            function_symbols: HashMap::new(),
-            module_symbols: HashSet::new(),
-            effects: vec![Effect::builtin("__reserved_effect_slot__")],
-            effect_symbols: HashMap::new(),
-            types: vec![Ty::new("unresolved", TypeKind::Unresolved)],
-            type_symbols: HashMap::new(),
-        };
-
-        environment.seed_builtin_types();
-        environment
+        Self::from_program_index(&ProgramIndex::new())
     }
 
-    fn seed_builtin_types(&mut self) {
-        self.add_type(Ty::new("any", TypeKind::Any));
-        self.add_type(Ty::new("string", TypeKind::String));
-        self.add_type(Ty::new("bool", TypeKind::Boolean));
+    /// Creates a mutable program environment from one declaration index.
+    pub fn from_program_index(program_index: &ProgramIndex) -> Self {
+        Self {
+            functions: program_index.functions.clone(),
+            function_symbols: program_index.function_symbols.clone(),
+            module_symbols: program_index.module_symbols.clone(),
+            effects: program_index.effects.clone(),
+            effect_symbols: program_index.effect_symbols.clone(),
+            types: program_index.types.clone(),
+            type_symbols: program_index.type_symbols.clone(),
+        }
     }
 
     /// Resolves one effect name to its table handle.

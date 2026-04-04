@@ -1,3 +1,4 @@
+use crate::declaration_indexer::DeclarationIndex;
 use crate::declaration_indexer::DeclarationIndexer;
 use crate::effect_propagation::propagate_function_effects;
 use crate::resolver::Resolver;
@@ -33,17 +34,18 @@ pub fn resolve(
     environment: &mut ProgramEnvironment,
     compilation_session: &CompilationSession,
 ) -> OcelotResult<()> {
-    register_core_module(compilation_context, environment, compilation_session)?;
+    let mut program_index = ProgramIndex::new();
+    register_core_module(compilation_context, &mut program_index, compilation_session)?;
     let module_name = default_module_name(source_file);
     let mut module_environment = ModuleEnvironment::new();
-    environment.add_module(module_name.clone());
-    register_module_effects(script, source_file, compilation_context, environment)?;
+    program_index.add_module(module_name.clone());
+    register_module_effects(script, source_file, compilation_context, &mut program_index)?;
     register_module_functions(
         script,
         &module_name,
         source_file,
         compilation_context,
-        environment,
+        &mut program_index,
         &mut module_environment,
         compilation_session,
     )?;
@@ -52,10 +54,9 @@ pub fn resolve(
         &module_name,
         source_file,
         compilation_context,
-        environment,
+        &mut program_index,
         &mut module_environment,
     )?;
-    let program_index = ProgramIndex::from_environment(environment);
     resolve_module_items(
         script,
         &module_name,
@@ -71,6 +72,7 @@ pub fn resolve(
         &HashMap::from([(source_file.path.clone(), module_environment)]),
         compilation_session,
     )?;
+    *environment = ProgramEnvironment::from_program_index(&program_index);
     environment.apply_resolved_functions(resolved_functions)?;
     finish_resolution(compilation_context)
 }
@@ -78,10 +80,10 @@ pub fn resolve(
 /// Registers the compiler-provided `core` module into one program environment.
 pub fn register_core_module(
     compilation_context: &mut CompilationContext,
-    environment: &mut ProgramEnvironment,
+    declaration_index: &mut impl DeclarationIndex,
     compilation_session: &CompilationSession,
 ) -> OcelotResult<()> {
-    if environment.has_module(CORE_MODULE_NAME) {
+    if declaration_index.has_module(CORE_MODULE_NAME) {
         return Ok(());
     }
 
@@ -89,14 +91,19 @@ pub fn register_core_module(
     let mut script = ocelot_parser::parse_script::parse_script(&source_file, compilation_context)?;
     let mut module_environment = ModuleEnvironment::new();
 
-    environment.add_module(CORE_MODULE_NAME);
-    register_module_effects(&mut script, &source_file, compilation_context, environment)?;
+    declaration_index.add_module(CORE_MODULE_NAME);
+    register_module_effects(
+        &mut script,
+        &source_file,
+        compilation_context,
+        declaration_index,
+    )?;
     register_module_functions(
         &mut script,
         CORE_MODULE_NAME,
         &source_file,
         compilation_context,
-        environment,
+        declaration_index,
         &mut module_environment,
         compilation_session,
     )?;
@@ -108,7 +115,7 @@ pub fn register_module_effects(
     script: &mut Script,
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
-    environment: &mut ProgramEnvironment,
+    declaration_index: &mut impl DeclarationIndex,
 ) -> OcelotResult<()> {
     let compilation_session = CompilationSession::new();
     let mut module_environment = ModuleEnvironment::new();
@@ -116,7 +123,7 @@ pub fn register_module_effects(
         source_file,
         "",
         compilation_context,
-        environment,
+        declaration_index,
         &mut module_environment,
         &compilation_session,
     )
@@ -130,7 +137,7 @@ pub fn register_module_functions(
     module_name: &str,
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
-    environment: &mut ProgramEnvironment,
+    declaration_index: &mut impl DeclarationIndex,
     module_environment: &mut ModuleEnvironment,
     compilation_session: &CompilationSession,
 ) -> OcelotResult<()> {
@@ -138,7 +145,7 @@ pub fn register_module_functions(
         source_file,
         module_name,
         compilation_context,
-        environment,
+        declaration_index,
         module_environment,
         compilation_session,
     )
@@ -152,7 +159,7 @@ pub fn register_module_imports(
     module_name: &str,
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
-    environment: &mut ProgramEnvironment,
+    declaration_index: &mut impl DeclarationIndex,
     module_environment: &mut ModuleEnvironment,
 ) -> OcelotResult<()> {
     let compilation_session = CompilationSession::new();
@@ -160,7 +167,7 @@ pub fn register_module_imports(
         source_file,
         module_name,
         compilation_context,
-        environment,
+        declaration_index,
         module_environment,
         &compilation_session,
     )
