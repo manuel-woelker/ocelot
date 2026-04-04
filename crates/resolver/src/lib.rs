@@ -781,7 +781,11 @@ fn violation_source(
         if called_function.inferred_effects.contains(&effect_index) {
             return Ok(Some((
                 span.clone(),
-                "call introduces forbidden effect".into(),
+                format!(
+                    "this has a `{}` effect",
+                    effect_label(environment, effect_index)?
+                )
+                .into(),
             )));
         }
     }
@@ -789,7 +793,11 @@ fn violation_source(
     if let Some(span) = function.direct_effect_sources.get(&effect_index) {
         return Ok(Some((
             span.clone(),
-            "call introduces forbidden effect".into(),
+            format!(
+                "this has a `{}` effect",
+                effect_label(environment, effect_index)?
+            )
+            .into(),
         )));
     }
 
@@ -798,6 +806,13 @@ fn violation_source(
     }
 
     Ok(None)
+}
+
+fn effect_label(
+    environment: &ProgramEnvironment,
+    effect_index: EffectIndex,
+) -> OcelotResult<SharedString> {
+    Ok(environment.effect_definition(effect_index)?.name.clone())
 }
 
 fn source_diagnostic_for_span(
