@@ -12,6 +12,7 @@ ocelot-base = { path = "../base", version = "0.1.2" }
 ocelot-interpreter = { path = "../interpreter", version = "0.1.2" }
 ocelot-pal = { path = "../pal", version = "0.1.2" }
 ocelot-parser = { path = "../parser", version = "0.1.2" }
+ocelot-resolver = { path = "../resolver", version = "0.1.2" }
 
 [dev-dependencies]
 expect-test = "1.5.1"

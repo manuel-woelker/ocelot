@@ -407,6 +407,7 @@ dependencies = [
  "ocelot-interpreter",
  "ocelot-pal",
  "ocelot-parser",
+ "ocelot-resolver",
 ]
 
 [[package]]
@@ -416,6 +417,7 @@ dependencies = [
  "ocelot-ast",
  "ocelot-base",
  "ocelot-pal",
+ "ocelot-resolver",
 ]
 
 [[package]]

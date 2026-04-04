@@ -6,7 +6,9 @@ use ocelot_ast::expression_kind::ExpressionKind;
 use ocelot_ast::expression_statement::ExpressionStatement;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
+use ocelot_ast::native_function::NativeFunction;
 use ocelot_ast::not_expression::NotExpression;
+use ocelot_ast::program_environment::ProgramEnvironment;
 use ocelot_ast::script::Script;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
@@ -24,14 +26,23 @@ use ocelot_pal::pal::Pal;
 
 /// Stateful AST-walking interpreter context.
 pub struct Interpreter<'a> {
+    environment: &'a ProgramEnvironment,
     pal: &'a dyn Pal,
     source_file: &'a SourceFile,
 }
 
 impl<'a> Interpreter<'a> {
     /// Creates an interpreter bound to one PAL implementation.
-    pub fn new(pal: &'a dyn Pal, source_file: &'a SourceFile) -> Self {
-        Self { pal, source_file }
+    pub fn new(
+        pal: &'a dyn Pal,
+        source_file: &'a SourceFile,
+        environment: &'a ProgramEnvironment,
+    ) -> Self {
+        Self {
+            environment,
+            pal,
+            source_file,
+        }
     }
 
     /// Executes a script AST.
@@ -91,15 +102,13 @@ impl<'a> Interpreter<'a> {
         expression: &Expression,
         call_expression: &CallExpression,
     ) -> OcelotResult<RuntimeValue> {
-        let ExpressionKind::Identifier(identifier) = &call_expression.callee.kind else {
-            ocelot_base::bail!("only identifier calls are supported")
-        };
+        let function_index = call_expression.function_index()?;
+        let function = self.environment.function_definition(function_index)?;
 
-        match identifier.name.as_str() {
-            "assert" => self.evaluate_assert_call(expression, call_expression),
-            "assert_eq" => self.evaluate_assert_eq_call(expression, call_expression),
-            "println" => self.evaluate_println_call(call_expression),
-            _ => ocelot_base::bail!("unknown native function `{}`", identifier.name),
+        match function.native_function {
+            NativeFunction::Assert => self.evaluate_assert_call(expression, call_expression),
+            NativeFunction::AssertEq => self.evaluate_assert_eq_call(expression, call_expression),
+            NativeFunction::Println => self.evaluate_println_call(call_expression),
         }
     }
 

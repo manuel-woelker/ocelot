@@ -1,4 +1,5 @@
 use crate::interpreter::Interpreter;
+use ocelot_ast::program_environment::ProgramEnvironment;
 use ocelot_ast::script::Script;
 use ocelot_base::result::OcelotResult;
 use ocelot_base::source_file::SourceFile;
@@ -8,14 +9,15 @@ use ocelot_pal::pal::Pal;
 pub fn interpret_script(
     script: &Script,
     source_file: &SourceFile,
+    environment: &ProgramEnvironment,
     pal: &dyn Pal,
 ) -> OcelotResult<()> {
-    Interpreter::new(pal, source_file).interpret_script(script)
+    Interpreter::new(pal, source_file, environment).interpret_script(script)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::interpret_script;
+    use super::interpret_script as interpret_resolved_script;
     use ocelot_ast::boolean_literal_expression::BooleanLiteralExpression;
     use ocelot_ast::call_expression::CallExpression;
     use ocelot_ast::expression::Expression;
@@ -25,15 +27,31 @@ mod tests {
     use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
     use ocelot_ast::not_expression::NotExpression;
+    use ocelot_ast::program_environment::ProgramEnvironment;
     use ocelot_ast::script::Script;
     use ocelot_ast::statement::Statement;
     use ocelot_ast::statement_kind::StatementKind;
     use ocelot_ast::string_literal_expression::StringLiteralExpression;
     use ocelot_ast::test_item::TestItem;
+    use ocelot_base::compilation_context::CompilationContext;
     use ocelot_base::error::ErrorKind;
+    use ocelot_base::result::OcelotResult;
     use ocelot_base::source_file::SourceFile;
     use ocelot_base::span::Span;
     use ocelot_pal::pal_mock::PalMock;
+    use ocelot_resolver::resolve;
+
+    fn interpret_script(
+        script: &Script,
+        source_file: &SourceFile,
+        pal: &PalMock,
+    ) -> OcelotResult<()> {
+        let environment = ProgramEnvironment::native();
+        let mut script = script.clone();
+        let mut context = CompilationContext::default();
+        resolve(&mut script, source_file, &mut context, &environment)?;
+        interpret_resolved_script(&script, source_file, &environment, pal)
+    }
 
     fn call_expression(name: &str, arguments: Vec<Expression>, span: Span) -> Expression {
         Expression::new(

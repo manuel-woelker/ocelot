@@ -54,7 +54,9 @@ mod tests {
             ItemKind::Statement(statement) => match &statement.kind {
                 StatementKind::Expression(ExpressionStatement { expression }) => {
                     match &expression.kind {
-                        ExpressionKind::Call(CallExpression { callee, arguments }) => {
+                        ExpressionKind::Call(CallExpression {
+                            callee, arguments, ..
+                        }) => {
                             match &callee.kind {
                                 ExpressionKind::Identifier(identifier) => {
                                     assert_eq!(identifier.name, "println");
@@ -247,7 +249,9 @@ mod tests {
                         panic!("expected not expression, got {:?}", expression.kind);
                     };
 
-                    let ExpressionKind::Call(CallExpression { callee, arguments }) = &operand.kind
+                    let ExpressionKind::Call(CallExpression {
+                        callee, arguments, ..
+                    }) = &operand.kind
                     else {
                         panic!("expected call operand, got {:?}", operand.kind);
                     };
