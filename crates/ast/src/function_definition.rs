@@ -23,7 +23,7 @@ impl FunctionDefinition {
     /// Creates a new user-defined function definition.
     pub fn user_defined(function: crate::function_item::FunctionItem) -> Self {
         Self {
-            name: function.name.clone(),
+            name: function.identifier.name.clone(),
             kind: FunctionKind::UserDefined {
                 function: Box::new(function),
             },

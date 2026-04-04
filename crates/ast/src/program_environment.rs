@@ -2,6 +2,7 @@ use crate::function_definition::FunctionDefinition;
 use crate::function_index::FunctionIndex;
 use crate::function_item::FunctionItem;
 use crate::function_kind::FunctionKind;
+use crate::identifier::Identifier;
 use ocelot_base::result::{OcelotResult, OptionExt};
 use ocelot_base::shared_string::SharedString;
 use std::collections::HashMap;
@@ -101,8 +102,7 @@ impl ProgramEnvironment {
         Ok(std::mem::replace(
             function,
             Box::new(FunctionItem::new(
-                "",
-                ocelot_base::span::Span::default(),
+                Identifier::new("", ocelot_base::span::Span::default()),
                 Vec::new(),
                 ocelot_base::span::Span::default(),
             )),
@@ -137,6 +137,7 @@ mod tests {
     use crate::function_index::FunctionIndex;
     use crate::function_item::FunctionItem;
     use crate::function_kind::FunctionKind;
+    use crate::identifier::Identifier;
     use crate::native_function::NativeFunction;
     use ocelot_base::span::Span;
     #[test]
@@ -187,9 +188,12 @@ mod tests {
             NativeFunction::Println,
         )]);
 
-        let function_index = environment.add_function(FunctionDefinition::user_defined(
-            FunctionItem::new("greet", Span::new(4, 9), Vec::new(), Span::new(0, 13)),
-        ));
+        let function_index =
+            environment.add_function(FunctionDefinition::user_defined(FunctionItem::new(
+                Identifier::new("greet", Span::new(4, 9)),
+                Vec::new(),
+                Span::new(0, 13),
+            )));
 
         assert_eq!(environment.resolve_function("greet"), Some(function_index));
         assert!(matches!(
@@ -206,8 +210,7 @@ mod tests {
         let environment = ProgramEnvironment::new(vec![
             FunctionDefinition::native("println", NativeFunction::Println),
             FunctionDefinition::user_defined(FunctionItem::new(
-                "greet",
-                Span::new(4, 9),
+                Identifier::new("greet", Span::new(4, 9)),
                 Vec::new(),
                 Span::new(0, 13),
             )),
@@ -222,15 +225,18 @@ mod tests {
 
     #[test]
     fn take_and_put_user_defined_function_round_trips() {
-        let mut environment = ProgramEnvironment::new(vec![FunctionDefinition::user_defined(
-            FunctionItem::new("greet", Span::new(4, 9), Vec::new(), Span::new(0, 13)),
-        )]);
+        let mut environment =
+            ProgramEnvironment::new(vec![FunctionDefinition::user_defined(FunctionItem::new(
+                Identifier::new("greet", Span::new(4, 9)),
+                Vec::new(),
+                Span::new(0, 13),
+            ))]);
         let function_index = FunctionIndex::new(1);
 
         let function = environment
             .take_user_defined_function(function_index)
             .unwrap();
-        assert_eq!(function.name, "greet");
+        assert_eq!(function.identifier.name, "greet");
 
         environment
             .put_user_defined_function(function_index, function)

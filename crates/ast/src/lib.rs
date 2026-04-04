@@ -9,6 +9,7 @@ pub mod function_definition;
 pub mod function_index;
 pub mod function_item;
 pub mod function_kind;
+pub mod identifier;
 pub mod identifier_expression;
 pub mod item;
 pub mod item_kind;

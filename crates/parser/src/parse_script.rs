@@ -329,7 +329,7 @@ mod tests {
 
         match &script.items[0].kind {
             ItemKind::Function(function_item) => {
-                assert_eq!(function_item.name, "greet");
+                assert_eq!(function_item.identifier.name, "greet");
                 assert_eq!(function_item.body.len(), 1);
             }
             other => panic!("expected function item, got {other:?}"),

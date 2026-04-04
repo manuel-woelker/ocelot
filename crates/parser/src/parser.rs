@@ -7,6 +7,7 @@ use ocelot_ast::expression::Expression;
 use ocelot_ast::expression_kind::ExpressionKind;
 use ocelot_ast::expression_statement::ExpressionStatement;
 use ocelot_ast::function_item::FunctionItem;
+use ocelot_ast::identifier::Identifier;
 use ocelot_ast::identifier_expression::IdentifierExpression;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
@@ -109,7 +110,11 @@ impl<'a> Parser<'a> {
         let right_brace = self.expect(TokenType::RightBrace, "expected `}` after function body")?;
         let span = Span::new(fun_token.span.start(), right_brace.span.end());
         Ok(Item::new(
-            ItemKind::Function(FunctionItem::new(name, name_token.span, body, span.clone())),
+            ItemKind::Function(FunctionItem::new(
+                Identifier::new(name, name_token.span),
+                body,
+                span.clone(),
+            )),
             span,
         ))
     }

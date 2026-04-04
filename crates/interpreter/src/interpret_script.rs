@@ -25,6 +25,7 @@ mod tests {
     use ocelot_ast::expression_statement::ExpressionStatement;
     use ocelot_ast::function_definition::FunctionDefinition;
     use ocelot_ast::function_item::FunctionItem;
+    use ocelot_ast::identifier::Identifier;
     use ocelot_ast::identifier_expression::IdentifierExpression;
     use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
@@ -190,8 +191,7 @@ mod tests {
             vec![
                 Item::new(
                     ItemKind::Function(FunctionItem::new(
-                        "greet",
-                        Span::new(4, 9),
+                        Identifier::new("greet", Span::new(4, 9)),
                         vec![Statement::new(
                             StatementKind::Expression(ExpressionStatement::new(call_expression(
                                 "println",

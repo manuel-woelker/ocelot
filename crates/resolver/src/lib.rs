@@ -102,7 +102,10 @@ impl<'a> Resolver<'a> {
     }
 
     fn register_function_item(&mut self, function_item: FunctionItem) {
-        if let Some(function_index) = self.environment.resolve_function(&function_item.name) {
+        if let Some(function_index) = self
+            .environment
+            .resolve_function(&function_item.identifier.name)
+        {
             let existing_function = self
                 .environment
                 .function_definition(function_index)
@@ -118,9 +121,9 @@ impl<'a> Resolver<'a> {
                 self.add_diagnostic(
                     format!(
                         "function `{}` conflicts with native function",
-                        function_item.name
+                        function_item.identifier.name
                     ),
-                    function_item.name_span.clone(),
+                    function_item.identifier.span.clone(),
                     "duplicate function",
                 );
             }
@@ -222,13 +225,17 @@ impl<'a> Resolver<'a> {
     ) {
         let diagnostic = self
             .source_diagnostic(
-                format!("duplicate function `{}`", duplicate_function.name),
-                duplicate_function.name_span.clone(),
+                format!(
+                    "duplicate function `{}`",
+                    duplicate_function.identifier.name
+                ),
+                duplicate_function.identifier.span.clone(),
                 "duplicate function",
             )
-            .with_excerpt(
-                self.source_excerpt(original_function.name_span.clone(), "already defined here"),
-            );
+            .with_excerpt(self.source_excerpt(
+                original_function.identifier.span.clone(),
+                "already defined here",
+            ));
         self.compilation_context.add_diagnostic(diagnostic);
     }
 
@@ -281,6 +288,7 @@ mod tests {
     use ocelot_ast::function_definition::FunctionDefinition;
     use ocelot_ast::function_item::FunctionItem;
     use ocelot_ast::function_kind::FunctionKind;
+    use ocelot_ast::identifier::Identifier;
     use ocelot_ast::identifier_expression::IdentifierExpression;
     use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
@@ -512,8 +520,7 @@ mod tests {
             vec![
                 Item::new(
                     ItemKind::Function(FunctionItem::new(
-                        "greet",
-                        Span::new(4, 9),
+                        Identifier::new("greet", Span::new(4, 9)),
                         vec![Statement::new(
                             StatementKind::Expression(ExpressionStatement::new(call(
                                 identifier("println", Span::new(14, 21)),
@@ -579,8 +586,7 @@ mod tests {
                 ),
                 Item::new(
                     ItemKind::Function(FunctionItem::new(
-                        "greet",
-                        Span::new(13, 18),
+                        Identifier::new("greet", Span::new(13, 18)),
                         Vec::new(),
                         Span::new(9, 22),
                     )),
@@ -613,8 +619,7 @@ mod tests {
         let mut script = Script::new(
             vec![Item::new(
                 ItemKind::Function(FunctionItem::new(
-                    "greet",
-                    Span::new(4, 9),
+                    Identifier::new("greet", Span::new(4, 9)),
                     vec![Statement::new(
                         StatementKind::Expression(ExpressionStatement::new(call(
                             identifier("println", Span::new(14, 21)),
@@ -659,8 +664,7 @@ mod tests {
             vec![
                 Item::new(
                     ItemKind::Function(FunctionItem::new(
-                        "greet",
-                        Span::new(4, 9),
+                        Identifier::new("greet", Span::new(4, 9)),
                         Vec::new(),
                         Span::new(0, 13),
                     )),
@@ -668,8 +672,7 @@ mod tests {
                 ),
                 Item::new(
                     ItemKind::Function(FunctionItem::new(
-                        "greet",
-                        Span::new(18, 23),
+                        Identifier::new("greet", Span::new(18, 23)),
                         Vec::new(),
                         Span::new(14, 27),
                     )),
@@ -703,8 +706,7 @@ mod tests {
         let mut script = Script::new(
             vec![Item::new(
                 ItemKind::Function(FunctionItem::new(
-                    "println",
-                    Span::new(4, 11),
+                    Identifier::new("println", Span::new(4, 11)),
                     Vec::new(),
                     Span::new(0, 15),
                 )),
