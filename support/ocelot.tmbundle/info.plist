@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>name</key>
+  <string>Ocelot</string>
+  <key>uuid</key>
+  <string>F23B0E22-6E6F-4D1A-A7A1-6CFF4A5D1B3C</string>
+  <key>description</key>
+  <string>TextMate bundle for the Ocelot language</string>
+</dict>
+</plist>
