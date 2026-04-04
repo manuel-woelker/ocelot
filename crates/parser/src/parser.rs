@@ -11,6 +11,7 @@ use ocelot_ast::identifier::Identifier;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_ast::not_expression::NotExpression;
+use ocelot_ast::qualified_identifier::QualifiedIdentifier;
 use ocelot_ast::script::Script;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
@@ -213,16 +214,7 @@ impl<'a> Parser<'a> {
                     token.span,
                 ))
             }
-            TokenType::Identifier => {
-                self.position += 1;
-                Ok(Expression::new(
-                    ExpressionKind::Identifier(Identifier::new(
-                        self.source_text(&token.span),
-                        token.span.clone(),
-                    )),
-                    token.span,
-                ))
-            }
+            TokenType::Identifier => self.parse_identifier_expression(),
             TokenType::Not => self.emit_fatal_diagnostic(
                 "expected expression after `not`",
                 token.span,
@@ -237,6 +229,40 @@ impl<'a> Parser<'a> {
                 "expression expected here",
             ),
         }
+    }
+
+    fn parse_identifier_expression(&mut self) -> OcelotResult<Expression> {
+        let first_token = self.expect(TokenType::Identifier, "expected identifier")?;
+        let mut segments = vec![Identifier::new(
+            self.source_text(&first_token.span),
+            first_token.span.clone(),
+        )];
+
+        while self.at(TokenType::DoubleColon) {
+            self.position += 1;
+            let segment_token =
+                self.expect(TokenType::Identifier, "expected identifier after `::`")?;
+            segments.push(Identifier::new(
+                self.source_text(&segment_token.span),
+                segment_token.span.clone(),
+            ));
+        }
+
+        if segments.len() == 1 {
+            let identifier = segments.pop().expect("single identifier should exist");
+            let span = identifier.span.clone();
+            return Ok(Expression::new(
+                ExpressionKind::Identifier(identifier),
+                span,
+            ));
+        }
+
+        let qualified_identifier = QualifiedIdentifier::new(segments);
+        let span = qualified_identifier.span();
+        Ok(Expression::new(
+            ExpressionKind::QualifiedIdentifier(qualified_identifier),
+            span,
+        ))
     }
 
     fn parse_call_expression_suffix(&mut self, callee: Expression) -> OcelotResult<Expression> {
@@ -366,4 +392,38 @@ fn is_parser_compilation_error(error: &OcelotError) -> bool {
         error.kind(),
         ErrorKind::CompilationError(CompilationStage::Parser)
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Parser;
+    use ocelot_ast::expression_kind::ExpressionKind;
+    use ocelot_ast::expression_statement::ExpressionStatement;
+    use ocelot_ast::item_kind::ItemKind;
+    use ocelot_ast::statement_kind::StatementKind;
+    use ocelot_base::compilation_context::CompilationContext;
+    use ocelot_base::source_file::SourceFile;
+
+    #[test]
+    fn parses_qualified_call_targets() {
+        let source_file = SourceFile::new("examples/module.ocelot", "math::greet::hello();");
+        let mut compilation_context = CompilationContext::default();
+        let mut parser = Parser::new(&source_file, &mut compilation_context);
+
+        let script = parser.parse_script().unwrap();
+        let ItemKind::Statement(statement) = &script.items[0].kind else {
+            panic!("expected statement");
+        };
+        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+        let ExpressionKind::Call(call_expression) = &expression.kind else {
+            panic!("expected call expression");
+        };
+        let ExpressionKind::QualifiedIdentifier(qualified_identifier) =
+            &call_expression.callee.kind
+        else {
+            panic!("expected qualified identifier");
+        };
+
+        assert_eq!(qualified_identifier.render().as_str(), "math::greet::hello");
+    }
 }

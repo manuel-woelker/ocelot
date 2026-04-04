@@ -9,6 +9,7 @@ use ocelot_ast::function_kind::FunctionKind;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_ast::not_expression::NotExpression;
 use ocelot_ast::program_environment::ProgramEnvironment;
+use ocelot_ast::qualified_identifier::QualifiedIdentifier;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
 use ocelot_base::assertion_error::AssertionError;
@@ -89,6 +90,9 @@ impl<'a> Interpreter<'a> {
             ExpressionKind::StringLiteral(string_literal) => {
                 Ok(RuntimeValue::string(string_literal.value.clone()))
             }
+            ExpressionKind::QualifiedIdentifier(identifier) => {
+                self.unresolved_qualified_identifier_error(expression, identifier)
+            }
             ExpressionKind::Identifier(identifier) => self.runtime_source_error(
                 format!("unresolved identifier `{}`", identifier.name),
                 expression.span.clone(),
@@ -117,9 +121,10 @@ impl<'a> Interpreter<'a> {
                     self.evaluate_println_call(call_expression)
                 }
             },
-            FunctionKind::UserDefined { function } => {
-                self.evaluate_user_defined_call(call_expression, function)
-            }
+            FunctionKind::UserDefined {
+                function,
+                source_file,
+            } => self.evaluate_user_defined_call(call_expression, function, source_file),
         }
     }
 
@@ -207,13 +212,27 @@ impl<'a> Interpreter<'a> {
         &self,
         call_expression: &CallExpression,
         function: &FunctionItem,
+        source_file: &SourceFile,
     ) -> OcelotResult<RuntimeValue> {
         if !call_expression.arguments.is_empty() {
             ocelot_base::bail!("type error: user-defined functions do not accept arguments yet");
         }
 
-        self.interpret_statements(&function.body)?;
+        Interpreter::new(self.pal, source_file, self.environment)
+            .interpret_statements(&function.body)?;
         Ok(RuntimeValue::unit())
+    }
+
+    fn unresolved_qualified_identifier_error<T>(
+        &self,
+        expression: &Expression,
+        identifier: &QualifiedIdentifier,
+    ) -> OcelotResult<T> {
+        self.runtime_source_error(
+            format!("unresolved identifier `{}`", identifier.render()),
+            expression.span.clone(),
+            "not found",
+        )
     }
 
     fn runtime_source_error<T>(

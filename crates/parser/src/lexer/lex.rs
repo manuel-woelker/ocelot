@@ -38,6 +38,10 @@ pub fn lex(source_file: &SourceFile, context: &mut CompilationContext) -> Vec<To
                 tokens.push(Token::new(TokenType::Comma, index, index + 1));
                 index += 1;
             }
+            b':' if index + 1 < bytes.len() && bytes[index + 1] == b':' => {
+                tokens.push(Token::new(TokenType::DoubleColon, index, index + 2));
+                index += 2;
+            }
             b')' => {
                 tokens.push(Token::new(TokenType::RightParen, index, index + 1));
                 index += 1;
@@ -752,5 +756,30 @@ mod tests {
             vec![TokenType::Unexpected, TokenType::EndOfFile]
         );
         assert!(!context.has_errors());
+    }
+
+    #[test]
+    fn lexes_double_colon_qualified_identifiers() {
+        let source_file = SourceFile::new("examples/module.ocelot", "math::greet::hello();");
+        let mut context = CompilationContext::default();
+        let token_types: Vec<_> = lex(&source_file, &mut context)
+            .into_iter()
+            .map(|token| token.token_type)
+            .collect();
+
+        assert_eq!(
+            token_types,
+            vec![
+                TokenType::Identifier,
+                TokenType::DoubleColon,
+                TokenType::Identifier,
+                TokenType::DoubleColon,
+                TokenType::Identifier,
+                TokenType::LeftParen,
+                TokenType::RightParen,
+                TokenType::Semicolon,
+                TokenType::EndOfFile,
+            ]
+        );
     }
 }

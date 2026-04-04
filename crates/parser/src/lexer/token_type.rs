@@ -8,6 +8,7 @@ pub enum TokenType {
     Not,
     True,
     Comma,
+    DoubleColon,
     LeftParen,
     RightParen,
     LeftBrace,

@@ -15,6 +15,7 @@ pub mod item_kind;
 pub mod native_function;
 pub mod not_expression;
 pub mod program_environment;
+pub mod qualified_identifier;
 pub mod script;
 pub mod statement;
 pub mod statement_kind;

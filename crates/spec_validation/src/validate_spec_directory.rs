@@ -114,6 +114,8 @@ mod tests {
             r#"
 ## Example: output example
 
+main.ocelot:
+
 ```ocelot
 println("hello");
 ```
@@ -130,19 +132,21 @@ hello
             r#"
 ## Example: error example
 
+main.ocelot:
+
 ```ocelot
-printline("hello");
+helper::greet();
 ```
 
 ### Error
 
 ```text
-error: unknown function `printline`
-  ╭▸ spec-test.ocelot:1:1
+error: unknown module `helper`
+  ╭▸ main.ocelot:1:1
   │
-1 │ printline("hello");
-  ╰╴━━━━━━━━━ unknown function
-at spec-test.ocelot:1:1
+1 │ helper::greet();
+  ╰╴━━━━━━━━━━━━━ unknown module
+at main.ocelot:1:1
 ```
 "#,
         );
@@ -150,6 +154,8 @@ at spec-test.ocelot:1:1
             "docs/spec/03.01 Broken chapter.md",
             r#"
 ## Example: missing expectation
+
+main.ocelot:
 
 ```ocelot
 println("oops");
@@ -191,6 +197,8 @@ println("oops");
             r#"
 ## Example: mismatch
 
+main.ocelot:
+
 ```ocelot
 println("hello");
 ```
@@ -230,6 +238,8 @@ goodbye
             r#"
 ## Example: requires one argument
 
+main.ocelot:
+
 ```ocelot
 println();
 ```
@@ -266,6 +276,8 @@ different error
             r#"
 ## Example: should fail
 
+main.ocelot:
+
 ```ocelot
 println("hello");
 ```
@@ -299,6 +311,8 @@ some error
             "docs/spec/30.01 Standard library - println.md",
             r#"
 ## Example: should print
+
+main.ocelot:
 
 ```ocelot
 println();

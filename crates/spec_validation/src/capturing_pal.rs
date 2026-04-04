@@ -37,6 +37,12 @@ impl CapturingPal {
     pub fn take_printed_output(&self) -> String {
         std::mem::take(&mut *self.printed_output.write())
     }
+
+    /// Clears all virtual files and directories created for one example run.
+    pub fn clear_virtual_files(&self) {
+        self.virtual_files.write().clear();
+        self.virtual_directories.write().clear();
+    }
 }
 
 impl Pal for CapturingPal {
@@ -82,8 +88,9 @@ impl Pal for CapturingPal {
     ) -> OcelotResult<Box<dyn Iterator<Item = OcelotResult<FilePath>> + '_>> {
         let mut results = self
             .inner
-            .walk_directory(path, globs)?
-            .collect::<Vec<OcelotResult<FilePath>>>();
+            .walk_directory(path, globs)
+            .map(|entries| entries.collect::<Vec<OcelotResult<FilePath>>>())
+            .unwrap_or_default();
         results.extend(
             self.virtual_files
                 .read()

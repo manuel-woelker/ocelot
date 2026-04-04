@@ -9,6 +9,7 @@ pub mod render_validation_error;
 pub mod render_validation_report;
 pub mod run_validation_runner;
 pub mod spec_example;
+pub mod spec_example_file;
 pub mod validate_spec_directory;
 pub mod validation_failure;
 pub mod validation_failure_kind;

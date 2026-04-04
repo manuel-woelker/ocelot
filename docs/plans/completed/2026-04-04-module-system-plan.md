@@ -199,20 +199,37 @@ Verification should include colocated tests for:
 - Native functions should remain available without module qualification in this slice. Forcing `std::println()` now would add ceremony without benefit.
 - The filename-label format is intentionally outside the fenced code block so rendered examples stay readable without pretending the label is valid `ocelot` syntax.
 
+# What landed from this plan?
+
+This slice landed a first file-based module system plus multi-file spec validation support:
+
+- the lexer and parser now support `::`-qualified call targets
+- the AST now includes [`QualifiedIdentifier`](/data/projects/ocelot/crates/ast/src/qualified_identifier.rs) backed by `Vec<Identifier>`
+- the engine now eagerly loads all `.ocelot` files under the entry file's directory, derives module names from relative paths, and compiles them as one loaded program
+- user-defined functions are now registered under fully qualified module names in [`ProgramEnvironment`](/data/projects/ocelot/crates/ast/src/program_environment.rs)
+- the resolver now resolves local unqualified calls within the current module, qualified module calls across loaded files, and reports missing modules or missing module functions with resolver diagnostics
+- user-defined function execution now preserves the defining source file for runtime diagnostics across module boundaries
+- spec validation now supports one or more filename-labeled `ocelot` blocks per example, writes all declared files into an isolated virtual PAL root, and runs `main.ocelot`
+- the spec chapters were updated to the new example format, and [`25.01 Modules - File modules`](/data/projects/ocelot/docs/spec/25.01%20Modules%20-%20File%20modules.md) documents the new semantics
+- `cargo test -p ocelot-parser -p ocelot-ast -p ocelot-resolver -p ocelot-interpreter -p ocelot-engine`
+- `cargo test -p ocelot-spec-validation`
+- `cargo run -p ocelot-spec-validation`
+- `nao check`
+
 # What concrete tasks should track this plan?
 
-- [ ] Add a spec chapter describing the first module-system semantics and examples.
-- [ ] Add lexer support for `::`.
-- [ ] Add `QualifiedIdentifier` as a `Vec<Identifier>`-backed AST node for qualified call target paths.
-- [ ] Extend the parser to accept `::`-qualified call targets while keeping unsupported callee forms rejected.
-- [ ] Introduce program/module data structures that track loaded source files and each file's module name.
-- [ ] Register user-defined functions under fully qualified names in [`ProgramEnvironment`](/data/projects/ocelot/crates/ast/src/program_environment.rs).
-- [ ] Teach the engine to eagerly load all `.ocelot` files relative to the entry file's directory before parsing and resolution.
-- [ ] Update the resolver to resolve local and module-qualified function calls across loaded files.
-- [ ] Add resolver diagnostics for missing module files and missing functions within loaded modules.
-- [ ] Update interpreter and engine tests for multi-file execution.
-- [ ] Replace single-source spec examples with named file collections in [`SpecExample`](/data/projects/ocelot/crates/spec_validation/src/spec_example.rs).
-- [ ] Extend markdown example parsing to read filename label lines that precede fenced `ocelot` blocks.
-- [ ] Update spec-example execution to initialize the PAL with every declared file and run `main.ocelot`.
-- [ ] Add spec-validation tests for multi-file success and malformed-example failures.
-- [ ] Run `nao check`.
+- [x] Add a spec chapter describing the first module-system semantics and examples.
+- [x] Add lexer support for `::`.
+- [x] Add `QualifiedIdentifier` as a `Vec<Identifier>`-backed AST node for qualified call target paths.
+- [x] Extend the parser to accept `::`-qualified call targets while keeping unsupported callee forms rejected.
+- [x] Introduce program/module data structures that track loaded source files and each file's module name.
+- [x] Register user-defined functions under fully qualified names in [`ProgramEnvironment`](/data/projects/ocelot/crates/ast/src/program_environment.rs).
+- [x] Teach the engine to eagerly load all `.ocelot` files relative to the entry file's directory before parsing and resolution.
+- [x] Update the resolver to resolve local and module-qualified function calls across loaded files.
+- [x] Add resolver diagnostics for missing module files and missing functions within loaded modules.
+- [x] Update interpreter and engine tests for multi-file execution.
+- [x] Replace single-source spec examples with named file collections in [`SpecExample`](/data/projects/ocelot/crates/spec_validation/src/spec_example.rs).
+- [x] Extend markdown example parsing to read filename label lines that precede fenced `ocelot` blocks.
+- [x] Update spec-example execution to initialize the PAL with every declared file and run `main.ocelot`.
+- [x] Add spec-validation tests for multi-file success and malformed-example failures.
+- [x] Run `nao check`.

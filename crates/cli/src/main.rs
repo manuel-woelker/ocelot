@@ -304,26 +304,29 @@ mod tests {
     }
 
     #[test]
-    fn collects_parse_errors_without_stopping_other_test_files() {
+    fn collects_parse_errors_without_stopping_other_test_roots() {
         let pal = PalMock::new();
         pal.set_file(
-            "examples/good.ocelot",
+            "examples/good/good.ocelot",
             "test \"passes\" { println(\"ok\"); }",
         );
-        pal.set_file("examples/bad.ocelot", "println(\"hello);");
+        pal.set_file("examples/bad/bad.ocelot", "println(\"hello);");
         let pal = PalHandle::new(pal.clone());
         let engine = Engine::new(pal.clone());
 
         let summary = run_test_files(
             &engine,
             &pal,
-            &["examples/good.ocelot".into(), "examples/bad.ocelot".into()],
+            &[
+                "examples/good/good.ocelot".into(),
+                "examples/bad/bad.ocelot".into(),
+            ],
         )
         .unwrap();
 
         assert_eq!(summary.passed.as_slice(), ["passes"]);
         assert_eq!(summary.failed.len(), 1);
-        assert_eq!(summary.failed[0].name, "examples/bad.ocelot");
+        assert_eq!(summary.failed[0].name, "examples/bad/bad.ocelot");
         assert!(
             summary.failed[0]
                 .message

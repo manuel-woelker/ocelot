@@ -38,6 +38,8 @@ mod tests {
             r#"
 ## Example: mismatch
 
+main.ocelot:
+
 ```ocelot
 println("hello");
 ```

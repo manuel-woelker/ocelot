@@ -2,12 +2,15 @@ use crate::expected_outcome::ExpectedOutcome;
 use crate::loaded_spec_chapter::LoadedSpecChapter;
 use crate::normalize_validation_text::normalize_validation_text;
 use crate::spec_example::SpecExample;
+use crate::spec_example_file::SpecExampleFile;
 use crate::validation_failure::ValidationFailure;
 use crate::validation_failure_kind::ValidationFailureKind;
 use ocelot_base::file_path::FilePath;
 use ocelot_base::result::OcelotResult;
 use ocelot_base::shared_string::SharedString;
 use ocelot_pal::pal::Pal;
+use std::collections::HashSet;
+use std::path::Path;
 
 /// Loads numbered spec chapters from markdown files in filename order.
 pub fn load_spec_chapters(
@@ -47,11 +50,12 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
     let mut examples = Vec::new();
     let mut malformed_failures = Vec::new();
 
-    let mut example_name: Option<String> = None;
-    let mut example_line_number = 0usize;
-    let mut source_block: Option<String> = None;
+    let mut current_example: Option<(String, usize)> = None;
+    let mut source_files: Vec<SpecExampleFile> = Vec::new();
+    let mut saw_source_block = false;
     let mut expected_outcome: Option<ExpectedOutcome> = None;
     let mut waiting_for_expectation = None;
+    let mut pending_source_label: Option<String> = None;
     let mut line_index = 0usize;
 
     while line_index < lines.len() {
@@ -63,19 +67,20 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
                 path,
                 &mut examples,
                 &mut malformed_failures,
-                &mut example_name,
-                &mut source_block,
+                &mut current_example,
+                &mut source_files,
+                &mut saw_source_block,
                 &mut expected_outcome,
-                example_line_number,
             );
-            example_name = Some(rest.trim().to_owned());
-            example_line_number = line_index + 1;
+            current_example = Some((rest.trim().to_owned(), line_index + 1));
             waiting_for_expectation = None;
+            pending_source_label = None;
+            saw_source_block = false;
             line_index += 1;
             continue;
         }
 
-        if example_name.is_none() {
+        if current_example.is_none() {
             line_index += 1;
             continue;
         }
@@ -84,8 +89,14 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
             if waiting_for_expectation.is_some() || expected_outcome.is_some() {
                 malformed_failures.push(new_malformed_failure(
                     path,
-                    example_name.as_deref().unwrap_or("unknown example"),
-                    example_line_number,
+                    current_example
+                        .as_ref()
+                        .map(|(name, _)| name.as_str())
+                        .unwrap_or("unknown example"),
+                    current_example
+                        .as_ref()
+                        .map(|(_, line_number)| *line_number)
+                        .unwrap_or_default(),
                     "example must contain exactly one `### Output` or `### Error` section",
                 ));
             } else {
@@ -95,27 +106,51 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
             continue;
         }
 
+        if let Some(file_name) = parse_source_file_label(trimmed) {
+            pending_source_label = Some(file_name.to_owned());
+            line_index += 1;
+            continue;
+        }
+
         if trimmed == "```ocelot" {
+            saw_source_block = true;
             let Some(block_end) = find_closing_fence(&lines, line_index + 1) else {
                 malformed_failures.push(new_malformed_failure(
                     path,
-                    example_name.as_deref().unwrap_or("unknown example"),
-                    example_line_number,
+                    current_example
+                        .as_ref()
+                        .map(|(name, _)| name.as_str())
+                        .unwrap_or("unknown example"),
+                    current_example
+                        .as_ref()
+                        .map(|(_, line_number)| *line_number)
+                        .unwrap_or_default(),
                     "missing closing fence for `ocelot` block",
                 ));
                 break;
             };
 
-            if source_block.is_some() {
+            let Some(file_name) = pending_source_label.take() else {
                 malformed_failures.push(new_malformed_failure(
                     path,
-                    example_name.as_deref().unwrap_or("unknown example"),
-                    example_line_number,
-                    "example must contain exactly one `ocelot` block",
+                    current_example
+                        .as_ref()
+                        .map(|(name, _)| name.as_str())
+                        .unwrap_or("unknown example"),
+                    current_example
+                        .as_ref()
+                        .map(|(_, line_number)| *line_number)
+                        .unwrap_or_default(),
+                    "`ocelot` blocks must have a preceding `path/to/file.ocelot:` label",
                 ));
-            } else {
-                source_block = Some(lines[line_index + 1..block_end].join("\n"));
-            }
+                line_index = block_end + 1;
+                continue;
+            };
+
+            source_files.push(SpecExampleFile::new(
+                file_name,
+                lines[line_index + 1..block_end].join("\n"),
+            ));
             waiting_for_expectation = None;
             line_index = block_end + 1;
             continue;
@@ -125,8 +160,14 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
             let Some(block_end) = find_closing_fence(&lines, line_index + 1) else {
                 malformed_failures.push(new_malformed_failure(
                     path,
-                    example_name.as_deref().unwrap_or("unknown example"),
-                    example_line_number,
+                    current_example
+                        .as_ref()
+                        .map(|(name, _)| name.as_str())
+                        .unwrap_or("unknown example"),
+                    current_example
+                        .as_ref()
+                        .map(|(_, line_number)| *line_number)
+                        .unwrap_or_default(),
                     "missing closing fence for `text` block",
                 ));
                 break;
@@ -135,8 +176,14 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
             let Some(expectation_kind) = waiting_for_expectation.take() else {
                 malformed_failures.push(new_malformed_failure(
                     path,
-                    example_name.as_deref().unwrap_or("unknown example"),
-                    example_line_number,
+                    current_example
+                        .as_ref()
+                        .map(|(name, _)| name.as_str())
+                        .unwrap_or("unknown example"),
+                    current_example
+                        .as_ref()
+                        .map(|(_, line_number)| *line_number)
+                        .unwrap_or_default(),
                     "`text` block must appear under `### Output` or `### Error`",
                 ));
                 line_index = block_end + 1;
@@ -146,8 +193,14 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
             if expected_outcome.is_some() {
                 malformed_failures.push(new_malformed_failure(
                     path,
-                    example_name.as_deref().unwrap_or("unknown example"),
-                    example_line_number,
+                    current_example
+                        .as_ref()
+                        .map(|(name, _)| name.as_str())
+                        .unwrap_or("unknown example"),
+                    current_example
+                        .as_ref()
+                        .map(|(_, line_number)| *line_number)
+                        .unwrap_or_default(),
                     "example must contain exactly one expectation block",
                 ));
             } else {
@@ -170,10 +223,10 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
         path,
         &mut examples,
         &mut malformed_failures,
-        &mut example_name,
-        &mut source_block,
+        &mut current_example,
+        &mut source_files,
+        &mut saw_source_block,
         &mut expected_outcome,
-        example_line_number,
     );
 
     LoadedSpecChapter {
@@ -187,36 +240,75 @@ fn finalize_example(
     path: &FilePath,
     examples: &mut Vec<SpecExample>,
     malformed_failures: &mut Vec<ValidationFailure>,
-    example_name: &mut Option<String>,
-    source_block: &mut Option<String>,
+    current_example: &mut Option<(String, usize)>,
+    source_files: &mut Vec<SpecExampleFile>,
+    saw_source_block: &mut bool,
     expected_outcome: &mut Option<ExpectedOutcome>,
-    example_line_number: usize,
 ) {
-    let Some(name) = example_name.take() else {
+    let Some((name, example_line_number)) = current_example.take() else {
         return;
     };
 
-    match (source_block.take(), expected_outcome.take()) {
-        (Some(source), Some(expected_outcome)) => examples.push(SpecExample {
-            chapter_path: path.clone(),
-            name: SharedString::from(name),
-            source: SharedString::from(source),
-            expected_outcome,
-            line_number: example_line_number,
-        }),
-        (None, _) => malformed_failures.push(new_malformed_failure(
-            path,
-            &name,
-            example_line_number,
-            "example is missing its fenced `ocelot` block",
-        )),
-        (_, None) => malformed_failures.push(new_malformed_failure(
+    match (
+        std::mem::take(source_files),
+        *saw_source_block,
+        expected_outcome.take(),
+    ) {
+        (example_source_files, false, Some(_expected_outcome))
+            if example_source_files.is_empty() =>
+        {
+            malformed_failures.push(new_malformed_failure(
+                path,
+                &name,
+                example_line_number,
+                "example is missing its fenced `ocelot` block",
+            ))
+        }
+        (example_source_files, _, Some(expected_outcome)) => {
+            let mut seen_paths = HashSet::new();
+            let duplicate_path = example_source_files.iter().find_map(|source_file| {
+                (!seen_paths.insert(source_file.path.clone())).then(|| source_file.path.clone())
+            });
+
+            if let Some(duplicate_path) = duplicate_path {
+                malformed_failures.push(new_malformed_failure(
+                    path,
+                    &name,
+                    example_line_number,
+                    format!("example declares duplicate source file `{duplicate_path}`").as_str(),
+                ));
+                return;
+            }
+
+            if !example_source_files
+                .iter()
+                .any(|source_file| source_file.path.as_str() == "main.ocelot")
+            {
+                malformed_failures.push(new_malformed_failure(
+                    path,
+                    &name,
+                    example_line_number,
+                    "example must declare `main.ocelot`",
+                ));
+                return;
+            }
+
+            examples.push(SpecExample {
+                chapter_path: path.clone(),
+                name: SharedString::from(name),
+                source_files: example_source_files,
+                expected_outcome,
+                line_number: example_line_number,
+            });
+        }
+        (_, _, None) => malformed_failures.push(new_malformed_failure(
             path,
             &name,
             example_line_number,
             "example is missing its `### Output` or `### Error` `text` block",
         )),
     }
+    *saw_source_block = false;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -231,6 +323,11 @@ fn parse_expectation_heading(trimmed_line: &str) -> Option<ExpectationKind> {
         "### Error" => Some(ExpectationKind::Error),
         _ => None,
     }
+}
+
+fn parse_source_file_label(trimmed_line: &str) -> Option<&str> {
+    let path = trimmed_line.strip_suffix(':')?;
+    (Path::new(path).extension().and_then(|ext| ext.to_str()) == Some("ocelot")).then_some(path)
 }
 
 fn find_closing_fence(lines: &[&str], start_index: usize) -> Option<usize> {
@@ -293,18 +390,24 @@ mod tests {
             chapters[0].examples[0].expected_outcome,
             ExpectedOutcome::Output("hello".into())
         );
+        assert_eq!(
+            chapters[0].examples[0].source_files[0].path.as_str(),
+            "main.ocelot"
+        );
     }
 
     #[test]
-    fn reports_malformed_examples() {
+    fn reports_malformed_examples_without_source_files() {
         let pal = PalMock::new();
         pal.set_file(
             "docs/spec/28.01 Runtime behavior - Scripts.md",
             r#"
 ## Example: broken
 
-```ocelot
-println("hello");
+### Output
+
+```text
+hello
 ```
 "#,
         );
@@ -312,46 +415,57 @@ println("hello");
         let chapters = load_spec_chapters(&pal, &FilePath::from("docs/spec")).unwrap();
         let malformed = &chapters[0].malformed_failures[0];
 
-        expect!["example is missing its `### Output` or `### Error` `text` block"]
+        expect!["example is missing its fenced `ocelot` block"]
             .assert_eq(malformed.message.as_str());
         assert_eq!(malformed.line_number, 2);
     }
 
     #[test]
-    fn extracts_error_expectations() {
+    fn loads_multi_file_examples() {
         let pal = PalMock::new();
         pal.set_file(
-            "docs/spec/30.01 Standard library - println.md",
+            "docs/spec/25.01 Modules - File modules.md",
             r#"
-## Example: fails
+## Example: sibling module
+
+main.ocelot:
 
 ```ocelot
-println();
+helper::greet();
 ```
 
-### Error
+helper.ocelot:
+
+```ocelot
+fun greet() {
+    println("hello");
+}
+```
+
+### Output
 
 ```text
-type error
+hello
 ```
 "#,
         );
 
         let chapters = load_spec_chapters(&pal, &FilePath::from("docs/spec")).unwrap();
 
+        assert_eq!(chapters[0].examples[0].source_files.len(), 2);
         assert_eq!(
-            chapters[0].examples[0].expected_outcome,
-            ExpectedOutcome::Error("type error".into())
+            chapters[0].examples[0].source_files[1].path.as_str(),
+            "helper.ocelot"
         );
     }
 
     #[test]
-    fn reports_examples_with_both_expectation_sections_as_malformed() {
+    fn reports_examples_without_filename_labels_as_malformed() {
         let pal = PalMock::new();
         pal.set_file(
             "docs/spec/30.01 Standard library - println.md",
             r#"
-## Example: ambiguous
+## Example: broken
 
 ```ocelot
 println("hello");
@@ -362,24 +476,45 @@ println("hello");
 ```text
 hello
 ```
+"#,
+        );
 
-### Error
+        let chapters = load_spec_chapters(&pal, &FilePath::from("docs/spec")).unwrap();
+
+        expect!["`ocelot` blocks must have a preceding `path/to/file.ocelot:` label"]
+            .assert_eq(chapters[0].malformed_failures[0].message.as_str());
+    }
+
+    #[test]
+    fn reports_examples_without_main_ocelot_as_malformed() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "docs/spec/25.01 Modules - File modules.md",
+            r#"
+## Example: broken
+
+helper.ocelot:
+
+```ocelot
+fun greet() {}
+```
+
+### Output
 
 ```text
-boom
 ```
 "#,
         );
 
         let chapters = load_spec_chapters(&pal, &FilePath::from("docs/spec")).unwrap();
 
-        expect!["example must contain exactly one `### Output` or `### Error` section"]
+        expect!["example must declare `main.ocelot`"]
             .assert_eq(chapters[0].malformed_failures[0].message.as_str());
     }
 
     fn chapter(name: &str) -> String {
         format!(
-            "## Example: {name}\n\n```ocelot\nprintln(\"hello\");\n```\n\n### Output\n\n```text\nhello\n```\n"
+            "## Example: {name}\n\nmain.ocelot:\n\n```ocelot\nprintln(\"hello\");\n```\n\n### Output\n\n```text\nhello\n```\n"
         )
     }
 }

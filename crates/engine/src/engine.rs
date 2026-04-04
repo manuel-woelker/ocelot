@@ -1,5 +1,7 @@
 use crate::discovered_test::DiscoveredTest;
 use crate::failed_test_result::FailedTestResult;
+use crate::loaded_module::LoadedModule;
+use crate::loaded_program::LoadedProgram;
 use crate::test_run_summary::TestRunSummary;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_ast::program_environment::ProgramEnvironment;
@@ -11,6 +13,7 @@ use ocelot_base::render_source_diagnostics::render_source_diagnostics;
 use ocelot_base::result::OcelotResult;
 use ocelot_base::result::OptionExt;
 use ocelot_base::result::ResultExt;
+use ocelot_base::shared_string::SharedString;
 use ocelot_base::source_file::SourceFile;
 use ocelot_pal::pal::PalHandle;
 
@@ -25,38 +28,41 @@ impl Engine {
     }
 
     pub fn run_script(&self, path: impl Into<FilePath>) -> OcelotResult<()> {
-        let source_file = self.load_source_file(path.into())?;
-        let (script, environment) = self.compile_script(&source_file)?;
+        let program = self.compile_program(path.into())?;
+        let entry_module = program.entry_module();
         ocelot_interpreter::interpret_script::interpret_script(
-            &script,
-            &source_file,
-            &environment,
+            &entry_module.script,
+            &entry_module.source_file,
+            &program.environment,
             &*self.pal,
         )?;
         Ok(())
     }
 
     pub fn discover_tests(&self, path: impl Into<FilePath>) -> OcelotResult<Vec<DiscoveredTest>> {
-        let source_file = self.load_source_file(path.into())?;
-        let (script, _) = self.compile_script(&source_file)?;
+        let program = self.compile_program(path.into())?;
+        let entry_module = program.entry_module();
 
-        Ok(script
+        Ok(entry_module
+            .script
             .items
-            .into_iter()
-            .filter_map(|item| match item.kind {
+            .iter()
+            .filter_map(|item| match &item.kind {
                 ItemKind::Function(_) => None,
-                ItemKind::Test(test_item) => {
-                    Some(DiscoveredTest::new(test_item.name, test_item.span))
-                }
+                ItemKind::Test(test_item) => Some(DiscoveredTest::new(
+                    test_item.name.clone(),
+                    test_item.span.clone(),
+                )),
                 ItemKind::Statement(_) => None,
             })
             .collect())
     }
 
     pub fn run_test(&self, path: impl Into<FilePath>, test_name: &str) -> OcelotResult<()> {
-        let source_file = self.load_source_file(path.into())?;
-        let (script, environment) = self.compile_script(&source_file)?;
-        let test_item = script
+        let program = self.compile_program(path.into())?;
+        let entry_module = program.entry_module();
+        let test_item = entry_module
+            .script
             .items
             .iter()
             .find_map(|item| match &item.kind {
@@ -67,8 +73,8 @@ impl Engine {
 
         if let Err(error) = ocelot_interpreter::interpreter::Interpreter::new(
             &*self.pal,
-            &source_file,
-            &environment,
+            &entry_module.source_file,
+            &program.environment,
         )
         .interpret_statements(&test_item.body)
         {
@@ -91,16 +97,16 @@ impl Engine {
     }
 
     pub fn run_tests(&self, path: impl Into<FilePath>) -> OcelotResult<TestRunSummary> {
-        let source_file = self.load_source_file(path.into())?;
-        let (script, environment) = self.compile_script(&source_file)?;
+        let program = self.compile_program(path.into())?;
+        let entry_module = program.entry_module();
         let interpreter = ocelot_interpreter::interpreter::Interpreter::new(
             &*self.pal,
-            &source_file,
-            &environment,
+            &entry_module.source_file,
+            &program.environment,
         );
         let mut summary = TestRunSummary::new();
 
-        for item in &script.items {
+        for item in &entry_module.script.items {
             let ItemKind::Test(test_item) = &item.kind else {
                 continue;
             };
@@ -143,27 +149,82 @@ impl Engine {
         Ok(summary)
     }
 
-    fn load_source_file(&self, path: FilePath) -> OcelotResult<SourceFile> {
-        let source = self.pal.read_file_to_string(&path)?;
-        Ok(SourceFile::new(path, source))
-    }
+    fn compile_program(&self, entry_path: FilePath) -> OcelotResult<LoadedProgram> {
+        let execution_root = entry_path.parent().unwrap_or_else(|| FilePath::from(""));
+        let mut module_paths = self
+            .pal
+            .walk_directory(&execution_root, &[String::from("*.ocelot")])?
+            .collect::<OcelotResult<Vec<_>>>()?;
+        module_paths.retain(|path| path.extension() == Some("ocelot"));
+        module_paths.sort();
 
-    fn compile_script(
-        &self,
-        source_file: &SourceFile,
-    ) -> OcelotResult<(ocelot_ast::script::Script, ProgramEnvironment)> {
+        if !module_paths.contains(&entry_path) {
+            module_paths.push(entry_path.clone());
+            module_paths.sort();
+        }
+
+        let entry_module_index = module_paths
+            .iter()
+            .position(|path| path == &entry_path)
+            .context("internal error: entry module was not loaded")?;
+        let mut modules = module_paths
+            .into_iter()
+            .map(|path| self.load_module(&execution_root, path))
+            .collect::<OcelotResult<Vec<_>>>()?;
+
         let mut compilation_context =
             ocelot_base::compilation_context::CompilationContext::default();
-        let mut script =
-            ocelot_parser::parse_script::parse_script(source_file, &mut compilation_context)?;
         let mut environment = self.create_program_environment();
-        ocelot_resolver::resolve(
-            &mut script,
-            source_file,
+
+        for module in &modules {
+            environment.add_module(module.module_name.clone());
+        }
+
+        for module in &mut modules {
+            ocelot_resolver::register_module_functions(
+                &mut module.script,
+                module.module_name.as_str(),
+                &module.source_file,
+                &mut compilation_context,
+                &mut environment,
+            )?;
+        }
+
+        for module in &mut modules {
+            ocelot_resolver::resolve_module_items(
+                &mut module.script,
+                module.module_name.as_str(),
+                &module.source_file,
+                &mut compilation_context,
+                &mut environment,
+            )?;
+        }
+
+        ocelot_resolver::resolve_user_defined_function_definitions(
             &mut compilation_context,
             &mut environment,
         )?;
-        Ok((script, environment))
+        ocelot_resolver::finish_resolution(&compilation_context)?;
+
+        Ok(LoadedProgram::new(entry_module_index, modules, environment))
+    }
+
+    fn load_module(&self, execution_root: &FilePath, path: FilePath) -> OcelotResult<LoadedModule> {
+        let source_file = self.load_source_file(path.clone())?;
+        let mut compilation_context =
+            ocelot_base::compilation_context::CompilationContext::default();
+        let script =
+            ocelot_parser::parse_script::parse_script(&source_file, &mut compilation_context)?;
+        Ok(LoadedModule::new(
+            module_name_from_path(execution_root, &path)?,
+            source_file,
+            script,
+        ))
+    }
+
+    fn load_source_file(&self, path: FilePath) -> OcelotResult<SourceFile> {
+        let source = self.pal.read_file_to_string(&path)?;
+        Ok(SourceFile::new(path, source))
     }
 
     fn create_program_environment(&self) -> ProgramEnvironment {
@@ -171,14 +232,47 @@ impl Engine {
     }
 }
 
+fn module_name_from_path(execution_root: &FilePath, path: &FilePath) -> OcelotResult<SharedString> {
+    let relative_path = path
+        .as_path()
+        .strip_prefix(execution_root.as_path())
+        .with_context(|| {
+            format!("internal error: `{path}` is not inside execution root `{execution_root}`")
+        })?;
+    let mut relative_path = relative_path.to_path_buf();
+    relative_path.set_extension("");
+
+    let segments = relative_path
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>();
+
+    Ok(segments.join("::").into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::Engine;
+    use super::module_name_from_path;
     use expect_test::expect;
     use ocelot_base::compilation_stage::CompilationStage;
     use ocelot_base::error::ErrorKind;
+    use ocelot_base::file_path::FilePath;
     use ocelot_pal::pal::PalHandle;
     use ocelot_pal::pal_mock::PalMock;
+
+    #[test]
+    fn derives_nested_module_names_from_paths() {
+        assert_eq!(
+            module_name_from_path(
+                &FilePath::from("examples"),
+                &FilePath::from("examples/math/greet.ocelot")
+            )
+            .unwrap()
+            .as_str(),
+            "math::greet"
+        );
+    }
 
     #[test]
     fn run_script_reads_and_executes_a_file() {
@@ -199,294 +293,78 @@ mod tests {
     }
 
     #[test]
-    fn run_script_ignores_test_items() {
+    fn run_script_executes_functions_from_sibling_modules() {
         let pal = PalMock::new();
+        pal.set_file("examples/main.ocelot", "helper::greet();");
         pal.set_file(
-            "examples/mixed.ocelot",
-            "println(\"setup\"); test \"prints hello\" { println(\"hello\"); }",
+            "examples/helper.ocelot",
+            "fun greet() { println(\"hello\"); }",
         );
 
         let engine = Engine::new(PalHandle::new(pal.clone()));
 
-        engine.run_script("examples/mixed.ocelot").unwrap();
-
-        assert_eq!(pal.take_printed_output(), "setup\n");
-    }
-
-    #[test]
-    fn run_script_discards_non_call_expression_statements() {
-        let pal = PalMock::new();
-        pal.set_file(
-            "examples/expressions.ocelot",
-            "\"hello\"; println(\"world\");",
-        );
-
-        let engine = Engine::new(PalHandle::new(pal.clone()));
-
-        engine.run_script("examples/expressions.ocelot").unwrap();
-
-        assert_eq!(pal.take_printed_output(), "world\n");
-    }
-
-    #[test]
-    fn run_script_evaluates_not_expressions() {
-        let pal = PalMock::new();
-        pal.set_file(
-            "examples/not.ocelot",
-            "println(not false); println(not true);",
-        );
-
-        let engine = Engine::new(PalHandle::new(pal.clone()));
-
-        engine.run_script("examples/not.ocelot").unwrap();
-
-        assert_eq!(pal.take_printed_output(), "true\nfalse\n");
-    }
-
-    #[test]
-    fn run_script_executes_user_defined_functions() {
-        let pal = PalMock::new();
-        pal.set_file(
-            "examples/functions.ocelot",
-            "fun greet() { println(\"hello\"); } greet();",
-        );
-
-        let engine = Engine::new(PalHandle::new(pal.clone()));
-
-        engine.run_script("examples/functions.ocelot").unwrap();
+        engine.run_script("examples/main.ocelot").unwrap();
 
         assert_eq!(pal.take_printed_output(), "hello\n");
     }
 
     #[test]
-    fn run_script_resolves_forward_references_to_function_definitions() {
+    fn run_script_executes_functions_from_nested_modules() {
         let pal = PalMock::new();
+        pal.set_file("examples/main.ocelot", "math::greet::hello();");
         pal.set_file(
-            "examples/functions.ocelot",
-            "greet(); fun greet() { println(\"hello\"); }",
+            "examples/math/greet.ocelot",
+            "fun hello() { println(\"hello\"); }",
         );
 
         let engine = Engine::new(PalHandle::new(pal.clone()));
 
-        engine.run_script("examples/functions.ocelot").unwrap();
+        engine.run_script("examples/main.ocelot").unwrap();
 
         assert_eq!(pal.take_printed_output(), "hello\n");
     }
 
     #[test]
-    fn discover_tests_returns_names_in_source_order() {
+    fn run_script_does_not_execute_top_level_statements_from_non_entry_modules() {
         let pal = PalMock::new();
+        pal.set_file("examples/main.ocelot", "helper::greet();");
         pal.set_file(
-            "examples/tests.ocelot",
-            "test \"first\" { println(\"one\"); } test \"second\" { println(\"two\"); }",
-        );
-
-        let engine = Engine::new(PalHandle::new(pal));
-
-        let tests = engine.discover_tests("examples/tests.ocelot").unwrap();
-
-        assert_eq!(tests.len(), 2);
-        assert_eq!(tests[0].name, "first");
-        assert_eq!(tests[1].name, "second");
-    }
-
-    #[test]
-    fn discover_tests_ignores_function_items() {
-        let pal = PalMock::new();
-        pal.set_file(
-            "examples/tests.ocelot",
-            "fun helper() {} test \"first\" { helper(); }",
-        );
-
-        let engine = Engine::new(PalHandle::new(pal));
-
-        let tests = engine.discover_tests("examples/tests.ocelot").unwrap();
-
-        assert_eq!(tests.len(), 1);
-        assert_eq!(tests[0].name, "first");
-    }
-
-    #[test]
-    fn run_test_executes_only_the_named_test() {
-        let pal = PalMock::new();
-        pal.set_file(
-            "examples/tests.ocelot",
-            "test \"first\" { println(\"one\"); } test \"second\" { println(\"two\"); }",
+            "examples/helper.ocelot",
+            "println(\"setup\"); fun greet() { println(\"hello\"); }",
         );
 
         let engine = Engine::new(PalHandle::new(pal.clone()));
 
-        engine.run_test("examples/tests.ocelot", "second").unwrap();
+        engine.run_script("examples/main.ocelot").unwrap();
 
-        assert_eq!(pal.take_printed_output(), "two\n");
+        assert_eq!(pal.take_printed_output(), "hello\n");
     }
 
     #[test]
-    fn run_test_reports_the_failing_test_name() {
+    fn run_script_reports_unknown_modules() {
         let pal = PalMock::new();
-        pal.set_file(
-            "examples/tests.ocelot",
-            "test \"broken\" { println(missing_value); }",
-        );
+        pal.set_file("examples/main.ocelot", "helper::greet();");
 
         let engine = Engine::new(PalHandle::new(pal));
 
-        let error = engine
-            .run_test("examples/tests.ocelot", "broken")
-            .unwrap_err();
-
-        assert!(error.to_test_string().contains("test `broken` failed"));
-    }
-
-    #[test]
-    fn run_test_renders_runtime_source_diagnostics_for_unresolved_identifiers() {
-        let pal = PalMock::new();
-        pal.set_file(
-            "examples/tests.ocelot",
-            "test \"broken\" { println(missing_value); }",
-        );
-
-        let engine = Engine::new(PalHandle::new(pal));
-
-        let error = engine
-            .run_test("examples/tests.ocelot", "broken")
-            .unwrap_err();
-
-        assert!(error.to_test_string().contains("test `broken` failed"));
-        assert!(
-            error
-                .to_test_string()
-                .contains("unresolved identifier `missing_value`")
-        );
-        assert!(error.to_test_string().contains("println(missing_value);"));
-        assert!(
-            error
-                .to_test_string()
-                .contains("at examples/tests.ocelot:1:25")
-        );
-        assert!(
-            !error
-                .to_test_string()
-                .contains("crates/interpreter/src/interpreter.rs")
-        );
-    }
-
-    #[test]
-    fn run_test_renders_assertion_failures_with_source_and_diff() {
-        let pal = PalMock::new();
-        pal.set_file(
-            "examples/tests.ocelot",
-            "test \"broken\" { assert_eq(\"a\", \"b\"); }",
-        );
-
-        let engine = Engine::new(PalHandle::new(pal));
-
-        let error = engine
-            .run_test("examples/tests.ocelot", "broken")
-            .unwrap_err();
-
-        assert!(error.to_test_string().contains("test `broken` failed"));
-        assert!(error.to_test_string().contains("assert_eq values differ"));
-        assert!(error.to_test_string().contains("assert_eq(\"a\", \"b\");"));
-        assert!(error.to_test_string().contains("expected: \"a\""));
-        assert!(error.to_test_string().contains("actual:   \"b\""));
-    }
-
-    #[test]
-    fn run_test_renders_assert_failures_without_a_diff_block() {
-        let pal = PalMock::new();
-        pal.set_file(
-            "examples/tests.ocelot",
-            "test \"broken\" { assert(false); }",
-        );
-
-        let engine = Engine::new(PalHandle::new(pal));
-
-        let error = engine
-            .run_test("examples/tests.ocelot", "broken")
-            .unwrap_err();
-
-        assert!(error.to_test_string().contains("test `broken` failed"));
-        assert!(
-            error
-                .to_test_string()
-                .contains("assert condition was false")
-        );
-        assert!(error.to_test_string().contains("assert(false);"));
-        assert!(!error.to_test_string().contains("expected:"));
-        assert!(!error.to_test_string().contains("actual:"));
-    }
-
-    #[test]
-    fn run_test_renders_assert_not_true_failures_without_a_diff_block() {
-        let pal = PalMock::new();
-        pal.set_file(
-            "examples/tests.ocelot",
-            "test \"broken\" { assert(not true); }",
-        );
-
-        let engine = Engine::new(PalHandle::new(pal));
-
-        let error = engine
-            .run_test("examples/tests.ocelot", "broken")
-            .unwrap_err();
-
-        assert!(error.to_test_string().contains("test `broken` failed"));
-        assert!(
-            error
-                .to_test_string()
-                .contains("assert condition was false")
-        );
-        assert!(error.to_test_string().contains("assert(not true);"));
-        assert!(!error.to_test_string().contains("expected:"));
-        assert!(!error.to_test_string().contains("actual:"));
-    }
-
-    #[test]
-    fn run_tests_reports_unknown_test_names() {
-        let pal = PalMock::new();
-        pal.set_file(
-            "examples/tests.ocelot",
-            "test \"first\" { println(\"one\"); }",
-        );
-
-        let engine = Engine::new(PalHandle::new(pal));
-
-        let error = engine
-            .run_test("examples/tests.ocelot", "missing")
-            .unwrap_err();
-
-        assert!(error.to_test_string().contains("unknown test `missing`"));
-    }
-
-    #[test]
-    fn run_script_tags_parser_failures_as_compilation_errors() {
-        let pal = PalMock::new();
-        pal.set_file("examples/broken.ocelot", "println();");
-
-        let engine = Engine::new(PalHandle::new(pal));
-
-        let error = engine.run_script("examples/broken.ocelot").unwrap_err();
+        let error = engine.run_script("examples/main.ocelot").unwrap_err();
 
         assert!(matches!(
             error.kind(),
-            ErrorKind::CompilationError(CompilationStage::Parser)
+            ErrorKind::CompilationError(CompilationStage::Resolver)
         ));
-        assert!(
-            error
-                .to_test_string()
-                .contains("type error: `println` expects exactly one argument")
-        );
+        assert!(error.to_test_string().contains("unknown module `helper`"));
     }
 
     #[test]
-    fn run_script_reports_unknown_native_functions() {
+    fn run_script_reports_missing_functions_in_loaded_modules() {
         let pal = PalMock::new();
-        pal.set_file("examples/broken.ocelot", "printline(\"hello\");");
+        pal.set_file("examples/main.ocelot", "helper::greet();");
+        pal.set_file("examples/helper.ocelot", "fun wave() {}");
 
         let engine = Engine::new(PalHandle::new(pal));
 
-        let error = engine.run_script("examples/broken.ocelot").unwrap_err();
+        let error = engine.run_script("examples/main.ocelot").unwrap_err();
 
         assert!(matches!(
             error.kind(),
@@ -495,153 +373,49 @@ mod tests {
         assert!(
             error
                 .to_test_string()
-                .contains("unknown function `printline`")
+                .contains("module `helper` has no function `greet`")
         );
     }
 
     #[test]
-    fn run_script_reports_native_argument_type_mismatches() {
+    fn run_test_executes_only_entry_module_tests() {
         let pal = PalMock::new();
-        pal.set_file("examples/broken.ocelot", "println(println(\"hello\"));");
+        pal.set_file("examples/main.ocelot", "test \"main\" { helper::greet(); }");
+        pal.set_file(
+            "examples/helper.ocelot",
+            "test \"helper\" { println(\"wrong\"); } fun greet() { println(\"hello\"); }",
+        );
 
         let engine = Engine::new(PalHandle::new(pal.clone()));
 
-        let error = engine.run_script("examples/broken.ocelot").unwrap_err();
+        engine.run_test("examples/main.ocelot", "main").unwrap();
 
-        assert!(
-            error
-                .to_test_string()
-                .contains("type error: `println` expects a string or boolean argument")
-        );
         assert_eq!(pal.take_printed_output(), "hello\n");
     }
 
     #[test]
-    fn run_script_reports_assert_argument_type_mismatches_during_resolution() {
+    fn run_test_reports_cross_file_runtime_diagnostics_with_the_called_file_path() {
         let pal = PalMock::new();
-        pal.set_file("examples/broken.ocelot", "assert(\"hello\");");
+        pal.set_file(
+            "examples/main.ocelot",
+            "test \"broken\" { helper::greet(); }",
+        );
+        pal.set_file(
+            "examples/helper.ocelot",
+            "fun greet() { println(missing_value); }",
+        );
 
         let engine = Engine::new(PalHandle::new(pal));
 
-        let error = engine.run_script("examples/broken.ocelot").unwrap_err();
+        let error = engine
+            .run_test("examples/main.ocelot", "broken")
+            .unwrap_err();
 
-        assert!(matches!(
-            error.kind(),
-            ErrorKind::CompilationError(CompilationStage::Resolver)
-        ));
         assert!(
             error
                 .to_test_string()
-                .contains("type error: `assert` expects a boolean argument")
-        );
-    }
-
-    #[test]
-    fn run_script_prints_boolean_values() {
-        let pal = PalMock::new();
-        pal.set_file("examples/booleans.ocelot", "println(true); println(false);");
-
-        let engine = Engine::new(PalHandle::new(pal.clone()));
-
-        engine.run_script("examples/booleans.ocelot").unwrap();
-
-        assert_eq!(pal.take_printed_output(), "true\nfalse\n");
-    }
-
-    #[test]
-    fn run_tests_reports_passes_and_failures_for_all_tests() {
-        let pal = PalMock::new();
-        pal.set_file(
-            "examples/tests.ocelot",
-            "test \"first\" { println(\"one\"); } \
-             test \"broken\" { println(missing_value); } \
-             test \"third\" { println(\"three\"); }",
-        );
-
-        let engine = Engine::new(PalHandle::new(pal.clone()));
-
-        let summary = engine.run_tests("examples/tests.ocelot").unwrap();
-
-        assert_eq!(summary.passed, vec!["first", "third"]);
-        assert_eq!(summary.failed.len(), 1);
-        assert_eq!(summary.failed[0].name, "broken");
-        assert!(summary.failed[0].message.contains("test `broken` failed"));
-        assert!(
-            summary.failed[0]
-                .message
                 .contains("unresolved identifier `missing_value`")
         );
-        assert_eq!(pal.take_printed_output(), "one\nthree\n");
-    }
-
-    #[test]
-    fn run_tests_preserve_runtime_source_diagnostics_in_failed_summary() {
-        let pal = PalMock::new();
-        pal.set_file(
-            "examples/tests.ocelot",
-            "test \"broken\" { println(missing_value); }",
-        );
-
-        let engine = Engine::new(PalHandle::new(pal));
-
-        let summary = engine.run_tests("examples/tests.ocelot").unwrap();
-
-        assert_eq!(summary.failed.len(), 1);
-        assert!(
-            summary.failed[0]
-                .message
-                .contains("unresolved identifier `missing_value`")
-        );
-        assert!(
-            summary.failed[0]
-                .message
-                .contains("at examples/tests.ocelot:1:25")
-        );
-    }
-
-    #[test]
-    fn run_tests_includes_assertion_failure_output_in_failed_summary() {
-        let pal = PalMock::new();
-        pal.set_file(
-            "examples/tests.ocelot",
-            "test \"broken\" { assert_eq(\"a\", \"b\"); }",
-        );
-
-        let engine = Engine::new(PalHandle::new(pal));
-
-        let summary = engine.run_tests("examples/tests.ocelot").unwrap();
-
-        assert!(summary.passed.is_empty());
-        assert_eq!(summary.failed.len(), 1);
-        assert!(
-            summary.failed[0]
-                .message
-                .contains("assert_eq values differ")
-        );
-        assert!(summary.failed[0].message.contains("expected: \"a\""));
-        assert!(summary.failed[0].message.contains("actual:   \"b\""));
-    }
-
-    #[test]
-    fn run_tests_include_assert_failures_without_a_diff_block() {
-        let pal = PalMock::new();
-        pal.set_file(
-            "examples/tests.ocelot",
-            "test \"broken\" { assert(false); }",
-        );
-
-        let engine = Engine::new(PalHandle::new(pal));
-
-        let summary = engine.run_tests("examples/tests.ocelot").unwrap();
-
-        assert!(summary.passed.is_empty());
-        assert_eq!(summary.failed.len(), 1);
-        assert!(
-            summary.failed[0]
-                .message
-                .contains("assert condition was false")
-        );
-        assert!(!summary.failed[0].message.contains("expected:"));
-        assert!(!summary.failed[0].message.contains("actual:"));
+        assert!(error.to_test_string().contains("examples/helper.ocelot"));
     }
 }

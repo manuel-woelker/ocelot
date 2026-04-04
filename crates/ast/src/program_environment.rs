@@ -10,12 +10,14 @@ use crate::type_kind::TypeKind;
 use ocelot_base::result::{OcelotResult, OptionExt};
 use ocelot_base::shared_string::SharedString;
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 /// Shared program-level data needed by resolution and interpretation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProgramEnvironment {
     pub functions: Vec<Option<FunctionDefinition>>,
     pub function_symbols: HashMap<SharedString, FunctionIndex>,
+    pub module_symbols: HashSet<SharedString>,
     pub types: Vec<Ty>,
     pub type_symbols: HashMap<SharedString, TypeIndex>,
 }
@@ -32,6 +34,7 @@ impl ProgramEnvironment {
         let mut environment = Self {
             functions: vec![None],
             function_symbols: HashMap::new(),
+            module_symbols: HashSet::new(),
             types: vec![Ty::new("unresolved", TypeKind::Unresolved)],
             type_symbols: HashMap::new(),
         };
@@ -113,6 +116,42 @@ impl ProgramEnvironment {
         self.function_symbols.get(name).copied()
     }
 
+    /// Resolves one function name without module fallback.
+    pub fn resolve_function_exact(&self, name: &str) -> Option<FunctionIndex> {
+        self.function_symbols.get(name).copied()
+    }
+
+    /// Resolves an unqualified function name within one module, then falls back to natives.
+    pub fn resolve_local_function(&self, module_name: &str, name: &str) -> Option<FunctionIndex> {
+        if !module_name.is_empty() {
+            let qualified_name = self.qualify_function_name(module_name, name);
+            if let Some(function_index) = self.function_symbols.get(&qualified_name) {
+                return Some(*function_index);
+            }
+        }
+
+        self.function_symbols.get(name).copied()
+    }
+
+    /// Registers one module name.
+    pub fn add_module(&mut self, module_name: impl Into<SharedString>) {
+        self.module_symbols.insert(module_name.into());
+    }
+
+    /// Returns whether one module name is known.
+    pub fn has_module(&self, module_name: &str) -> bool {
+        self.module_symbols.contains(module_name)
+    }
+
+    /// Creates a qualified function name from a module and local name.
+    pub fn qualify_function_name(&self, module_name: &str, function_name: &str) -> SharedString {
+        if module_name.is_empty() {
+            return function_name.into();
+        }
+
+        format!("{module_name}::{function_name}").into()
+    }
+
     /// Returns the definition for one previously resolved function index.
     pub fn function_definition(
         &self,
@@ -164,7 +203,7 @@ impl ProgramEnvironment {
         function_index: FunctionIndex,
     ) -> OcelotResult<Box<FunctionItem>> {
         let function_definition = self.function_definition_mut(function_index)?;
-        let FunctionKind::UserDefined { function } = &mut function_definition.kind else {
+        let FunctionKind::UserDefined { function, .. } = &mut function_definition.kind else {
             ocelot_base::bail!(
                 "internal error: function index did not reference a user-defined function"
             );
@@ -189,6 +228,7 @@ impl ProgramEnvironment {
         let function_definition = self.function_definition_mut(function_index)?;
         let FunctionKind::UserDefined {
             function: stored_function,
+            ..
         } = &mut function_definition.kind
         else {
             ocelot_base::bail!(
@@ -212,6 +252,7 @@ mod tests {
     use crate::native_function::NativeFunction;
     use crate::type_index::TypeIndex;
     use crate::type_kind::TypeKind;
+    use ocelot_base::source_file::SourceFile;
     use ocelot_base::span::Span;
     #[test]
     fn program_environment_indexes_functions_by_name() {
@@ -229,6 +270,7 @@ mod tests {
         let function = environment.function_definition(function_index).unwrap();
 
         assert_eq!(function.name, "println");
+        assert_eq!(function.module_name, "");
         assert_eq!(function.argument_types, vec![environment.any_type_index()]);
         assert_eq!(
             function.kind,
@@ -292,14 +334,21 @@ mod tests {
     fn add_function_appends_user_defined_entries() {
         let mut environment = ProgramEnvironment::new();
 
-        let function_index =
-            environment.add_function(FunctionDefinition::user_defined(FunctionItem::new(
+        let function_index = environment.add_function(FunctionDefinition::user_defined(
+            "greetings",
+            "greetings::greet",
+            FunctionItem::new(
                 Identifier::new("greet", Span::new(4, 9)),
                 Vec::new(),
                 Span::new(0, 13),
-            )));
+            ),
+            SourceFile::new("greetings.ocelot", "fun greet() {}"),
+        ));
 
-        assert_eq!(environment.resolve_function("greet"), Some(function_index));
+        assert_eq!(
+            environment.resolve_function("greetings::greet"),
+            Some(function_index)
+        );
         assert!(matches!(
             environment
                 .function_definition(function_index)
@@ -312,11 +361,16 @@ mod tests {
     #[test]
     fn user_defined_function_indices_returns_only_user_defined_entries() {
         let mut environment = ProgramEnvironment::new();
-        let _ = environment.add_function(FunctionDefinition::user_defined(FunctionItem::new(
-            Identifier::new("greet", Span::new(4, 9)),
-            Vec::new(),
-            Span::new(0, 13),
-        )));
+        let _ = environment.add_function(FunctionDefinition::user_defined(
+            "greetings",
+            "greetings::greet",
+            FunctionItem::new(
+                Identifier::new("greet", Span::new(4, 9)),
+                Vec::new(),
+                Span::new(0, 13),
+            ),
+            SourceFile::new("greetings.ocelot", "fun greet() {}"),
+        ));
 
         assert_eq!(
             environment.user_defined_function_indices(),
@@ -327,12 +381,16 @@ mod tests {
     #[test]
     fn take_and_put_user_defined_function_round_trips() {
         let mut environment = ProgramEnvironment::new();
-        let function_index =
-            environment.add_function(FunctionDefinition::user_defined(FunctionItem::new(
+        let function_index = environment.add_function(FunctionDefinition::user_defined(
+            "greetings",
+            "greetings::greet",
+            FunctionItem::new(
                 Identifier::new("greet", Span::new(4, 9)),
                 Vec::new(),
                 Span::new(0, 13),
-            )));
+            ),
+            SourceFile::new("greetings.ocelot", "fun greet() {}"),
+        ));
 
         let function = environment
             .take_user_defined_function(function_index)
@@ -349,5 +407,34 @@ mod tests {
                 .kind,
             FunctionKind::UserDefined { .. }
         ));
+    }
+
+    #[test]
+    fn resolve_local_function_prefers_the_current_module() {
+        let mut environment = ProgramEnvironment::new();
+        let function_index = environment.add_function(FunctionDefinition::user_defined(
+            "math",
+            "math::greet",
+            FunctionItem::new(
+                Identifier::new("greet", Span::new(4, 9)),
+                Vec::new(),
+                Span::new(0, 13),
+            ),
+            SourceFile::new("math.ocelot", "fun greet() {}"),
+        ));
+
+        assert_eq!(
+            environment.resolve_local_function("math", "greet"),
+            Some(function_index)
+        );
+        assert!(
+            environment
+                .resolve_local_function("other", "greet")
+                .is_none()
+        );
+        assert_eq!(
+            environment.resolve_local_function("math", "println"),
+            environment.resolve_function("println")
+        );
     }
 }
