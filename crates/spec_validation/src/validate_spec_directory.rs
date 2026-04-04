@@ -101,85 +101,64 @@ mod tests {
     use super::validate_spec_directory;
     use crate::capturing_pal::CapturingPal;
     use crate::validation_failure_kind::ValidationFailureKind;
-    use expect_test::expect;
     use ocelot_base::file_path::FilePath;
     use ocelot_pal::pal::PalHandle;
     use ocelot_pal::pal_mock::PalMock;
     use std::path::Path;
 
     #[test]
-    fn validates_the_real_spec_directory() {
-        let repo_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..");
+    fn validates_a_synthetic_spec_directory_without_depending_on_repo_docs() {
         let inner_pal = PalMock::new();
         inner_pal.set_file(
             "docs/spec/01.01 Lexical structure - Comments.md",
-            std::fs::read_to_string(
-                repo_root.join("docs/spec/01.01 Lexical structure - Comments.md"),
-            )
-            .unwrap(),
+            r#"
+## Example: output example
+
+```ocelot
+println("hello");
+```
+
+### Output
+
+```text
+hello
+```
+"#,
         );
         inner_pal.set_file(
             "docs/spec/02.01 Expressions - Function calls.md",
-            std::fs::read_to_string(
-                repo_root.join("docs/spec/02.01 Expressions - Function calls.md"),
-            )
-            .unwrap(),
+            r#"
+## Example: error example
+
+```ocelot
+printline("hello");
+```
+
+### Error
+
+```text
+error: unknown function `printline`
+  ╭▸ spec-test.ocelot:1:1
+  │
+1 │ printline("hello");
+  ╰╴━━━━━━━━━ unknown function
+at spec-test.ocelot:1:1
+```
+"#,
         );
         inner_pal.set_file(
-            "docs/spec/02.02 Expressions - Prefix negation.md",
-            std::fs::read_to_string(
-                repo_root.join("docs/spec/02.02 Expressions - Prefix negation.md"),
-            )
-            .unwrap(),
+            "docs/spec/03.01 Broken chapter.md",
+            r#"
+## Example: missing expectation
+
+```ocelot
+println("oops");
+```
+"#,
         );
         inner_pal.set_file(
-            "docs/spec/15.01 Declarations - Test items.md",
-            std::fs::read_to_string(repo_root.join("docs/spec/15.01 Declarations - Test items.md"))
-                .unwrap(),
-        );
-        inner_pal.set_file(
-            "docs/spec/10.01 Types - Booleans.md",
-            std::fs::read_to_string(repo_root.join("docs/spec/10.01 Types - Booleans.md")).unwrap(),
-        );
-        inner_pal.set_file(
-            "docs/spec/28.01 Runtime behavior - Scripts.md",
-            std::fs::read_to_string(
-                repo_root.join("docs/spec/28.01 Runtime behavior - Scripts.md"),
-            )
-            .unwrap(),
-        );
-        inner_pal.set_file(
-            "docs/spec/28.02 Runtime behavior - Test items.md",
-            std::fs::read_to_string(
-                repo_root.join("docs/spec/28.02 Runtime behavior - Test items.md"),
-            )
-            .unwrap(),
-        );
-        inner_pal.set_file(
-            "docs/spec/30.01 Standard library - println.md",
-            std::fs::read_to_string(
-                repo_root.join("docs/spec/30.01 Standard library - println.md"),
-            )
-            .unwrap(),
-        );
-        inner_pal.set_file(
-            "docs/spec/30.02 Standard library - assert.md",
-            std::fs::read_to_string(repo_root.join("docs/spec/30.02 Standard library - assert.md"))
-                .unwrap(),
-        );
-        inner_pal.set_file(
-            "docs/spec/91.01 Lexer errors - Unterminated strings.md",
-            std::fs::read_to_string(
-                repo_root.join("docs/spec/91.01 Lexer errors - Unterminated strings.md"),
-            )
-            .unwrap(),
-        );
-        inner_pal.set_file(
-            "docs/spec/91.02 Lexer errors - Unterminated block comments.md",
-            std::fs::read_to_string(
-                repo_root.join("docs/spec/91.02 Lexer errors - Unterminated block comments.md"),
-            )
-            .unwrap(),
+            "docs/spec/README.md",
+            "# ignored because it is not a numbered chapter\n",
         );
         let pal = CapturingPal::new(PalHandle::new(inner_pal));
 
@@ -190,19 +169,18 @@ mod tests {
         )
         .unwrap();
 
-        expect![[r#"
-            11
-            24
-            24
-            0
-        "#]]
-        .assert_eq(&format!(
-            "{}\n{}\n{}\n{}\n",
-            report.scanned_chapter_count,
-            report.example_count,
-            report.passed_example_count,
-            report.failures.len()
-        ));
+        assert_eq!(report.scanned_chapter_count, 3);
+        assert_eq!(report.example_count, 2);
+        assert_eq!(report.passed_example_count, 2);
+        assert_eq!(report.failures.len(), 1);
+        assert_eq!(
+            report.failures[0].kind,
+            ValidationFailureKind::MalformedExample
+        );
+        assert_eq!(
+            report.failures[0].message.as_str(),
+            "example is missing its `### Output` or `### Error` `text` block"
+        );
     }
 
     #[test]
