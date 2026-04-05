@@ -2,6 +2,7 @@ use crate::core_module::{CORE_MODULE_NAME, CORE_MODULE_PATH, load_core_module};
 use crate::failed_test_result::FailedTestResult;
 use crate::loaded_module::LoadedModule;
 use crate::loaded_program::LoadedProgram;
+use crate::module_name_from_path::module_name_from_path;
 use crate::source_file_kind::SourceFileKind;
 use crate::test_run_summary::TestRunSummary;
 use ocelot_ast::item_kind::ItemKind;
@@ -94,8 +95,8 @@ impl EngineWorker {
 
         let mut compilation_context = CompilationContext::default();
         for module in &modules {
-            crate::engine::validate_loaded_module(module, &mut compilation_context);
-            EngineWorker::validate_reserved_core_module_name(module, &mut compilation_context);
+            validate_loaded_module(module, &mut compilation_context);
+            validate_reserved_core_module_name(module, &mut compilation_context);
         }
         ocelot_resolver::resolution::finish_resolution(&compilation_context)?;
 
@@ -187,7 +188,7 @@ impl EngineWorker {
             &mut compilation_context.source_diagnostics,
         )?;
         Ok(LoadedModule::new(
-            crate::engine::module_name_from_path(execution_root, &path)?,
+            module_name_from_path(execution_root, &path)?,
             kind,
             source_file,
             script,
@@ -324,38 +325,88 @@ impl EngineWorker {
 
         Ok(summary)
     }
+}
 
-    fn validate_reserved_core_module_name(
-        module: &LoadedModule,
-        compilation_context: &mut CompilationContext,
-    ) {
-        if module.module_name != CORE_MODULE_NAME
-            || module.source_file.path.as_str() == CORE_MODULE_PATH
-        {
-            return;
-        }
-
-        compilation_context.add_diagnostic(
-            SourceDiagnostic::new(
-                DiagnosticLevel::Error,
-                &module.source_file.path,
-                "module name `core` is reserved",
-            )
-            .with_excerpt(source_excerpt_for_path(
-                &module.source_file,
-                "rename this file or module path",
-            )),
-        );
-
-        fn source_excerpt_for_path(
-            source_file: &SourceFile,
-            annotation: impl Into<SharedString>,
-        ) -> SourceExcerpt {
-            let annotation = annotation.into();
-            let source_line = source_file.source().lines().next().unwrap_or_default();
-
-            SourceExcerpt::new(&source_file.path, 1, source_line)
-                .with_annotation(SourceAnnotation::new(Span::new(0, 0), annotation))
-        }
+fn validate_reserved_core_module_name(
+    module: &LoadedModule,
+    compilation_context: &mut CompilationContext,
+) {
+    if module.module_name != CORE_MODULE_NAME
+        || module.source_file.path.as_str() == CORE_MODULE_PATH
+    {
+        return;
     }
+
+    compilation_context.add_diagnostic(
+        SourceDiagnostic::new(
+            DiagnosticLevel::Error,
+            &module.source_file.path,
+            "module name `core` is reserved",
+        )
+        .with_excerpt(source_excerpt_for_path(
+            &module.source_file,
+            "rename this file or module path",
+        )),
+    );
+
+    fn source_excerpt_for_path(
+        source_file: &SourceFile,
+        annotation: impl Into<SharedString>,
+    ) -> SourceExcerpt {
+        let annotation = annotation.into();
+        let source_line = source_file.source().lines().next().unwrap_or_default();
+
+        SourceExcerpt::new(&source_file.path, 1, source_line)
+            .with_annotation(SourceAnnotation::new(Span::new(0, 0), annotation))
+    }
+}
+
+fn validate_loaded_module(module: &LoadedModule, compilation_context: &mut CompilationContext) {
+    if module.kind.allows_top_level_statements() {
+        return;
+    }
+
+    let Some(statement) = module.script.statements().next() else {
+        return;
+    };
+
+    compilation_context.add_diagnostic(module_statement_diagnostic(
+        &module.source_file,
+        statement.span.clone(),
+    ));
+}
+
+fn module_statement_diagnostic(source_file: &SourceFile, span: Span) -> SourceDiagnostic {
+    let (line_number, line_start, line_end) = line_bounds(source_file.source(), span.start());
+    let source_line = &source_file.source()[line_start..line_end];
+    let relative_start = span.start().saturating_sub(line_start);
+    let relative_end = span.end().saturating_sub(line_start);
+
+    SourceDiagnostic::new(
+        DiagnosticLevel::Error,
+        &source_file.path,
+        "top-level statements are only allowed in `.ocelot-script` files",
+    )
+    .with_excerpt(
+        SourceExcerpt::new(&source_file.path, line_number, source_line).with_annotation(
+            SourceAnnotation::new(
+                Span::new(relative_start, relative_end),
+                "move this statement into `main()` or rename the file to `.ocelot-script`",
+            ),
+        ),
+    )
+}
+
+fn line_bounds(source: &str, index: usize) -> (usize, usize, usize) {
+    let line_start = source[..index].rfind('\n').map_or(0, |offset| offset + 1);
+    let line_end = source[index..]
+        .find('\n')
+        .map_or(source.len(), |offset| index + offset);
+    let line_number = source[..line_start]
+        .bytes()
+        .filter(|byte| *byte == b'\n')
+        .count()
+        + 1;
+
+    (line_number, line_start, line_end)
 }

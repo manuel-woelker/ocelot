@@ -1,18 +1,8 @@
 use crate::engine_worker::EngineWorker;
-use crate::loaded_module::LoadedModule;
 use crate::test_run_summary::TestRunSummary;
-use ocelot_base::diagnostic_level::DiagnosticLevel;
 use ocelot_base::file_path::FilePath;
 use ocelot_base::result::OcelotResult;
-use ocelot_base::result::ResultExt;
-use ocelot_base::shared_string::SharedString;
-use ocelot_base::source_annotation::SourceAnnotation;
-use ocelot_base::source_diagnostic::SourceDiagnostic;
-use ocelot_base::source_excerpt::SourceExcerpt;
-use ocelot_base::source_file::SourceFile;
-use ocelot_base::span::Span;
 use ocelot_pal::pal::PalHandle;
-use ocelot_semantic::compilation_context::CompilationContext;
 
 #[derive(Debug, Clone)]
 pub struct Engine {
@@ -42,84 +32,10 @@ impl Engine {
     }
 }
 
-pub(crate) fn module_name_from_path(
-    execution_root: &FilePath,
-    path: &FilePath,
-) -> OcelotResult<SharedString> {
-    let relative_path = path
-        .as_path()
-        .strip_prefix(execution_root.as_path())
-        .with_context(|| {
-            format!("internal error: `{path}` is not inside execution root `{execution_root}`")
-        })?;
-    let mut relative_path = relative_path.to_path_buf();
-    relative_path.set_extension("");
-
-    let segments = relative_path
-        .components()
-        .map(|component| component.as_os_str().to_string_lossy().into_owned())
-        .collect::<Vec<_>>();
-
-    Ok(segments.join("::").into())
-}
-
-pub(crate) fn validate_loaded_module(
-    module: &LoadedModule,
-    compilation_context: &mut CompilationContext,
-) {
-    if module.kind.allows_top_level_statements() {
-        return;
-    }
-
-    let Some(statement) = module.script.statements().next() else {
-        return;
-    };
-
-    compilation_context.add_diagnostic(module_statement_diagnostic(
-        &module.source_file,
-        statement.span.clone(),
-    ));
-}
-
-fn module_statement_diagnostic(source_file: &SourceFile, span: Span) -> SourceDiagnostic {
-    let (line_number, line_start, line_end) = line_bounds(source_file.source(), span.start());
-    let source_line = &source_file.source()[line_start..line_end];
-    let relative_start = span.start().saturating_sub(line_start);
-    let relative_end = span.end().saturating_sub(line_start);
-
-    SourceDiagnostic::new(
-        DiagnosticLevel::Error,
-        &source_file.path,
-        "top-level statements are only allowed in `.ocelot-script` files",
-    )
-    .with_excerpt(
-        SourceExcerpt::new(&source_file.path, line_number, source_line).with_annotation(
-            SourceAnnotation::new(
-                Span::new(relative_start, relative_end),
-                "move this statement into `main()` or rename the file to `.ocelot-script`",
-            ),
-        ),
-    )
-}
-
-fn line_bounds(source: &str, index: usize) -> (usize, usize, usize) {
-    let line_start = source[..index].rfind('\n').map_or(0, |offset| offset + 1);
-    let line_end = source[index..]
-        .find('\n')
-        .map_or(source.len(), |offset| index + offset);
-    let line_number = source[..line_start]
-        .bytes()
-        .filter(|byte| *byte == b'\n')
-        .count()
-        + 1;
-
-    (line_number, line_start, line_end)
-}
-
 #[cfg(test)]
 mod tests {
     use super::Engine;
-    use super::module_name_from_path;
+    use crate::module_name_from_path::module_name_from_path;
     use crate::source_file_kind::SourceFileKind;
     use expect_test::expect;
     use ocelot_base::compilation_stage::CompilationStage;
