@@ -96,10 +96,8 @@ Below the first line include detail information about the changes made.
 Also include the agent model identifier used for the commit in a `Model:` section in the commit message body.
 Always run `git add` and `git commit` as separate commands.
 
-**Commit message file note:** When crafting commit messages, write the full message to `target/commit-message.txt` and commit with `git commit -F target/commit-message.txt`.
-This avoids shell escaping issues and keeps multiline commit bodies predictable.
-`target/commit-message.txt` is a temporary local file and must never be added to git or committed.
-If it is ever tracked accidentally, remove it from git immediately and keep using it only as an untracked local helper file.
+**Commit message note:** When crafting commit messages, use `git commit -F -` with heredoc syntax such as `git commit -F - <<'EO_COMMIT_MESSAGE'`.
+This avoids shell escaping issues and keeps multiline commit bodies predictable without creating temporary files.
 
 Never push code or ask to push code.
 
