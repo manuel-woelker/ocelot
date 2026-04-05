@@ -11,6 +11,7 @@ use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
 use ocelot_base::diagnostic_level::DiagnosticLevel;
 use ocelot_base::error::OcelotError;
+use ocelot_base::line_bounds::LineBounds;
 use ocelot_base::result::OcelotResult;
 use ocelot_base::shared_string::SharedString;
 use ocelot_base::source_annotation::SourceAnnotation;
@@ -210,30 +211,17 @@ impl<'a> Interpreter<'a> {
     ) -> SourceDiagnostic {
         let message = message.into();
         let annotation = annotation.into();
-        let (line_number, line_start, line_end) = self.line_bounds(span.start());
-        let source_line = &self.source_file.source()[line_start..line_end];
-        let relative_start = span.start().saturating_sub(line_start);
-        let relative_end = span.end().saturating_sub(line_start);
+        let line_bounds = LineBounds::new(self.source_file.source(), span.start());
+        let source_line = &self.source_file.source()[line_bounds.line_start..line_bounds.line_end];
+        let relative_start = span.start().saturating_sub(line_bounds.line_start);
+        let relative_end = span.end().saturating_sub(line_bounds.line_start);
 
         SourceDiagnostic::new(DiagnosticLevel::Error, &self.source_file.path, message).with_excerpt(
-            SourceExcerpt::new(&self.source_file.path, line_number, source_line).with_annotation(
-                SourceAnnotation::new(Span::new(relative_start, relative_end), annotation),
-            ),
+            SourceExcerpt::new(&self.source_file.path, line_bounds.line_number, source_line)
+                .with_annotation(SourceAnnotation::new(
+                    Span::new(relative_start, relative_end),
+                    annotation,
+                )),
         )
-    }
-
-    fn line_bounds(&self, index: usize) -> (usize, usize, usize) {
-        let source = self.source_file.source();
-        let line_start = source[..index].rfind('\n').map_or(0, |offset| offset + 1);
-        let line_end = source[index..]
-            .find('\n')
-            .map_or(source.len(), |offset| index + offset);
-        let line_number = source[..line_start]
-            .bytes()
-            .filter(|byte| *byte == b'\n')
-            .count()
-            + 1;
-
-        (line_number, line_start, line_end)
     }
 }

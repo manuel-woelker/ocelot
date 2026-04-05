@@ -1,5 +1,6 @@
 use crate::diagnostic_level::DiagnosticLevel;
 use crate::file_path::FilePath;
+use crate::line_bounds::LineBounds;
 use crate::render_source_diagnostics::render_source_diagnostics;
 use crate::shared_string::SharedString;
 use crate::source_annotation::SourceAnnotation;
@@ -25,19 +26,18 @@ impl AssertionError {
         expected: impl Into<SharedString>,
         actual: impl Into<SharedString>,
     ) -> Self {
-        let (line_number, line_start, line_end) = line_bounds(source_file.source(), span.start());
-        let source_line = &source_file.source()[line_start..line_end];
-        let relative_start = span.start().saturating_sub(line_start);
-        let relative_end = span.end().saturating_sub(line_start);
+        let line_bounds = LineBounds::new(source_file.source(), span.start());
+        let source_line = &source_file.source()[line_bounds.line_start..line_bounds.line_end];
+        let relative_start = span.start().saturating_sub(line_bounds.line_start);
+        let relative_end = span.end().saturating_sub(line_bounds.line_start);
         let summary = summary.into();
         let diagnostic = SourceDiagnostic::new(DiagnosticLevel::Error, &source_file.path, summary)
             .with_excerpt(
-                SourceExcerpt::new(&source_file.path, line_number, source_line).with_annotation(
-                    SourceAnnotation::new(
+                SourceExcerpt::new(&source_file.path, line_bounds.line_number, source_line)
+                    .with_annotation(SourceAnnotation::new(
                         Span::new(relative_start, relative_end),
                         "assertion failed here",
-                    ),
-                ),
+                    )),
             );
 
         Self {
@@ -53,19 +53,18 @@ impl AssertionError {
         span: Span,
         summary: impl Into<SharedString>,
     ) -> Self {
-        let (line_number, line_start, line_end) = line_bounds(source_file.source(), span.start());
-        let source_line = &source_file.source()[line_start..line_end];
-        let relative_start = span.start().saturating_sub(line_start);
-        let relative_end = span.end().saturating_sub(line_start);
+        let line_bounds = LineBounds::new(source_file.source(), span.start());
+        let source_line = &source_file.source()[line_bounds.line_start..line_bounds.line_end];
+        let relative_start = span.start().saturating_sub(line_bounds.line_start);
+        let relative_end = span.end().saturating_sub(line_bounds.line_start);
         let summary = summary.into();
         let diagnostic = SourceDiagnostic::new(DiagnosticLevel::Error, &source_file.path, summary)
             .with_excerpt(
-                SourceExcerpt::new(&source_file.path, line_number, source_line).with_annotation(
-                    SourceAnnotation::new(
+                SourceExcerpt::new(&source_file.path, line_bounds.line_number, source_line)
+                    .with_annotation(SourceAnnotation::new(
                         Span::new(relative_start, relative_end),
                         "assertion failed here",
-                    ),
-                ),
+                    )),
             );
 
         Self {
@@ -127,20 +126,6 @@ fn strip_trailing_column_number(line: &str) -> String {
     } else {
         line.to_owned()
     }
-}
-
-fn line_bounds(source: &str, index: usize) -> (usize, usize, usize) {
-    let line_start = source[..index].rfind('\n').map_or(0, |offset| offset + 1);
-    let line_end = source[index..]
-        .find('\n')
-        .map_or(source.len(), |offset| index + offset);
-    let line_number = source[..line_start]
-        .bytes()
-        .filter(|byte| *byte == b'\n')
-        .count()
-        + 1;
-
-    (line_number, line_start, line_end)
 }
 
 impl std::fmt::Display for AssertionError {

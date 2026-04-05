@@ -1,6 +1,7 @@
 use crate::lexer::token::Token;
 use crate::lexer::token_type::TokenType;
 use ocelot_base::diagnostic_level::DiagnosticLevel;
+use ocelot_base::line_bounds::LineBounds;
 use ocelot_base::source_annotation::SourceAnnotation;
 use ocelot_base::source_diagnostic::SourceDiagnostic;
 use ocelot_base::source_diagnostics::SourceDiagnostics;
@@ -230,32 +231,21 @@ fn excerpt_with_annotation(
     end: usize,
     annotation_message: &str,
 ) -> SourceExcerpt {
-    let (line_number, line_start, line_end) = line_bounds(source_file.source(), start);
-    let annotation_end = end.min(line_end).max(start + 1);
+    let line_bounds = LineBounds::new(source_file.source(), start);
+    let annotation_end = end.min(line_bounds.line_end).max(start + 1);
 
     SourceExcerpt::new(
         &source_file.path,
-        line_number,
-        &source_file.source()[line_start..line_end],
+        line_bounds.line_number,
+        &source_file.source()[line_bounds.line_start..line_bounds.line_end],
     )
     .with_annotation(SourceAnnotation::new(
-        Span::new(start - line_start, annotation_end - line_start),
+        Span::new(
+            start - line_bounds.line_start,
+            annotation_end - line_bounds.line_start,
+        ),
         annotation_message,
     ))
-}
-
-fn line_bounds(source: &str, index: usize) -> (usize, usize, usize) {
-    let line_start = source[..index].rfind('\n').map_or(0, |offset| offset + 1);
-    let line_end = source[index..]
-        .find('\n')
-        .map_or(source.len(), |offset| index + offset);
-    let line_number = source[..line_start]
-        .bytes()
-        .filter(|byte| *byte == b'\n')
-        .count()
-        + 1;
-
-    (line_number, line_start, line_end)
 }
 
 #[cfg(test)]

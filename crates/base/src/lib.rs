@@ -4,6 +4,7 @@ pub mod compilation_stage;
 pub mod diagnostic_level;
 pub mod error;
 pub mod file_path;
+pub mod line_bounds;
 pub mod logging;
 pub mod render_source_diagnostics;
 pub mod result;
