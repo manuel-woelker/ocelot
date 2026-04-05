@@ -1,3 +1,5 @@
+use crate::builtin_module::BuiltinModule;
+use crate::core_module::default_core_module;
 use crate::engine_command::EngineCommand;
 use crate::engine_worker::EngineWorker;
 use crate::test_run_summary::TestRunSummary;
@@ -5,36 +7,52 @@ use ocelot_base::error::{ErrorKind, OcelotError};
 use ocelot_base::file_path::FilePath;
 use ocelot_base::render_source_diagnostics::render_source_diagnostics;
 use ocelot_base::result::OcelotResult;
+use ocelot_base::shared_string::SharedString;
 use ocelot_pal::pal::PalHandle;
 
 #[derive(Debug, Clone)]
 pub struct Engine {
     pal: PalHandle,
+    builtin_modules: Vec<BuiltinModule>,
 }
 
 impl Engine {
     pub fn new(pal: PalHandle) -> Self {
-        Self { pal }
+        Self {
+            pal,
+            builtin_modules: vec![default_core_module()],
+        }
+    }
+
+    pub fn register_builtin_module(
+        &mut self,
+        module_name: impl Into<SharedString>,
+        source: impl Into<SharedString>,
+    ) {
+        let builtin_module = BuiltinModule::new(module_name, source);
+        self.builtin_modules
+            .retain(|module| module.module_name != builtin_module.module_name);
+        self.builtin_modules.push(builtin_module);
     }
 
     pub fn run_file(&self, path: impl Into<FilePath>) -> OcelotResult<()> {
         let path = path.into();
         let command = EngineCommand::run_file(path)?;
-        let mut worker = EngineWorker::new(&self.pal, command);
+        let mut worker = EngineWorker::new(&self.pal, command, self.builtin_modules.clone());
         self.run_worker(&mut worker)
     }
 
     pub fn run_test(&self, path: impl Into<FilePath>, test_name: &str) -> OcelotResult<()> {
         let path = path.into();
         let command = EngineCommand::run_test(path, test_name)?;
-        let mut worker = EngineWorker::new(&self.pal, command);
+        let mut worker = EngineWorker::new(&self.pal, command, self.builtin_modules.clone());
         self.run_worker(&mut worker)
     }
 
     pub fn run_tests(&self, path: impl Into<FilePath>) -> OcelotResult<TestRunSummary> {
         let path = path.into();
         let command = EngineCommand::run_tests(path)?;
-        let mut worker = EngineWorker::new(&self.pal, command);
+        let mut worker = EngineWorker::new(&self.pal, command, self.builtin_modules.clone());
         self.run_worker(&mut worker)?;
         Ok(worker.test_run_summary().clone())
     }
@@ -370,6 +388,22 @@ mod tests {
                 .contains("module name `core` is reserved")
         );
         assert!(error.to_test_string().contains("examples/core.ocelot"));
+    }
+
+    #[test]
+    fn run_file_supports_registering_additional_builtin_modules() {
+        let pal = PalMock::new();
+        pal.set_file("examples/main.ocelot-script", "helpers::greet();");
+
+        let mut engine = Engine::new(PalHandle::new(pal.clone()));
+        engine.register_builtin_module(
+            "helpers",
+            "fun greet() { core::println(\"from builtin\"); }",
+        );
+
+        engine.run_file("examples/main.ocelot-script").unwrap();
+
+        assert_eq!(pal.take_printed_output(), "from builtin\n");
     }
 
     #[test]

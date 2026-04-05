@@ -1,4 +1,4 @@
-use crate::core_module::{CORE_MODULE_NAME, CORE_MODULE_PATH, load_core_module};
+use crate::builtin_module::BuiltinModule;
 use crate::engine_command::{EngineCommand, RunCommandKind};
 use crate::failed_test_result::FailedTestResult;
 use crate::loaded_module::ParsedModule;
@@ -34,17 +34,23 @@ pub struct EngineWorker {
     pal: PalHandle,
     compilation_context: CompilationContext,
     command: EngineCommand,
+    builtin_modules: Vec<BuiltinModule>,
     parsed_modules: Vec<ParsedModule>,
     program_environment: ProgramEnvironment,
     test_run_summary: TestRunSummary,
 }
 
 impl EngineWorker {
-    pub fn new(pal_handle: impl Into<PalHandle>, command: EngineCommand) -> Self {
+    pub fn new(
+        pal_handle: impl Into<PalHandle>,
+        command: EngineCommand,
+        builtin_modules: Vec<BuiltinModule>,
+    ) -> Self {
         Self {
             pal: pal_handle.into(),
             compilation_context: CompilationContext::default(),
             command,
+            builtin_modules,
             parsed_modules: Vec::new(),
             program_environment: ProgramEnvironment::default(),
             test_run_summary: TestRunSummary::default(),
@@ -186,7 +192,11 @@ impl EngineWorker {
     fn resolve_modules(&mut self) -> OcelotResult<()> {
         for module in &self.parsed_modules {
             validate_loaded_module(module, &mut self.compilation_context);
-            validate_reserved_core_module_name(module, &mut self.compilation_context);
+            validate_builtin_module_conflict(
+                module,
+                &self.builtin_modules,
+                &mut self.compilation_context,
+            );
         }
 
         let compilation_session = self.create_compilation_session();
@@ -281,9 +291,12 @@ impl EngineWorker {
             }
         }
 
-        self.parsed_modules.push(load_core_module(
-            &mut self.compilation_context.source_diagnostics,
-        )?);
+        let builtin_modules = self.builtin_modules.clone();
+        for builtin_module in builtin_modules {
+            if let Some(module) = self.parse_builtin_module(builtin_module)? {
+                self.parsed_modules.push(module);
+            }
+        }
         Ok(())
     }
 
@@ -302,6 +315,39 @@ impl EngineWorker {
 
     fn parse_module(&mut self, path: &FilePath) -> OcelotResult<Option<ParsedModule>> {
         let source_file = self.read_source_file(path.clone())?;
+        let base_path = self.command.base_path.clone();
+        let path = path.clone();
+        self.parse_source_file(source_file, |source_file, script| {
+            let source_kind = SourceFileKind::from_path(&path)?;
+            Ok(ParsedModule::new(
+                module_name_from_path(&base_path, &path)?,
+                source_kind,
+                source_file,
+                script,
+            ))
+        })
+    }
+
+    fn parse_builtin_module(
+        &mut self,
+        builtin_module: BuiltinModule,
+    ) -> OcelotResult<Option<ParsedModule>> {
+        let source_file = SourceFile::new(builtin_module.source_file_path(), builtin_module.source);
+        self.parse_source_file(source_file, |source_file, script| {
+            Ok(ParsedModule::new(
+                builtin_module.module_name,
+                SourceFileKind::Module,
+                source_file,
+                script,
+            ))
+        })
+    }
+
+    fn parse_source_file(
+        &mut self,
+        source_file: SourceFile,
+        build_module: impl FnOnce(SourceFile, ocelot_ast::script::Script) -> OcelotResult<ParsedModule>,
+    ) -> OcelotResult<Option<ParsedModule>> {
         let script = match ocelot_parser::parse_script::parse_script(
             &source_file,
             &mut self.compilation_context.source_diagnostics,
@@ -310,13 +356,7 @@ impl EngineWorker {
             Err(error) if is_parser_compilation_error(&error) => return Ok(None),
             Err(error) => return Err(error),
         };
-        let source_kind = SourceFileKind::from_path(path)?;
-        Ok(Some(ParsedModule::new(
-            module_name_from_path(&self.command.base_path, path)?,
-            source_kind,
-            source_file,
-            script,
-        )))
+        Ok(Some(build_module(source_file, script)?))
     }
 
     fn read_source_file(&self, path: FilePath) -> OcelotResult<SourceFile> {
@@ -374,13 +414,19 @@ fn is_parser_compilation_error(error: &OcelotError) -> bool {
     )
 }
 
-fn validate_reserved_core_module_name(
+fn validate_builtin_module_conflict(
     module: &ParsedModule,
+    builtin_modules: &[BuiltinModule],
     compilation_context: &mut CompilationContext,
 ) {
-    if module.module_name != CORE_MODULE_NAME
-        || module.source_file.path.as_str() == CORE_MODULE_PATH
-    {
+    let Some(builtin_module) = builtin_modules
+        .iter()
+        .find(|builtin_module| module.module_name == builtin_module.module_name)
+    else {
+        return;
+    };
+
+    if module.source_file.path == builtin_module.source_file_path() {
         return;
     }
 
@@ -388,7 +434,10 @@ fn validate_reserved_core_module_name(
         SourceDiagnostic::new(
             DiagnosticLevel::Error,
             &module.source_file.path,
-            "module name `core` is reserved",
+            format!(
+                "module name `{}` is reserved for a builtin module",
+                module.module_name
+            ),
         )
         .with_excerpt(source_excerpt_for_path(
             &module.source_file,
@@ -446,6 +495,7 @@ fn module_statement_diagnostic(source_file: &SourceFile, span: Span) -> SourceDi
 #[cfg(test)]
 mod tests {
     use super::EngineWorker;
+    use crate::builtin_module::BuiltinModule;
     use crate::engine_command::EngineCommand;
     use ocelot_base::compilation_stage::CompilationStage;
     use ocelot_base::error::ErrorKind;
@@ -460,6 +510,7 @@ mod tests {
         let mut worker = EngineWorker::new(
             PalHandle::new(pal),
             EngineCommand::run_file("examples/main.ocelot-script".into()).unwrap(),
+            Vec::new(),
         );
 
         let error = worker.run_command().unwrap_err();
@@ -489,6 +540,7 @@ mod tests {
         let mut worker = EngineWorker::new(
             PalHandle::new(pal),
             EngineCommand::run_file("examples/main.ocelot-script".into()).unwrap(),
+            Vec::new(),
         );
 
         let error = worker.run_command().unwrap_err();
@@ -503,6 +555,37 @@ mod tests {
                 .diagnostics
                 .iter()
                 .any(|diagnostic| diagnostic.file_path.as_str() == "examples/helper.ocelot")
+        );
+    }
+
+    #[test]
+    fn run_command_rejects_user_modules_that_conflict_with_builtin_modules() {
+        let pal = PalMock::new();
+        pal.set_file("examples/main.ocelot-script", "helpers::greet();");
+        pal.set_file("examples/helpers.ocelot", "fun greet() {}");
+
+        let mut worker = EngineWorker::new(
+            PalHandle::new(pal),
+            EngineCommand::run_file("examples/main.ocelot-script".into()).unwrap(),
+            vec![BuiltinModule::new(
+                "helpers",
+                "fun greet() { core::println(\"builtin\"); }",
+            )],
+        );
+
+        let error = worker.run_command().unwrap_err();
+
+        assert!(matches!(
+            error.kind(),
+            ErrorKind::CompilationError(CompilationStage::Resolver)
+        ));
+        assert!(
+            worker
+                .source_diagnostics()
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message
+                    == "module name `helpers` is reserved for a builtin module")
         );
     }
 }

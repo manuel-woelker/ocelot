@@ -1,5 +1,6 @@
 //! High-level language pipeline orchestration for `ocelot`.
 
+pub mod builtin_module;
 pub mod core_module;
 pub mod discovered_test;
 pub mod engine;
