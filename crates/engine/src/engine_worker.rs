@@ -1,12 +1,13 @@
 use crate::core_module::{CORE_MODULE_NAME, CORE_MODULE_PATH, load_core_module};
+use crate::engine_command::{EngineCommand, RunCommandKind};
 use crate::failed_test_result::FailedTestResult;
 use crate::loaded_module::ParsedModule;
-use crate::loaded_program::LoadedProgram;
 use crate::module_name_from_path::module_name_from_path;
 use crate::source_file_kind::SourceFileKind;
 use crate::test_run_summary::TestRunSummary;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_base::assertion_error::render_assertion_error;
+use ocelot_base::compilation_stage::CompilationStage;
 use ocelot_base::diagnostic_level::DiagnosticLevel;
 use ocelot_base::error::{ErrorKind, OcelotError};
 use ocelot_base::file_path::FilePath;
@@ -16,6 +17,7 @@ use ocelot_base::result::{OcelotResult, OptionExt, ResultExt};
 use ocelot_base::shared_string::SharedString;
 use ocelot_base::source_annotation::SourceAnnotation;
 use ocelot_base::source_diagnostic::SourceDiagnostic;
+use ocelot_base::source_diagnostics::SourceDiagnostics;
 use ocelot_base::source_excerpt::SourceExcerpt;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
@@ -27,16 +29,14 @@ use ocelot_semantic::module_environment::ModuleEnvironment;
 use ocelot_semantic::program_environment::ProgramEnvironment;
 use ocelot_semantic::symbol_table::SymbolTable;
 use std::collections::HashMap;
-use ocelot_base::compilation_stage::CompilationStage;
-use ocelot_base::source_diagnostics::SourceDiagnostics;
-use ocelot_parser::parse_script::parse_script;
-use crate::engine_command::EngineCommand;
 
 pub struct EngineWorker {
     pal: PalHandle,
     compilation_context: CompilationContext,
     command: EngineCommand,
     parsed_modules: Vec<ParsedModule>,
+    program_environment: ProgramEnvironment,
+    test_run_summary: TestRunSummary,
 }
 
 impl EngineWorker {
@@ -46,249 +46,56 @@ impl EngineWorker {
             compilation_context: CompilationContext::default(),
             command,
             parsed_modules: Vec::new(),
+            program_environment: ProgramEnvironment::default(),
+            test_run_summary: TestRunSummary::default(),
         }
     }
 
-    pub fn run_command(&mut self, _command: &EngineCommand) -> OcelotResult<()> {
+    pub fn run_command(&mut self) -> OcelotResult<()> {
         self.parse_modules()?;
         self.early_abort(CompilationStage::Parser)?;
         self.resolve_modules()?;
         self.early_abort(CompilationStage::Resolver)?;
-        self.execute()?;
-        Ok(())
+        self.execute()
     }
 
     pub fn source_diagnostics(&self) -> &SourceDiagnostics {
         &self.compilation_context.source_diagnostics
     }
 
-    pub fn execute(&mut self) -> OcelotResult<()> {
-        Ok(())
+    pub fn test_run_summary(&self) -> &TestRunSummary {
+        &self.test_run_summary
     }
 
-    fn resolve_modules(&self) -> OcelotResult<()> {
-        Ok(())
-    }
-
-    fn early_abort(&self, stage: CompilationStage) -> OcelotResult<()> {
-        if self.compilation_context.has_errors() {
-            return Err(OcelotError::new(ErrorKind::CompilationError(stage)));
+    fn execute(&mut self) -> OcelotResult<()> {
+        match &self.command.kind {
+            RunCommandKind::RunFile { .. } => self.execute_entry_module(),
+            RunCommandKind::RunTest { test_name, .. } => self.run_selected_test(test_name.as_str()),
+            RunCommandKind::RunTests { .. } => {
+                self.test_run_summary = self.run_all_tests()?;
+                Ok(())
+            }
         }
-        Ok(())
     }
 
-    fn parse_modules(&mut self) -> OcelotResult<()> {
-        let files = self.collect_files()?;
-        let modules: Vec<ParsedModule> = files.iter().map(|file| {
-            self.load_module(file)
-        }).collect::<OcelotResult<Vec<ParsedModule>>>()?;
-
-        self.parsed_modules = modules;
-        self.parsed_modules.push(load_core_module()?);
-        Ok(())
-    }
-
-    fn collect_files(&self) -> OcelotResult<Vec<FilePath>> {
-        let mut file_paths = self
-            .pal
-            .walk_directory(&self.command.base_path, &[String::from("*.ocelot")])?
-            .collect::<OcelotResult<Vec<_>>>()?;
-        file_paths.retain(|path| path.extension() == Some("ocelot"));
-        file_paths.sort();
-        Ok(file_paths)
-    }
-
-
-    pub fn run_file(self, path: impl Into<FilePath>) -> OcelotResult<()> {
-        let program = self.compile_program(path.into())?;
-        let entry_module = program.entry_module();
+    fn execute_entry_module(&self) -> OcelotResult<()> {
+        let entry_module = self.entry_module()?;
 
         match entry_module.kind {
             SourceFileKind::Script => ocelot_interpreter::interpret_script::interpret_script(
                 &entry_module.script,
                 &entry_module.source_file,
-                &program.environment,
+                &self.program_environment,
                 &*self.pal,
             ),
             SourceFileKind::Module => {
-                self.run_module_entrypoint(entry_module, &program.environment)
+                self.run_module_entrypoint(entry_module, &self.program_environment)
             }
-        }?;
-        Ok(())
+        }
     }
 
-    fn compile_program(&self, entry_path: FilePath) -> OcelotResult<LoadedProgram> {
-        let execution_root = entry_path.parent().unwrap_or_else(|| FilePath::from(""));
-        let mut module_paths = self
-            .pal
-            .walk_directory(&execution_root, &[String::from("*.ocelot")])?
-            .collect::<OcelotResult<Vec<_>>>()?;
-        module_paths.retain(|path| path.extension() == Some("ocelot"));
-        module_paths.sort();
-
-        if !module_paths.contains(&entry_path) {
-            module_paths.push(entry_path.clone());
-            module_paths.sort();
-        }
-
-        let mut modules = vec![load_core_module()?];
-        modules.extend(
-            module_paths
-                .into_iter()
-                .map(|path| {
-                    self.load_module(&path)
-                })
-                .collect::<OcelotResult<Vec<_>>>()?,
-        );
-        let entry_module_index = modules
-            .iter()
-            .position(|module| module.source_file.path == entry_path)
-            .context("internal error: entry module was not loaded")?;
-
-        let mut compilation_context = CompilationContext::default();
-        for module in &modules {
-            validate_loaded_module(module, &mut compilation_context);
-            validate_reserved_core_module_name(module, &mut compilation_context);
-        }
-        ocelot_resolver::resolution::finish_resolution(&compilation_context)?;
-
-        let compilation_session = self.create_compilation_session();
-        let mut symbol_table = self.create_symbol_table();
-        let mut module_environments: HashMap<FilePath, ModuleEnvironment> = modules
-            .iter()
-            .map(|module| (module.source_file.path.clone(), ModuleEnvironment::new()))
-            .collect();
-
-        for module in &modules {
-            symbol_table.add_module(module.module_name.clone());
-        }
-
-        for module in &mut modules {
-            ocelot_resolver::resolution::register_module_effects(
-                &mut module.script,
-                &module.source_file,
-                &mut compilation_context,
-                &mut symbol_table,
-            )?;
-        }
-
-        for module in &mut modules {
-            ocelot_resolver::resolution::register_module_functions(
-                &mut module.script,
-                module.module_name.as_str(),
-                &module.source_file,
-                &mut compilation_context,
-                &mut symbol_table,
-                module_environments
-                    .get_mut(&module.source_file.path)
-                    .expect("module environment should exist for loaded module"),
-                &compilation_session,
-            )?;
-        }
-
-        for module in &mut modules {
-            ocelot_resolver::resolution::register_module_imports(
-                &mut module.script,
-                module.module_name.as_str(),
-                &module.source_file,
-                &mut compilation_context,
-                &mut symbol_table,
-                module_environments
-                    .get_mut(&module.source_file.path)
-                    .expect("module environment should exist for loaded module"),
-            )?;
-        }
-
-        for module in &mut modules {
-            ocelot_resolver::resolution::resolve_module_items(
-                &mut module.script,
-                module.module_name.as_str(),
-                &module.source_file,
-                &mut compilation_context,
-                &symbol_table,
-                module_environments
-                    .get_mut(&module.source_file.path)
-                    .expect("module environment should exist for loaded module"),
-                &compilation_session,
-            )?;
-        }
-
-        let resolved_functions =
-            ocelot_resolver::resolution::resolve_user_defined_function_definitions(
-                &mut compilation_context,
-                &symbol_table,
-                &module_environments,
-                &compilation_session,
-            )?;
-        let mut environment = ProgramEnvironment::from_symbol_table(&symbol_table);
-        environment.apply_resolved_functions(resolved_functions)?;
-        ocelot_resolver::resolution::finish_resolution(&compilation_context)?;
-
-        Ok(LoadedProgram::new(entry_module_index, modules, environment))
-    }
-
-    fn load_module(
-        &self,
-        path: &FilePath,
-    ) -> OcelotResult<ParsedModule> {
-        let source_file = self.load_source_file(path.clone())?;
-        let mut compilation_context = CompilationContext::default();
-        let script = parse_script(
-            &source_file,
-            &mut compilation_context.source_diagnostics,
-        )?;
-        let source_kind = SourceFileKind::from_path(&path)?;
-        Ok(ParsedModule::new(
-            module_name_from_path(&self.command.base_path, path)?,
-            source_kind,
-            source_file,
-            script,
-        ))
-    }
-
-    fn load_source_file(&self, path: FilePath) -> OcelotResult<SourceFile> {
-        let source = self.pal.read_file_to_string(&path)?;
-        Ok(SourceFile::new(path, source))
-    }
-
-    fn create_symbol_table(&self) -> SymbolTable {
-        SymbolTable::new()
-    }
-
-    fn create_compilation_session(&self) -> CompilationSession {
-        CompilationSession::with_default_native_functions()
-    }
-
-    fn run_module_entrypoint(
-        &self,
-        entry_module: &ParsedModule,
-        environment: &ProgramEnvironment,
-    ) -> OcelotResult<()> {
-        let entrypoint_name = environment.qualify_function_name(&entry_module.module_name, "main");
-        let function_index = environment
-            .resolve_function_exact(entrypoint_name.as_str())
-            .context(format!(
-                "module `{}` does not define a `main()` entrypoint",
-                entry_module.module_name
-            ))?;
-        let function_definition = environment.function_definition(function_index)?;
-        let FunctionKind::UserDefined {
-            function,
-            source_file,
-        } = &function_definition.kind
-        else {
-            ocelot_base::bail!(
-                "internal error: module entrypoint `{entrypoint_name}` must be user-defined"
-            );
-        };
-
-        ocelot_interpreter::interpreter::Interpreter::new(&*self.pal, source_file, environment)
-            .interpret_statements(&function.body)
-    }
-
-    pub fn run_test(&self, path: impl Into<FilePath>, test_name: &str) -> OcelotResult<()> {
-        let program = self.compile_program(path.into())?;
-        let entry_module = program.entry_module();
+    fn run_selected_test(&self, test_name: &str) -> OcelotResult<()> {
+        let entry_module = self.entry_module()?;
         let test_item = entry_module
             .script
             .items
@@ -302,7 +109,7 @@ impl EngineWorker {
         if let Err(error) = ocelot_interpreter::interpreter::Interpreter::new(
             &*self.pal,
             &entry_module.source_file,
-            &program.environment,
+            &self.program_environment,
         )
         .interpret_statements(&test_item.body)
         {
@@ -324,13 +131,12 @@ impl EngineWorker {
         Ok(())
     }
 
-    pub fn run_tests(&self, path: impl Into<FilePath>) -> OcelotResult<TestRunSummary> {
-        let program = self.compile_program(path.into())?;
-        let entry_module = program.entry_module();
+    fn run_all_tests(&self) -> OcelotResult<TestRunSummary> {
+        let entry_module = self.entry_module()?;
         let interpreter = ocelot_interpreter::interpreter::Interpreter::new(
             &*self.pal,
             &entry_module.source_file,
-            &program.environment,
+            &self.program_environment,
         );
         let mut summary = TestRunSummary::new();
 
@@ -377,6 +183,196 @@ impl EngineWorker {
         Ok(summary)
     }
 
+    fn resolve_modules(&mut self) -> OcelotResult<()> {
+        for module in &self.parsed_modules {
+            validate_loaded_module(module, &mut self.compilation_context);
+            validate_reserved_core_module_name(module, &mut self.compilation_context);
+        }
+
+        let compilation_session = self.create_compilation_session();
+        let mut symbol_table = self.create_symbol_table();
+        let mut module_environments: HashMap<FilePath, ModuleEnvironment> = self
+            .parsed_modules
+            .iter()
+            .map(|module| (module.source_file.path.clone(), ModuleEnvironment::new()))
+            .collect();
+
+        for module in &self.parsed_modules {
+            symbol_table.add_module(module.module_name.clone());
+        }
+
+        for module in &mut self.parsed_modules {
+            ocelot_resolver::resolution::register_module_effects(
+                &mut module.script,
+                &module.source_file,
+                &mut self.compilation_context,
+                &mut symbol_table,
+            )?;
+        }
+
+        for module in &mut self.parsed_modules {
+            ocelot_resolver::resolution::register_module_functions(
+                &mut module.script,
+                module.module_name.as_str(),
+                &module.source_file,
+                &mut self.compilation_context,
+                &mut symbol_table,
+                module_environments
+                    .get_mut(&module.source_file.path)
+                    .expect("module environment should exist for loaded module"),
+                &compilation_session,
+            )?;
+        }
+
+        for module in &mut self.parsed_modules {
+            ocelot_resolver::resolution::register_module_imports(
+                &mut module.script,
+                module.module_name.as_str(),
+                &module.source_file,
+                &mut self.compilation_context,
+                &mut symbol_table,
+                module_environments
+                    .get_mut(&module.source_file.path)
+                    .expect("module environment should exist for loaded module"),
+            )?;
+        }
+
+        for module in &mut self.parsed_modules {
+            ocelot_resolver::resolution::resolve_module_items(
+                &mut module.script,
+                module.module_name.as_str(),
+                &module.source_file,
+                &mut self.compilation_context,
+                &symbol_table,
+                module_environments
+                    .get(&module.source_file.path)
+                    .expect("module environment should exist for loaded module"),
+                &compilation_session,
+            )?;
+        }
+
+        let resolved_functions =
+            ocelot_resolver::resolution::resolve_user_defined_function_definitions(
+                &mut self.compilation_context,
+                &symbol_table,
+                &module_environments,
+                &compilation_session,
+            )?;
+        self.program_environment = ProgramEnvironment::from_symbol_table(&symbol_table);
+        self.program_environment
+            .apply_resolved_functions(resolved_functions)?;
+
+        Ok(())
+    }
+
+    fn early_abort(&self, stage: CompilationStage) -> OcelotResult<()> {
+        if self.compilation_context.has_errors() {
+            return Err(OcelotError::compilation_error(stage));
+        }
+        Ok(())
+    }
+
+    fn parse_modules(&mut self) -> OcelotResult<()> {
+        self.parsed_modules.clear();
+
+        for file in self.collect_files()? {
+            if let Some(module) = self.load_module(&file)? {
+                self.parsed_modules.push(module);
+            }
+        }
+
+        self.parsed_modules.push(load_core_module(
+            &mut self.compilation_context.source_diagnostics,
+        )?);
+        Ok(())
+    }
+
+    fn collect_files(&self) -> OcelotResult<Vec<FilePath>> {
+        let mut file_paths = self
+            .pal
+            .walk_directory(&self.command.base_path, &[String::from("*.ocelot")])?
+            .collect::<OcelotResult<Vec<_>>>()?;
+        file_paths.retain(|path| path.extension() == Some("ocelot"));
+        let entry_path = self.command.entry_path();
+        if !file_paths.contains(entry_path) {
+            file_paths.push(entry_path.clone());
+        }
+        file_paths.sort();
+        Ok(file_paths)
+    }
+
+    fn load_module(&mut self, path: &FilePath) -> OcelotResult<Option<ParsedModule>> {
+        let source_file = self.load_source_file(path.clone())?;
+        let script = match ocelot_parser::parse_script::parse_script(
+            &source_file,
+            &mut self.compilation_context.source_diagnostics,
+        ) {
+            Ok(script) => script,
+            Err(error) if is_parser_compilation_error(&error) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let source_kind = SourceFileKind::from_path(path)?;
+        Ok(Some(ParsedModule::new(
+            module_name_from_path(&self.command.base_path, path)?,
+            source_kind,
+            source_file,
+            script,
+        )))
+    }
+
+    fn load_source_file(&self, path: FilePath) -> OcelotResult<SourceFile> {
+        let source = self.pal.read_file_to_string(&path)?;
+        Ok(SourceFile::new(path, source))
+    }
+
+    fn entry_module(&self) -> OcelotResult<&ParsedModule> {
+        self.parsed_modules
+            .iter()
+            .find(|module| module.source_file.path == *self.command.entry_path())
+            .context("internal error: entry module was not loaded")
+    }
+
+    fn create_symbol_table(&self) -> SymbolTable {
+        SymbolTable::new()
+    }
+
+    fn create_compilation_session(&self) -> CompilationSession {
+        CompilationSession::with_default_native_functions()
+    }
+
+    fn run_module_entrypoint(
+        &self,
+        entry_module: &ParsedModule,
+        environment: &ProgramEnvironment,
+    ) -> OcelotResult<()> {
+        let entrypoint_name = environment.qualify_function_name(&entry_module.module_name, "main");
+        let function_index = environment
+            .resolve_function_exact(entrypoint_name.as_str())
+            .context(format!(
+                "module `{}` does not define a `main()` entrypoint",
+                entry_module.module_name
+            ))?;
+        let function_definition = environment.function_definition(function_index)?;
+        let FunctionKind::UserDefined {
+            function,
+            source_file,
+        } = &function_definition.kind
+        else {
+            ocelot_base::bail!(
+                "internal error: module entrypoint `{entrypoint_name}` must be user-defined"
+            );
+        };
+
+        ocelot_interpreter::interpreter::Interpreter::new(&*self.pal, source_file, environment)
+            .interpret_statements(&function.body)
+    }
+}
+
+fn is_parser_compilation_error(error: &OcelotError) -> bool {
+    matches!(
+        error.kind(),
+        ErrorKind::CompilationError(CompilationStage::Parser)
+    )
 }
 
 fn validate_reserved_core_module_name(
@@ -446,4 +442,68 @@ fn module_statement_diagnostic(source_file: &SourceFile, span: Span) -> SourceDi
                 "move this statement into `main()` or rename the file to `.ocelot-script`",
             )),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EngineWorker;
+    use crate::engine_command::EngineCommand;
+    use ocelot_base::compilation_stage::CompilationStage;
+    use ocelot_base::error::ErrorKind;
+    use ocelot_pal::pal::PalHandle;
+    use ocelot_pal::pal_mock::PalMock;
+
+    #[test]
+    fn run_command_collects_parser_diagnostics_in_compilation_context() {
+        let pal = PalMock::new();
+        pal.set_file("examples/main.ocelot-script", "println(\"hello\"");
+
+        let mut worker = EngineWorker::new(
+            PalHandle::new(pal),
+            EngineCommand::run_file("examples/main.ocelot-script".into()).unwrap(),
+        );
+
+        let error = worker.run_command().unwrap_err();
+
+        assert!(matches!(
+            error.kind(),
+            ErrorKind::CompilationError(CompilationStage::Parser)
+        ));
+        assert_eq!(worker.source_diagnostics().diagnostics.len(), 1);
+        assert_eq!(
+            worker.source_diagnostics().diagnostics[0]
+                .file_path
+                .as_str(),
+            "examples/main.ocelot-script"
+        );
+    }
+
+    #[test]
+    fn run_command_collects_resolver_diagnostics_in_compilation_context() {
+        let pal = PalMock::new();
+        pal.set_file("examples/main.ocelot-script", "helper::greet();");
+        pal.set_file(
+            "examples/helper.ocelot",
+            "println(\"setup\"); fun greet() { println(\"hello\"); }",
+        );
+
+        let mut worker = EngineWorker::new(
+            PalHandle::new(pal),
+            EngineCommand::run_file("examples/main.ocelot-script".into()).unwrap(),
+        );
+
+        let error = worker.run_command().unwrap_err();
+
+        assert!(matches!(
+            error.kind(),
+            ErrorKind::CompilationError(CompilationStage::Resolver)
+        ));
+        assert!(
+            worker
+                .source_diagnostics()
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.file_path.as_str() == "examples/helper.ocelot")
+        );
+    }
 }

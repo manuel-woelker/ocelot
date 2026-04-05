@@ -1,9 +1,11 @@
+use crate::engine_command::EngineCommand;
 use crate::engine_worker::EngineWorker;
 use crate::test_run_summary::TestRunSummary;
+use ocelot_base::error::{ErrorKind, OcelotError};
 use ocelot_base::file_path::FilePath;
+use ocelot_base::render_source_diagnostics::render_source_diagnostics;
 use ocelot_base::result::OcelotResult;
 use ocelot_pal::pal::PalHandle;
-use crate::engine_command::EngineCommand;
 
 #[derive(Debug, Clone)]
 pub struct Engine {
@@ -17,23 +19,45 @@ impl Engine {
 
     pub fn run_file(&self, path: impl Into<FilePath>) -> OcelotResult<()> {
         let path = path.into();
-        let worker = EngineWorker::new(&self.pal, EngineCommand::run_file(path.clone())?);
-        worker.run_file(path)?;
-        Ok(())
+        let command = EngineCommand::run_file(path)?;
+        let mut worker = EngineWorker::new(&self.pal, command);
+        self.run_worker(&mut worker)
     }
 
     pub fn run_test(&self, path: impl Into<FilePath>, test_name: &str) -> OcelotResult<()> {
         let path = path.into();
-        let worker = EngineWorker::new(&self.pal, EngineCommand::run_file(path.clone())?);
-        worker.run_test(path, test_name)?;
-        Ok(())
+        let command = EngineCommand::run_test(path, test_name)?;
+        let mut worker = EngineWorker::new(&self.pal, command);
+        self.run_worker(&mut worker)
     }
 
     pub fn run_tests(&self, path: impl Into<FilePath>) -> OcelotResult<TestRunSummary> {
         let path = path.into();
-        let worker = EngineWorker::new(&self.pal, EngineCommand::run_file(path.clone())?);
-        worker.run_tests(path)
+        let command = EngineCommand::run_tests(path)?;
+        let mut worker = EngineWorker::new(&self.pal, command);
+        self.run_worker(&mut worker)?;
+        Ok(worker.test_run_summary().clone())
     }
+
+    fn run_worker(&self, worker: &mut EngineWorker) -> OcelotResult<()> {
+        worker
+            .run_command()
+            .map_err(|error| attach_compilation_diagnostics(error, worker))
+    }
+}
+
+fn attach_compilation_diagnostics(error: OcelotError, worker: &EngineWorker) -> OcelotError {
+    let ErrorKind::CompilationError(_) = error.kind() else {
+        return error;
+    };
+
+    if worker.source_diagnostics().diagnostics.is_empty() {
+        return error;
+    }
+
+    error.with_source(OcelotError::message(render_source_diagnostics(
+        &worker.source_diagnostics().diagnostics,
+    )))
 }
 
 #[cfg(test)]
