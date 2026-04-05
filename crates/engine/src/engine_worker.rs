@@ -301,7 +301,7 @@ impl EngineWorker {
     }
 
     fn parse_module(&mut self, path: &FilePath) -> OcelotResult<Option<ParsedModule>> {
-        let source_file = self.load_source_file(path.clone())?;
+        let source_file = self.read_source_file(path.clone())?;
         let script = match ocelot_parser::parse_script::parse_script(
             &source_file,
             &mut self.compilation_context.source_diagnostics,
@@ -319,7 +319,7 @@ impl EngineWorker {
         )))
     }
 
-    fn load_source_file(&self, path: FilePath) -> OcelotResult<SourceFile> {
+    fn read_source_file(&self, path: FilePath) -> OcelotResult<SourceFile> {
         let source = self.pal.read_file_to_string(&path)?;
         Ok(SourceFile::new(path, source))
     }
