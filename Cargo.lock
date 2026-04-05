@@ -440,6 +440,7 @@ version = "0.1.2"
 dependencies = [
  "ocelot-ast",
  "ocelot-base",
+ "ocelot-semantic",
 ]
 
 [[package]]

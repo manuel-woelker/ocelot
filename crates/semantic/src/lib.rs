@@ -1,5 +1,6 @@
 //! Semantic model and runtime-facing definitions for `ocelot`.
 
+pub mod compilation_context;
 pub mod compilation_session;
 pub mod function_definition;
 pub mod function_kind;

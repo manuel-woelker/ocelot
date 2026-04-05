@@ -1,15 +1,15 @@
 use crate::lexer::token::Token;
 use crate::lexer::token_type::TokenType;
-use ocelot_base::compilation_context::CompilationContext;
 use ocelot_base::diagnostic_level::DiagnosticLevel;
 use ocelot_base::source_annotation::SourceAnnotation;
 use ocelot_base::source_diagnostic::SourceDiagnostic;
+use ocelot_base::source_diagnostics::SourceDiagnostics;
 use ocelot_base::source_excerpt::SourceExcerpt;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 
-/// Tokenizes a source file into lexical tokens and appends diagnostics to the context.
-pub fn lex(source_file: &SourceFile, context: &mut CompilationContext) -> Vec<Token> {
+/// Tokenizes a source file into lexical tokens and appends diagnostics to the source_diagnostics.
+pub fn lex(source_file: &SourceFile, source_diagnostics: &mut SourceDiagnostics) -> Vec<Token> {
     let mut tokens = Vec::new();
     let source = source_file.source();
     let bytes = source.as_bytes();
@@ -19,7 +19,7 @@ pub fn lex(source_file: &SourceFile, context: &mut CompilationContext) -> Vec<To
         match skip_trivia(source_file, index) {
             Ok(next_index) => index = next_index,
             Err(diagnostic) => {
-                context.add_diagnostic(diagnostic);
+                source_diagnostics.add_diagnostic(diagnostic);
                 index = bytes.len();
                 break;
             }
@@ -75,7 +75,7 @@ pub fn lex(source_file: &SourceFile, context: &mut CompilationContext) -> Vec<To
                 }
 
                 if index >= bytes.len() || bytes[index] == b'\n' || bytes[index] == b'\r' {
-                    context.add_diagnostic(unterminated_string_diagnostic(
+                    source_diagnostics.add_diagnostic(unterminated_string_diagnostic(
                         source_file,
                         start,
                         index,
@@ -262,15 +262,15 @@ fn line_bounds(source: &str, index: usize) -> (usize, usize, usize) {
 mod tests {
     use super::lex;
     use crate::lexer::token_type::TokenType;
-    use ocelot_base::compilation_context::CompilationContext;
     use ocelot_base::diagnostic_level::DiagnosticLevel;
+    use ocelot_base::source_diagnostics::SourceDiagnostics;
     use ocelot_base::source_file::SourceFile;
 
     #[test]
     fn lexes_println_script() {
         let source_file = SourceFile::new("examples/hello.ocelot", "println(\"hello\");");
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -286,7 +286,7 @@ mod tests {
                 TokenType::EndOfFile,
             ]
         );
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
@@ -295,8 +295,8 @@ mod tests {
             "examples/tests.ocelot",
             "test \"prints\" { println(\"hello\"); }",
         );
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -316,7 +316,7 @@ mod tests {
                 TokenType::EndOfFile,
             ]
         );
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
@@ -325,8 +325,8 @@ mod tests {
             "examples/functions.ocelot",
             "fun greet() { println(\"hello\"); }",
         );
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -348,7 +348,7 @@ mod tests {
                 TokenType::EndOfFile,
             ]
         );
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
@@ -357,8 +357,8 @@ mod tests {
             "examples/functions.ocelot",
             "fun greet(name: string, excited: bool) {}",
         );
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -382,7 +382,7 @@ mod tests {
                 TokenType::EndOfFile,
             ]
         );
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
@@ -391,8 +391,8 @@ mod tests {
             "examples/effects.ocelot",
             "effect exec; fun greet() can exec cannot panic {}",
         );
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -416,14 +416,14 @@ mod tests {
                 TokenType::EndOfFile,
             ]
         );
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
     fn lexes_boolean_literals_as_reserved_tokens() {
         let source_file = SourceFile::new("examples/booleans.ocelot", "true; false;");
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -438,14 +438,14 @@ mod tests {
                 TokenType::EndOfFile,
             ]
         );
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
     fn lexes_not_as_a_reserved_token() {
         let source_file = SourceFile::new("examples/not.ocelot", "not true;");
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -459,14 +459,14 @@ mod tests {
                 TokenType::EndOfFile,
             ]
         );
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
     fn keeps_longer_identifiers_distinct_from_boolean_literals() {
         let source_file = SourceFile::new("examples/booleans.ocelot", "true_value; falsey;");
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -481,14 +481,14 @@ mod tests {
                 TokenType::EndOfFile,
             ]
         );
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
     fn keeps_longer_identifiers_distinct_from_not() {
         let source_file = SourceFile::new("examples/not.ocelot", "notify; not_value; knot;");
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -505,14 +505,14 @@ mod tests {
                 TokenType::EndOfFile,
             ]
         );
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
     fn skips_whitespace_between_tokens() {
         let source_file = SourceFile::new("examples/whitespace.ocelot", "println ( \"hello\" ) ;");
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -528,7 +528,7 @@ mod tests {
                 TokenType::EndOfFile,
             ]
         );
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
@@ -537,8 +537,8 @@ mod tests {
             "examples/comments.ocelot",
             "// heading comment\nprintln(\"hello\"); // trailing comment",
         );
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -554,7 +554,7 @@ mod tests {
                 TokenType::EndOfFile,
             ]
         );
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
@@ -563,8 +563,8 @@ mod tests {
             "examples/comments.ocelot",
             "println/* call */(\"hello\"/* value */);",
         );
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -580,7 +580,7 @@ mod tests {
                 TokenType::EndOfFile,
             ]
         );
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
@@ -589,8 +589,8 @@ mod tests {
             "examples/comments.ocelot",
             "/* outer /* inner */ still outer */ println(\"hello\");",
         );
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -606,7 +606,7 @@ mod tests {
                 TokenType::EndOfFile,
             ]
         );
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
@@ -615,8 +615,8 @@ mod tests {
             "examples/comments.ocelot",
             "/* setup\n   before call */\nprintln(\"hello\");",
         );
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -632,7 +632,7 @@ mod tests {
                 TokenType::EndOfFile,
             ]
         );
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
@@ -641,8 +641,8 @@ mod tests {
             "examples/comments.ocelot",
             "println(\"// not a comment /* still text */\");",
         );
-        let mut context = CompilationContext::default();
-        let tokens = lex(&source_file, &mut context);
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let tokens = lex(&source_file, &mut source_diagnostics);
 
         assert_eq!(tokens.len(), 6);
         assert_eq!(tokens[2].token_type, TokenType::String);
@@ -650,7 +650,7 @@ mod tests {
             &source_file.source()[tokens[2].span.start()..tokens[2].span.end()],
             "\"// not a comment /* still text */\""
         );
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
@@ -659,8 +659,8 @@ mod tests {
             "examples/arguments.ocelot",
             "println(\"hello\", \"world\");",
         );
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -678,14 +678,14 @@ mod tests {
                 TokenType::EndOfFile,
             ]
         );
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
     fn reports_unterminated_strings_as_source_diagnostics() {
         let source_file = SourceFile::new("examples/broken.ocelot", "println(\"hello);");
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -698,10 +698,10 @@ mod tests {
                 TokenType::EndOfFile
             ]
         );
-        assert!(context.has_errors());
-        assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
+        assert!(source_diagnostics.has_errors());
+        assert_eq!(source_diagnostics.diagnostics.len(), 1);
 
-        let diagnostic = &context.source_diagnostics.diagnostics[0];
+        let diagnostic = &source_diagnostics.diagnostics[0];
 
         assert_eq!(diagnostic.level, DiagnosticLevel::Error);
         assert_eq!(diagnostic.file_path.as_str(), "examples/broken.ocelot");
@@ -723,8 +723,8 @@ mod tests {
     #[test]
     fn reports_strings_terminated_by_a_newline_as_source_diagnostics() {
         let source_file = SourceFile::new("examples/broken.ocelot", "println(\"hello);\n");
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -737,10 +737,10 @@ mod tests {
                 TokenType::EndOfFile
             ]
         );
-        assert!(context.has_errors());
-        assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
+        assert!(source_diagnostics.has_errors());
+        assert_eq!(source_diagnostics.diagnostics.len(), 1);
 
-        let diagnostic = &context.source_diagnostics.diagnostics[0];
+        let diagnostic = &source_diagnostics.diagnostics[0];
 
         assert_eq!(diagnostic.level, DiagnosticLevel::Error);
         assert_eq!(diagnostic.file_path.as_str(), "examples/broken.ocelot");
@@ -762,8 +762,8 @@ mod tests {
     #[test]
     fn reports_unterminated_block_comments_as_source_diagnostics() {
         let source_file = SourceFile::new("examples/broken.ocelot", "println(/* hello");
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -776,10 +776,10 @@ mod tests {
                 TokenType::EndOfFile
             ]
         );
-        assert!(context.has_errors());
-        assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
+        assert!(source_diagnostics.has_errors());
+        assert_eq!(source_diagnostics.diagnostics.len(), 1);
 
-        let diagnostic = &context.source_diagnostics.diagnostics[0];
+        let diagnostic = &source_diagnostics.diagnostics[0];
 
         assert_eq!(diagnostic.level, DiagnosticLevel::Error);
         assert_eq!(diagnostic.file_path.as_str(), "examples/broken.ocelot");
@@ -801,14 +801,14 @@ mod tests {
     #[test]
     fn reports_unterminated_multiline_block_comments_from_the_opening_line() {
         let source_file = SourceFile::new("examples/broken.ocelot", "/* hello\nprintln(\"x\");");
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        lex(&source_file, &mut context);
+        lex(&source_file, &mut source_diagnostics);
 
-        assert!(context.has_errors());
-        assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
+        assert!(source_diagnostics.has_errors());
+        assert_eq!(source_diagnostics.diagnostics.len(), 1);
 
-        let diagnostic = &context.source_diagnostics.diagnostics[0];
+        let diagnostic = &source_diagnostics.diagnostics[0];
 
         assert_eq!(diagnostic.message, "unterminated block comment");
         assert_eq!(diagnostic.excerpts[0].line_number, 1);
@@ -822,8 +822,8 @@ mod tests {
     #[test]
     fn emits_unexpected_tokens_for_unknown_characters() {
         let source_file = SourceFile::new("examples/unexpected.ocelot", "@");
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -832,14 +832,14 @@ mod tests {
             token_types,
             vec![TokenType::Unexpected, TokenType::EndOfFile]
         );
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
     fn lexes_double_colon_qualified_identifiers() {
         let source_file = SourceFile::new("examples/module.ocelot", "math::greet::hello();");
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -866,8 +866,8 @@ mod tests {
             "examples/imports.ocelot-script",
             "use math::trig::{sin, cos};",
         );
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -889,7 +889,7 @@ mod tests {
                 TokenType::EndOfFile,
             ]
         );
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
@@ -898,8 +898,8 @@ mod tests {
             "examples/core.ocelot",
             "native fun println(value: any) can write_stdout;",
         );
-        let mut context = CompilationContext::default();
-        let token_types: Vec<_> = lex(&source_file, &mut context)
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
             .into_iter()
             .map(|token| token.token_type)
             .collect();
@@ -921,6 +921,6 @@ mod tests {
                 TokenType::EndOfFile,
             ]
         );
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 }

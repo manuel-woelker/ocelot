@@ -2,6 +2,7 @@
 
 pub mod discovered_test;
 pub mod engine;
+pub mod engine_worker;
 pub mod failed_test_result;
 pub mod loaded_module;
 pub mod loaded_program;

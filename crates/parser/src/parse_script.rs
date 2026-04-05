@@ -1,24 +1,24 @@
 use crate::parser::Parser;
 use ocelot_ast::script::Script;
-use ocelot_base::compilation_context::CompilationContext;
 use ocelot_base::compilation_stage::CompilationStage;
 use ocelot_base::error::OcelotError;
 use ocelot_base::render_source_diagnostics::render_source_diagnostics;
 use ocelot_base::result::OcelotResult;
+use ocelot_base::source_diagnostics::SourceDiagnostics;
 use ocelot_base::source_file::SourceFile;
 
 /// Parses a source file into a script AST.
 pub fn parse_script(
     source_file: &SourceFile,
-    compilation_context: &mut CompilationContext,
+    source_diagnostics: &mut SourceDiagnostics,
 ) -> OcelotResult<Script> {
-    match Parser::new(source_file, compilation_context).parse_script() {
+    match Parser::new(source_file, source_diagnostics).parse_script() {
         Ok(script) => Ok(script),
-        Err(_) if compilation_context.has_errors() => Err(OcelotError::compilation_error(
+        Err(_) if source_diagnostics.has_errors() => Err(OcelotError::compilation_error(
             CompilationStage::Parser,
         )
         .with_source(OcelotError::message(render_source_diagnostics(
-            &compilation_context.source_diagnostics.diagnostics,
+            &source_diagnostics.diagnostics,
         )))),
         Err(error) => Err(error),
     }
@@ -37,20 +37,20 @@ mod tests {
     use ocelot_ast::not_expression::NotExpression;
     use ocelot_ast::statement_kind::StatementKind;
     use ocelot_ast::type_index::TypeIndex;
-    use ocelot_base::compilation_context::CompilationContext;
     use ocelot_base::diagnostic_level::DiagnosticLevel;
+    use ocelot_base::source_diagnostics::SourceDiagnostics;
     use ocelot_base::source_file::SourceFile;
     use ocelot_base::span::Span;
 
     #[test]
     fn parses_println_call_expression_statement() {
         let source_file = SourceFile::new("examples/hello.ocelot", "println(\"hello\");");
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
 
         match &script.items[0].kind {
             ItemKind::Statement(statement) => match &statement.kind {
@@ -89,25 +89,25 @@ mod tests {
             "examples/two-lines.ocelot",
             "println(\"first\"); println(\"second\");",
         );
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 2);
         assert_eq!(script.span.start(), 0);
         assert_eq!(script.span.end(), source_file.source().len());
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
     fn parses_true_as_a_boolean_literal_expression() {
         let source_file = SourceFile::new("examples/booleans.ocelot", "true;");
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
 
         match &script.items[0].kind {
             ItemKind::Statement(statement) => match &statement.kind {
@@ -125,12 +125,12 @@ mod tests {
     #[test]
     fn parses_false_as_a_boolean_literal_expression() {
         let source_file = SourceFile::new("examples/booleans.ocelot", "false;");
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
 
         match &script.items[0].kind {
             ItemKind::Statement(statement) => match &statement.kind {
@@ -148,9 +148,9 @@ mod tests {
     #[test]
     fn parsed_expressions_start_with_unresolved_type_metadata() {
         let source_file = SourceFile::new("examples/types.ocelot", "not false;");
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         let ItemKind::Statement(statement) = &script.items[0].kind else {
             panic!("expected statement item");
@@ -167,12 +167,12 @@ mod tests {
     #[test]
     fn parses_boolean_literals_as_call_arguments() {
         let source_file = SourceFile::new("examples/booleans.ocelot", "assert_eq(true, false);");
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
 
         match &script.items[0].kind {
             ItemKind::Statement(statement) => match &statement.kind {
@@ -199,12 +199,12 @@ mod tests {
     #[test]
     fn parses_not_true_as_a_not_expression() {
         let source_file = SourceFile::new("examples/not.ocelot", "not true;");
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
 
         match &script.items[0].kind {
             ItemKind::Statement(statement) => match &statement.kind {
@@ -225,12 +225,12 @@ mod tests {
     #[test]
     fn parses_nested_not_expressions() {
         let source_file = SourceFile::new("examples/not.ocelot", "not not false;");
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
 
         match &script.items[0].kind {
             ItemKind::Statement(statement) => match &statement.kind {
@@ -256,12 +256,12 @@ mod tests {
     #[test]
     fn parses_not_with_calls_binding_tighter_than_the_operator() {
         let source_file = SourceFile::new("examples/not.ocelot", "not foo();");
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
 
         match &script.items[0].kind {
             ItemKind::Statement(statement) => match &statement.kind {
@@ -292,12 +292,12 @@ mod tests {
     #[test]
     fn parses_not_inside_call_arguments() {
         let source_file = SourceFile::new("examples/not.ocelot", "assert(not false);");
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
 
         match &script.items[0].kind {
             ItemKind::Statement(statement) => match &statement.kind {
@@ -326,12 +326,12 @@ mod tests {
             "examples/comments.ocelot",
             "// setup\nprintln(/* callee gap */\"first\"); /* between */ println(\"second\");",
         );
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 2);
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
@@ -340,12 +340,12 @@ mod tests {
             "examples/functions.ocelot",
             "fun greet() { println(\"hello\"); } greet();",
         );
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 2);
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
 
         match &script.items[0].kind {
             ItemKind::Function(function_item) => {
@@ -363,12 +363,12 @@ mod tests {
             "examples/functions.ocelot",
             "fun greet(name: string, excited: bool) {}",
         );
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
 
         let ItemKind::Function(function_item) = &script.items[0].kind else {
             panic!("expected function item");
@@ -389,9 +389,9 @@ mod tests {
             "examples/functions.ocelot",
             "fun first() {} fun second() {}",
         );
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 2);
         assert!(matches!(
@@ -416,12 +416,12 @@ mod tests {
             "examples/tests.ocelot",
             "println(\"setup\"); test \"prints one line\" { println(\"hello\"); }",
         );
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 2);
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
 
         match &script.items[1].kind {
             ItemKind::Function(_) => panic!("expected test item, got function item"),
@@ -439,12 +439,12 @@ mod tests {
             "examples/tests.ocelot",
             "test /* name */ \"prints one line\" /* body */ { // enter body\n println(\"hello\"); /* done */ }",
         );
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
 
         match &script.items[0].kind {
             ItemKind::Function(_) => panic!("expected test item, got function item"),
@@ -459,17 +459,17 @@ mod tests {
     #[test]
     fn reports_a_missing_test_name_as_a_source_diagnostic() {
         let source_file = SourceFile::new("examples/invalid.ocelot", "test { println(\"x\"); }");
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut context).unwrap_err();
-        assert!(context.has_errors());
-        assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
+        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
+        assert!(source_diagnostics.has_errors());
+        assert_eq!(source_diagnostics.diagnostics.len(), 1);
         assert_eq!(
-            context.source_diagnostics.diagnostics[0].message,
+            source_diagnostics.diagnostics[0].message,
             "expected test name string"
         );
         assert_eq!(
-            context.source_diagnostics.diagnostics[0].excerpts[0].annotations[0].span,
+            source_diagnostics.diagnostics[0].excerpts[0].annotations[0].span,
             Span::new(5, 6)
         );
     }
@@ -477,13 +477,13 @@ mod tests {
     #[test]
     fn reports_a_missing_function_name_as_a_source_diagnostic() {
         let source_file = SourceFile::new("examples/invalid.ocelot", "fun () { println(\"x\"); }");
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut context).unwrap_err();
-        assert!(context.has_errors());
-        assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
+        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
+        assert!(source_diagnostics.has_errors());
+        assert_eq!(source_diagnostics.diagnostics.len(), 1);
         assert_eq!(
-            context.source_diagnostics.diagnostics[0].message,
+            source_diagnostics.diagnostics[0].message,
             "expected function name"
         );
     }
@@ -491,13 +491,13 @@ mod tests {
     #[test]
     fn reports_a_missing_parameter_type_as_a_source_diagnostic() {
         let source_file = SourceFile::new("examples/invalid.ocelot", "fun greet(name:) {}");
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut context).unwrap_err();
-        assert!(context.has_errors());
-        assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
+        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
+        assert!(source_diagnostics.has_errors());
+        assert_eq!(source_diagnostics.diagnostics.len(), 1);
         assert_eq!(
-            context.source_diagnostics.diagnostics[0].message,
+            source_diagnostics.diagnostics[0].message,
             "expected parameter type"
         );
     }
@@ -505,12 +505,12 @@ mod tests {
     #[test]
     fn reports_trailing_commas_in_parameter_lists() {
         let source_file = SourceFile::new("examples/invalid.ocelot", "fun greet(name: string,) {}");
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut context).unwrap_err();
-        assert!(context.has_errors());
+        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
+        assert!(source_diagnostics.has_errors());
         assert_eq!(
-            context.source_diagnostics.diagnostics[0].message,
+            source_diagnostics.diagnostics[0].message,
             "expected parameter after `,`"
         );
     }
@@ -521,13 +521,13 @@ mod tests {
             "examples/invalid.ocelot",
             "fun greet() { println(\"hello\");",
         );
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut context).unwrap_err();
-        assert!(context.has_errors());
-        assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
+        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
+        assert!(source_diagnostics.has_errors());
+        assert_eq!(source_diagnostics.diagnostics.len(), 1);
         assert_eq!(
-            context.source_diagnostics.diagnostics[0].message,
+            source_diagnostics.diagnostics[0].message,
             "expected `}` to close function body"
         );
     }
@@ -538,13 +538,13 @@ mod tests {
             "examples/invalid.ocelot",
             "test \"broken\" { println(\"hello\");",
         );
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut context).unwrap_err();
-        assert!(context.has_errors());
-        assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
+        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
+        assert!(source_diagnostics.has_errors());
+        assert_eq!(source_diagnostics.diagnostics.len(), 1);
         assert_eq!(
-            context.source_diagnostics.diagnostics[0].message,
+            source_diagnostics.diagnostics[0].message,
             "expected `}` to close test body"
         );
     }
@@ -552,12 +552,12 @@ mod tests {
     #[test]
     fn parses_non_call_expression_statements() {
         let source_file = SourceFile::new("examples/statement.ocelot", "\"hello\"; name;");
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 2);
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
@@ -566,57 +566,58 @@ mod tests {
             "examples/arguments.ocelot",
             "println(\"hello\", \"world\");",
         );
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
     fn parses_zero_argument_calls_without_parser_diagnostics() {
         let source_file = SourceFile::new("examples/invalid.ocelot", "println();");
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
     }
 
     #[test]
-    fn surfaces_lexer_diagnostics_through_the_shared_compilation_context() {
+    fn surfaces_lexer_diagnostics_through_the_shared_compilation_source_diagnostics() {
         let source_file = SourceFile::new("examples/invalid.ocelot", "println(\"hello);");
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut context).unwrap_err();
-        assert!(context.has_errors());
-        assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
+        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
+        assert!(source_diagnostics.has_errors());
+        assert_eq!(source_diagnostics.diagnostics.len(), 1);
         assert_eq!(
-            context.source_diagnostics.diagnostics[0].level,
+            source_diagnostics.diagnostics[0].level,
             DiagnosticLevel::Error
         );
         assert_eq!(
-            context.source_diagnostics.diagnostics[0].message,
+            source_diagnostics.diagnostics[0].message,
             "unterminated string literal"
         );
     }
 
     #[test]
-    fn surfaces_unterminated_block_comment_diagnostics_through_the_shared_compilation_context() {
+    fn surfaces_unterminated_block_comment_diagnostics_through_the_shared_compilation_source_diagnostics()
+     {
         let source_file = SourceFile::new("examples/invalid.ocelot", "println(/* hello");
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut context).unwrap_err();
-        assert!(context.has_errors());
-        assert_eq!(context.source_diagnostics.diagnostics.len(), 1);
+        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
+        assert!(source_diagnostics.has_errors());
+        assert_eq!(source_diagnostics.diagnostics.len(), 1);
         assert_eq!(
-            context.source_diagnostics.diagnostics[0].level,
+            source_diagnostics.diagnostics[0].level,
             DiagnosticLevel::Error
         );
         assert_eq!(
-            context.source_diagnostics.diagnostics[0].message,
+            source_diagnostics.diagnostics[0].message,
             "unterminated block comment"
         );
     }
@@ -624,12 +625,12 @@ mod tests {
     #[test]
     fn reports_trailing_commas_in_argument_lists() {
         let source_file = SourceFile::new("examples/invalid.ocelot", "println(\"hello\",);");
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut context).unwrap_err();
-        assert!(context.has_errors());
+        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
+        assert!(source_diagnostics.has_errors());
         assert_eq!(
-            context.source_diagnostics.diagnostics[0].message,
+            source_diagnostics.diagnostics[0].message,
             "expected expression"
         );
     }
@@ -637,12 +638,12 @@ mod tests {
     #[test]
     fn parses_effect_items() {
         let source_file = SourceFile::new("examples/effects.ocelot", "effect exec;");
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
         match &script.items[0].kind {
             ItemKind::Effect(effect_item) => {
                 assert_eq!(effect_item.identifier.name, "exec");
@@ -657,12 +658,12 @@ mod tests {
             "examples/effects.ocelot",
             "fun greet() can exec cannot panic {}",
         );
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
         match &script.items[0].kind {
             ItemKind::Function(function_item) => {
                 assert_eq!(
@@ -694,13 +695,13 @@ mod tests {
             "examples/invalid.ocelot",
             "fun greet() cannot panic can exec {}",
         );
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut context).unwrap_err();
+        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
 
-        assert!(context.has_errors());
+        assert!(source_diagnostics.has_errors());
         assert_eq!(
-            context.source_diagnostics.diagnostics[0].message,
+            source_diagnostics.diagnostics[0].message,
             "function effect clauses must place `can` before `cannot`"
         );
     }
@@ -711,12 +712,12 @@ mod tests {
             "examples/core.ocelot",
             "native fun println(value: any) can write_stdout;",
         );
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut context).unwrap();
+        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
-        assert!(!context.has_errors());
+        assert!(!source_diagnostics.has_errors());
         match &script.items[0].kind {
             ItemKind::Function(function_item) => {
                 assert!(function_item.is_native);
@@ -735,13 +736,13 @@ mod tests {
             "examples/core.ocelot",
             "native fun println(value: any) { println(value); }",
         );
-        let mut context = CompilationContext::default();
+        let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut context).unwrap_err();
+        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
 
-        assert!(context.has_errors());
+        assert!(source_diagnostics.has_errors());
         assert_eq!(
-            context.source_diagnostics.diagnostics[0].message,
+            source_diagnostics.diagnostics[0].message,
             "native functions must not have a body"
         );
     }

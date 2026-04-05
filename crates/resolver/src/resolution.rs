@@ -5,7 +5,6 @@ use crate::resolver::Resolver;
 use ocelot_ast::function_item::FunctionItem;
 use ocelot_ast::identifier::Identifier;
 use ocelot_ast::script::Script;
-use ocelot_base::compilation_context::CompilationContext;
 use ocelot_base::compilation_stage::CompilationStage;
 use ocelot_base::error::OcelotError;
 use ocelot_base::file_path::FilePath;
@@ -14,6 +13,7 @@ use ocelot_base::result::OcelotResult;
 use ocelot_base::shared_string::SharedString;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
+use ocelot_semantic::compilation_context::CompilationContext;
 use ocelot_semantic::compilation_session::CompilationSession;
 use ocelot_semantic::function_kind::FunctionKind;
 use ocelot_semantic::module_environment::ModuleEnvironment;
@@ -88,7 +88,10 @@ pub fn register_core_module(
     }
 
     let source_file = SourceFile::new(CORE_MODULE_PATH, CORE_MODULE_SOURCE);
-    let mut script = ocelot_parser::parse_script::parse_script(&source_file, compilation_context)?;
+    let mut script = ocelot_parser::parse_script::parse_script(
+        &source_file,
+        &mut compilation_context.source_diagnostics,
+    )?;
     let mut module_environment = ModuleEnvironment::new();
 
     declaration_index.add_module(CORE_MODULE_NAME);

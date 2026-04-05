@@ -6,7 +6,6 @@ use crate::source_file_kind::SourceFileKind;
 use crate::test_run_summary::TestRunSummary;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_base::assertion_error::render_assertion_error;
-use ocelot_base::compilation_context::CompilationContext;
 use ocelot_base::diagnostic_level::DiagnosticLevel;
 use ocelot_base::error::ErrorKind;
 use ocelot_base::error::OcelotError;
@@ -22,6 +21,7 @@ use ocelot_base::source_excerpt::SourceExcerpt;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 use ocelot_pal::pal::PalHandle;
+use ocelot_semantic::compilation_context::CompilationContext;
 use ocelot_semantic::compilation_session::CompilationSession;
 use ocelot_semantic::function_kind::FunctionKind;
 use ocelot_semantic::module_environment::ModuleEnvironment;
@@ -296,8 +296,10 @@ impl Engine {
     ) -> OcelotResult<LoadedModule> {
         let source_file = self.load_source_file(path.clone())?;
         let mut compilation_context = CompilationContext::default();
-        let script =
-            ocelot_parser::parse_script::parse_script(&source_file, &mut compilation_context)?;
+        let script = ocelot_parser::parse_script::parse_script(
+            &source_file,
+            &mut compilation_context.source_diagnostics,
+        )?;
         Ok(LoadedModule::new(
             module_name_from_path(execution_root, &path)?,
             kind,
@@ -314,8 +316,10 @@ impl Engine {
     fn load_core_module(&self) -> OcelotResult<LoadedModule> {
         let source_file = SourceFile::new(CORE_MODULE_PATH, CORE_MODULE_SOURCE);
         let mut compilation_context = CompilationContext::default();
-        let script =
-            ocelot_parser::parse_script::parse_script(&source_file, &mut compilation_context)?;
+        let script = ocelot_parser::parse_script::parse_script(
+            &source_file,
+            &mut compilation_context.source_diagnostics,
+        )?;
         Ok(LoadedModule::new(
             CORE_MODULE_NAME,
             SourceFileKind::Module,

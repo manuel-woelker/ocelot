@@ -1,18 +1,23 @@
-use crate::diagnostic_level::DiagnosticLevel;
-use crate::source_diagnostic::SourceDiagnostic;
-use crate::source_diagnostics::SourceDiagnostics;
+use crate::symbol_table::SymbolTable;
+use ocelot_base::source_diagnostic::SourceDiagnostic;
+use ocelot_base::source_diagnostics::SourceDiagnostics;
 
 /// Compilation state that accumulates source diagnostics.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct CompilationContext {
     /// Diagnostics produced during compilation.
     pub source_diagnostics: SourceDiagnostics,
+    /// Symbol table
+    pub symbol_table: SymbolTable,
 }
 
 impl CompilationContext {
     /// Creates a compilation context from the provided source diagnostics.
     pub fn new(source_diagnostics: SourceDiagnostics) -> Self {
-        Self { source_diagnostics }
+        Self {
+            source_diagnostics,
+            ..Default::default()
+        }
     }
 
     /// Appends one diagnostic to this compilation context.
@@ -27,19 +32,16 @@ impl CompilationContext {
 
     /// Returns true when any tracked diagnostic has error severity.
     pub fn has_errors(&self) -> bool {
-        self.source_diagnostics
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.level == DiagnosticLevel::Error)
+        self.source_diagnostics.has_errors()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::CompilationContext;
-    use crate::diagnostic_level::DiagnosticLevel;
-    use crate::source_diagnostic::SourceDiagnostic;
-    use crate::source_diagnostics::SourceDiagnostics;
+    use ocelot_base::diagnostic_level::DiagnosticLevel;
+    use ocelot_base::source_diagnostic::SourceDiagnostic;
+    use ocelot_base::source_diagnostics::SourceDiagnostics;
 
     #[test]
     fn compilation_context_reports_errors_when_present() {

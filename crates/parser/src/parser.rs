@@ -21,7 +21,6 @@ use ocelot_ast::statement_kind::StatementKind;
 use ocelot_ast::string_literal_expression::StringLiteralExpression;
 use ocelot_ast::test_item::TestItem;
 use ocelot_ast::use_item::UseItem;
-use ocelot_base::compilation_context::CompilationContext;
 use ocelot_base::compilation_stage::CompilationStage;
 use ocelot_base::diagnostic_level::DiagnosticLevel;
 use ocelot_base::error::ErrorKind;
@@ -30,6 +29,7 @@ use ocelot_base::result::OcelotResult;
 use ocelot_base::shared_string::SharedString;
 use ocelot_base::source_annotation::SourceAnnotation;
 use ocelot_base::source_diagnostic::SourceDiagnostic;
+use ocelot_base::source_diagnostics::SourceDiagnostics;
 use ocelot_base::source_excerpt::SourceExcerpt;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
@@ -37,21 +37,18 @@ use ocelot_base::span::Span;
 /// Stateful parser context for one source file.
 pub struct Parser<'a> {
     source_file: &'a SourceFile,
-    compilation_context: &'a mut CompilationContext,
+    source_diagnostics: &'a mut SourceDiagnostics,
     tokens: Vec<Token>,
     position: usize,
 }
 
 impl<'a> Parser<'a> {
     /// Creates a parser for one source file.
-    pub fn new(
-        source_file: &'a SourceFile,
-        compilation_context: &'a mut CompilationContext,
-    ) -> Self {
-        let tokens = lex(source_file, compilation_context);
+    pub fn new(source_file: &'a SourceFile, source_diagnostics: &'a mut SourceDiagnostics) -> Self {
+        let tokens = lex(source_file, source_diagnostics);
         Self {
             source_file,
-            compilation_context,
+            source_diagnostics,
             tokens,
             position: 0,
         }
@@ -59,7 +56,7 @@ impl<'a> Parser<'a> {
 
     /// Parses the source file into a script AST.
     pub fn parse_script(&mut self) -> OcelotResult<Script> {
-        if self.compilation_context.has_errors() {
+        if self.source_diagnostics.has_errors() {
             return Err(OcelotError::compilation_error(CompilationStage::Parser));
         }
 
@@ -526,7 +523,7 @@ impl<'a> Parser<'a> {
         span: Span,
         annotation: impl Into<SharedString>,
     ) -> OcelotResult<T> {
-        self.compilation_context
+        self.source_diagnostics
             .add_diagnostic(self.source_diagnostic(message, span, annotation));
         Err(OcelotError::compilation_error(CompilationStage::Parser))
     }
@@ -582,14 +579,14 @@ mod tests {
     use ocelot_ast::item_kind::ItemKind;
     use ocelot_ast::statement_kind::StatementKind;
     use ocelot_ast::use_item::UseItem;
-    use ocelot_base::compilation_context::CompilationContext;
+    use ocelot_base::source_diagnostics::SourceDiagnostics;
     use ocelot_base::source_file::SourceFile;
 
     #[test]
     fn parses_qualified_call_targets() {
         let source_file = SourceFile::new("examples/module.ocelot", "math::greet::hello();");
-        let mut compilation_context = CompilationContext::default();
-        let mut parser = Parser::new(&source_file, &mut compilation_context);
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let mut parser = Parser::new(&source_file, &mut source_diagnostics);
 
         let script = parser.parse_script().unwrap();
         let ItemKind::Statement(statement) = &script.items[0].kind else {
@@ -611,8 +608,8 @@ mod tests {
     #[test]
     fn parses_single_name_use_items() {
         let source_file = SourceFile::new("examples/module.ocelot-script", "use helper::greet;");
-        let mut compilation_context = CompilationContext::default();
-        let mut parser = Parser::new(&source_file, &mut compilation_context);
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let mut parser = Parser::new(&source_file, &mut source_diagnostics);
 
         let script = parser.parse_script().unwrap();
         let ItemKind::Use(UseItem {
@@ -635,8 +632,8 @@ mod tests {
             "examples/module.ocelot-script",
             "use math::trig::{sin, cos};",
         );
-        let mut compilation_context = CompilationContext::default();
-        let mut parser = Parser::new(&source_file, &mut compilation_context);
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let mut parser = Parser::new(&source_file, &mut source_diagnostics);
 
         let script = parser.parse_script().unwrap();
         let ItemKind::Use(UseItem {

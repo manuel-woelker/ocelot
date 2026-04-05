@@ -1,3 +1,4 @@
+use crate::diagnostic_level::DiagnosticLevel;
 use crate::source_diagnostic::SourceDiagnostic;
 
 /// Collection of structured source diagnostics.
@@ -13,10 +14,21 @@ impl SourceDiagnostics {
         Self::default()
     }
 
+    /// Appends a diagnostic
+    pub fn add_diagnostic(&mut self, diagnostic: SourceDiagnostic) {
+        self.diagnostics.push(diagnostic);
+    }
+
     /// Returns a copy of this collection with one appended diagnostic.
     pub fn with_diagnostic(mut self, diagnostic: SourceDiagnostic) -> Self {
         self.diagnostics.push(diagnostic);
         self
+    }
+
+    pub fn has_errors(&self) -> bool {
+        self.diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.level == DiagnosticLevel::Error)
     }
 }
 
