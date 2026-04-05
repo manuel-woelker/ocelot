@@ -276,7 +276,7 @@ impl EngineWorker {
         self.parsed_modules.clear();
 
         for file in self.collect_files()? {
-            if let Some(module) = self.load_module(&file)? {
+            if let Some(module) = self.parse_module(&file)? {
                 self.parsed_modules.push(module);
             }
         }
@@ -300,7 +300,7 @@ impl EngineWorker {
         Ok(file_paths)
     }
 
-    fn load_module(&mut self, path: &FilePath) -> OcelotResult<Option<ParsedModule>> {
+    fn parse_module(&mut self, path: &FilePath) -> OcelotResult<Option<ParsedModule>> {
         let source_file = self.load_source_file(path.clone())?;
         let script = match ocelot_parser::parse_script::parse_script(
             &source_file,
