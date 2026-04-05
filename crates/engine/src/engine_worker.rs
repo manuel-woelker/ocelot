@@ -292,7 +292,6 @@ impl EngineWorker {
             .pal
             .walk_directory(&self.command.base_path, &[String::from("*.ocelot")])?
             .collect::<OcelotResult<Vec<_>>>()?;
-        file_paths.retain(|path| path.extension() == Some("ocelot"));
         let entry_path = self.command.entry_path();
         if !file_paths.contains(entry_path) {
             file_paths.push(entry_path.clone());

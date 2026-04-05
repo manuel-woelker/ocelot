@@ -176,11 +176,13 @@ impl Pal for PalMock {
     fn walk_directory(
         &self,
         path: &FilePath,
-        _globs: &[String],
+        globs: &[String],
     ) -> OcelotResult<Box<dyn Iterator<Item = OcelotResult<FilePath>> + '_>> {
         let mut result = vec![];
         for file_path in self.inner.read().file_map.keys() {
-            if file_path.as_path().starts_with(path.as_path()) {
+            if file_path.as_path().starts_with(path.as_path())
+                && matches_globs(file_path, path, globs)
+            {
                 result.push(Ok(file_path.clone()))
             }
         }
@@ -310,5 +312,112 @@ impl Pal for PalMock {
 impl Debug for PalMock {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PalMock").finish()
+    }
+}
+
+fn matches_globs(path: &FilePath, base_path: &FilePath, globs: &[String]) -> bool {
+    if globs.is_empty() {
+        return true;
+    }
+
+    let relative_path = path
+        .as_path()
+        .strip_prefix(base_path.as_path())
+        .ok()
+        .and_then(|path| path.to_str())
+        .unwrap_or_else(|| path.as_str());
+    let file_name = path.file_name().unwrap_or(path.as_str());
+
+    globs.iter().any(|glob| {
+        if glob.contains('/') || glob.contains('\\') {
+            wildcard_matches(glob, relative_path)
+        } else {
+            wildcard_matches(glob, file_name)
+        }
+    })
+}
+
+fn wildcard_matches(pattern: &str, text: &str) -> bool {
+    let pattern = pattern.as_bytes();
+    let text = text.as_bytes();
+    let mut pattern_index = 0usize;
+    let mut text_index = 0usize;
+    let mut star_index = None;
+    let mut match_index = 0usize;
+
+    while text_index < text.len() {
+        if pattern_index < pattern.len()
+            && (pattern[pattern_index] == b'*' || pattern[pattern_index] == text[text_index])
+        {
+            if pattern[pattern_index] == b'*' {
+                star_index = Some(pattern_index);
+                match_index = text_index;
+                pattern_index += 1;
+            } else {
+                pattern_index += 1;
+                text_index += 1;
+            }
+        } else if let Some(star) = star_index {
+            pattern_index = star + 1;
+            match_index += 1;
+            text_index = match_index;
+        } else {
+            return false;
+        }
+    }
+
+    while pattern_index < pattern.len() && pattern[pattern_index] == b'*' {
+        pattern_index += 1;
+    }
+
+    pattern_index == pattern.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PalMock;
+    use crate::pal::Pal;
+    use ocelot_base::file_path::FilePath;
+
+    #[test]
+    fn walk_directory_respects_extension_globs() {
+        let pal = PalMock::new();
+        pal.set_file("examples/main.ocelot-script", "");
+        pal.set_file("examples/helper.ocelot", "");
+        pal.set_file("examples/notes.md", "");
+
+        let paths = pal
+            .walk_directory(&FilePath::from("examples"), &[String::from("*.ocelot")])
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        assert_eq!(paths, vec![FilePath::from("examples/helper.ocelot")]);
+    }
+
+    #[test]
+    fn walk_directory_supports_multiple_globs() {
+        let pal = PalMock::new();
+        pal.set_file("examples/main.ocelot-script", "");
+        pal.set_file("examples/helper.ocelot", "");
+        pal.set_file("examples/notes.md", "");
+
+        let mut paths = pal
+            .walk_directory(
+                &FilePath::from("examples"),
+                &[String::from("*.ocelot"), String::from("*.ocelot-script")],
+            )
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        paths.sort();
+
+        assert_eq!(
+            paths,
+            vec![
+                FilePath::from("examples/helper.ocelot"),
+                FilePath::from("examples/main.ocelot-script"),
+            ]
+        );
     }
 }
