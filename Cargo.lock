@@ -412,6 +412,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ocelot-formatter"
+version = "0.1.2"
+dependencies = [
+ "ocelot-ast",
+ "ocelot-base",
+ "ocelot-parser",
+]
+
+[[package]]
 name = "ocelot-interpreter"
 version = "0.1.2"
 dependencies = [

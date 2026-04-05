@@ -20,6 +20,8 @@ use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
 use ocelot_ast::string_literal_expression::StringLiteralExpression;
 use ocelot_ast::test_item::TestItem;
+use ocelot_ast::trivia::Trivia;
+use ocelot_ast::trivia_piece::TriviaPiece;
 use ocelot_ast::use_item::UseItem;
 use ocelot_base::compilation_stage::CompilationStage;
 use ocelot_base::diagnostic_level::DiagnosticLevel;
@@ -62,34 +64,63 @@ impl<'a> Parser<'a> {
         }
 
         let mut items = Vec::new();
+        let mut trivia = Trivia::default();
+
+        if self.at(TokenType::EndOfFile) {
+            trivia.leading = self.take_current_leading_trivia();
+            return Ok(CompilationUnit::with_trivia(
+                items,
+                trivia,
+                Span::new(0, self.source_file.source().len()),
+            ));
+        }
+
+        trivia.leading = self.take_current_leading_trivia();
 
         while !self.at(TokenType::EndOfFile) {
             match self.parse_item() {
-                Ok(item) => items.push(item),
+                Ok(mut item) => {
+                    self.attach_same_line_trailing_comments(
+                        item.span.end(),
+                        &mut item.trivia.trailing,
+                    );
+                    items.push(item);
+                }
                 Err(error) if is_parser_compilation_error(&error) => return Err(error),
                 Err(error) => return Err(error),
             }
         }
 
-        Ok(CompilationUnit::new(
+        trivia.trailing = self.take_current_leading_trivia();
+
+        Ok(CompilationUnit::with_trivia(
             items,
+            trivia,
             Span::new(0, self.source_file.source().len()),
         ))
     }
 
     fn parse_item(&mut self) -> OcelotResult<Item> {
-        match self.current().token_type {
+        let leading_trivia = self.take_current_leading_trivia();
+
+        let mut item = match self.current().token_type {
             TokenType::Effect => self.parse_effect_item(),
             TokenType::Fun => self.parse_function_item(),
             TokenType::Native => self.parse_function_item(),
             TokenType::Test => self.parse_test_item(),
             TokenType::Use => self.parse_use_item(),
-            _ => Ok({
+            _ => {
                 let statement = self.parse_statement()?;
                 let span = statement.span.clone();
-                Item::new(ItemKind::Statement(statement), span)
-            }),
+                Ok(Item::new(ItemKind::Statement(statement), span))
+            }
+        }?;
+
+        if item.trivia.is_empty() {
+            item.trivia = Trivia::new(leading_trivia, Vec::new());
         }
+
+        Ok(item)
     }
 
     fn parse_effect_item(&mut self) -> OcelotResult<Item> {
@@ -101,11 +132,12 @@ impl<'a> Parser<'a> {
         )?;
         let span = Span::new(effect_token.span.start(), semicolon.span.end());
 
-        Ok(Item::new(
+        Ok(Item::with_trivia(
             ItemKind::Effect(EffectItem::new(
                 Identifier::new(self.source_text(&name_token.span), name_token.span),
                 span.clone(),
             )),
+            Trivia::default(),
             span,
         ))
     }
@@ -171,17 +203,10 @@ impl<'a> Parser<'a> {
         } else {
             self.expect(TokenType::LeftBrace, "expected `{` before function body")?;
 
-            let mut body = Vec::new();
-            while !self.at(TokenType::RightBrace) {
-                if self.at(TokenType::EndOfFile) {
-                    return self.emit_fatal_diagnostic(
-                        "expected `}` to close function body",
-                        self.current().span.clone(),
-                        "function body ends here",
-                    );
-                }
-                body.push(self.parse_statement()?);
-            }
+            let body = self.parse_statement_block(
+                "expected `}` to close function body",
+                "function body ends here",
+            )?;
 
             let right_brace =
                 self.expect(TokenType::RightBrace, "expected `}` after function body")?;
@@ -196,7 +221,11 @@ impl<'a> Parser<'a> {
             )
         };
 
-        Ok(Item::new(ItemKind::Function(function_item), span))
+        Ok(Item::with_trivia(
+            ItemKind::Function(function_item),
+            Trivia::default(),
+            span,
+        ))
     }
 
     fn parse_function_effect_clause(
@@ -253,22 +282,14 @@ impl<'a> Parser<'a> {
         let name = SharedString::from(&name_literal[1..name_literal.len() - 1]);
         self.expect(TokenType::LeftBrace, "expected `{` after test name")?;
 
-        let mut body = Vec::new();
-        while !self.at(TokenType::RightBrace) {
-            if self.at(TokenType::EndOfFile) {
-                return self.emit_fatal_diagnostic(
-                    "expected `}` to close test body",
-                    self.current().span.clone(),
-                    "test body ends here",
-                );
-            }
-            body.push(self.parse_statement()?);
-        }
+        let body =
+            self.parse_statement_block("expected `}` to close test body", "test body ends here")?;
 
         let right_brace = self.expect(TokenType::RightBrace, "expected `}` after test body")?;
         let span = Span::new(test_token.span.start(), right_brace.span.end());
-        Ok(Item::new(
+        Ok(Item::with_trivia(
             ItemKind::Test(TestItem::new(name, body, span.clone())),
+            Trivia::default(),
             span,
         ))
     }
@@ -326,19 +347,22 @@ impl<'a> Parser<'a> {
             );
         }
 
-        Ok(Item::new(
+        Ok(Item::with_trivia(
             ItemKind::Use(UseItem::new(module_path, imported_names, span.clone())),
+            Trivia::default(),
             span,
         ))
     }
 
     fn parse_statement(&mut self) -> OcelotResult<Statement> {
+        let leading_trivia = self.take_current_leading_trivia();
         let expression = self.parse_expression()?;
         let semicolon = self.expect(TokenType::Semicolon, "expected `;` after statement")?;
         let statement_span = Span::new(expression.span.start(), semicolon.span.end());
 
-        Ok(Statement::new(
+        Ok(Statement::with_trivia(
             StatementKind::Expression(ExpressionStatement::new(expression)),
+            Trivia::new(leading_trivia, Vec::new()),
             statement_span,
         ))
     }
@@ -348,6 +372,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_prefix_expression(&mut self) -> OcelotResult<Expression> {
+        self.reject_comments_before_current_token()?;
+
         if self.at(TokenType::Not) {
             let not_token = self.expect(TokenType::Not, "expected `not` operator")?;
             let operand = self.parse_prefix_expression()?;
@@ -365,7 +391,13 @@ impl<'a> Parser<'a> {
     fn parse_call_expression(&mut self) -> OcelotResult<Expression> {
         let mut expression = self.parse_primary_expression()?;
 
-        while self.at(TokenType::LeftParen) {
+        loop {
+            self.reject_comments_before_current_token()?;
+
+            if !self.at(TokenType::LeftParen) {
+                break;
+            }
+
             expression = self.parse_call_expression_suffix(expression)?;
         }
 
@@ -373,6 +405,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_primary_expression(&mut self) -> OcelotResult<Expression> {
+        self.reject_comments_before_current_token()?;
         let token = self.current().clone();
 
         match token.token_type {
@@ -496,6 +529,7 @@ impl<'a> Parser<'a> {
     }
 
     fn expect(&mut self, token_type: TokenType, message: &str) -> OcelotResult<Token> {
+        self.reject_comments_before_current_token()?;
         let token = self.current().clone();
 
         if token.token_type != token_type {
@@ -512,6 +546,92 @@ impl<'a> Parser<'a> {
 
     fn current(&self) -> &Token {
         &self.tokens[self.position]
+    }
+
+    fn current_mut(&mut self) -> &mut Token {
+        &mut self.tokens[self.position]
+    }
+
+    fn take_current_leading_trivia(&mut self) -> Vec<TriviaPiece> {
+        std::mem::take(&mut self.current_mut().leading_trivia.leading)
+    }
+
+    fn attach_same_line_trailing_comments(
+        &mut self,
+        node_end: usize,
+        trailing: &mut Vec<TriviaPiece>,
+    ) {
+        let source = self.source_file.source();
+        let node_line = LineBounds::new(source, node_end).line_number;
+        let mut split_index = 0;
+
+        while split_index < self.current().leading_trivia.leading.len() {
+            let piece = &self.current().leading_trivia.leading[split_index];
+
+            if matches!(piece, TriviaPiece::Newlines { .. }) {
+                break;
+            }
+
+            if !piece.is_comment() {
+                break;
+            }
+
+            if LineBounds::new(source, piece.span().start()).line_number != node_line {
+                break;
+            }
+
+            split_index += 1;
+        }
+
+        let leading = &mut self.current_mut().leading_trivia.leading;
+        trailing.extend(leading.drain(0..split_index));
+    }
+
+    fn parse_statement_block(
+        &mut self,
+        eof_message: &str,
+        eof_annotation: &str,
+    ) -> OcelotResult<Vec<Statement>> {
+        let mut body = Vec::new();
+
+        while !self.at(TokenType::RightBrace) {
+            if self.at(TokenType::EndOfFile) {
+                return self.emit_fatal_diagnostic(
+                    eof_message,
+                    self.current().span.clone(),
+                    eof_annotation,
+                );
+            }
+
+            let mut statement = self.parse_statement()?;
+            self.attach_same_line_trailing_comments(
+                statement.span.end(),
+                &mut statement.trivia.trailing,
+            );
+            body.push(statement);
+        }
+
+        Ok(body)
+    }
+
+    fn reject_comments_before_current_token(&mut self) -> OcelotResult<()> {
+        let comment_span = self
+            .current()
+            .leading_trivia
+            .leading
+            .iter()
+            .find(|piece| piece.is_comment())
+            .map(|piece| piece.span().clone());
+
+        if let Some(span) = comment_span {
+            return self.emit_fatal_diagnostic(
+                "comments are only allowed before items or statements",
+                span,
+                "comment is not allowed here",
+            );
+        }
+
+        Ok(())
     }
 
     fn source_text(&self, span: &Span) -> &str {

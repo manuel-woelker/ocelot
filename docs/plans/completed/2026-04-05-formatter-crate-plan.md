@@ -171,6 +171,13 @@ Required coverage:
 
 The verification bar is "no comment loss in supported positions" rather than byte-for-byte source reproduction.
 
+# What verification was completed?
+
+Verification completed with:
+
+- `cargo test -p ocelot-parser -p ocelot-formatter`
+- `nao check`
+
 # What risks, assumptions, and open questions should stay explicit?
 
 - This plan intentionally supersedes the assumption in [`2026-04-04-comments-plan`](/data/projects/ocelot/docs/plans/completed/2026-04-04-comments-plan.md) that comments should always be discarded after lexing.
@@ -181,14 +188,14 @@ The verification bar is "no comment loss in supported positions" rather than byt
 
 # What concrete tasks should track this plan?
 
-- [ ] Add `Trivia` and `TriviaPiece` types to [`crates/ast`](/data/projects/ocelot/crates/ast).
-- [ ] Add trivia fields to [`CompilationUnit`](/data/projects/ocelot/crates/ast/src/compilation_unit.rs), [`Item`](/data/projects/ocelot/crates/ast/src/item.rs), and [`Statement`](/data/projects/ocelot/crates/ast/src/statement.rs).
-- [ ] Update lexer token structures so tokens retain `leading_trivia`, with trailing file trivia attached to the `EndOfFile` token.
-- [ ] Add colocated lexer tests for line comments, block comments, nested block comments, newline runs, and EOF trivia retention.
-- [ ] Update the parser to transfer token trivia onto compilation-unit, item, and statement AST trivia.
-- [ ] Add parser diagnostics for comments in unsupported interior positions.
-- [ ] Add parser tests for trivia ownership and invalid comment placement.
-- [ ] Add `crates/formatter` to the workspace.
-- [ ] Implement formatter emission from the enriched AST with comment preservation and stable output.
-- [ ] Add formatter tests and fixtures for comment-heavy supported inputs.
-- [ ] Run `nao check`.
+- [x] Add `Trivia` and `TriviaPiece` types to [`crates/ast`](/data/projects/ocelot/crates/ast).
+- [x] Add trivia fields to [`CompilationUnit`](/data/projects/ocelot/crates/ast/src/compilation_unit.rs), [`Item`](/data/projects/ocelot/crates/ast/src/item.rs), and [`Statement`](/data/projects/ocelot/crates/ast/src/statement.rs).
+- [x] Update lexer token structures so tokens retain `leading_trivia`, with trailing file trivia attached to the `EndOfFile` token.
+- [x] Add colocated lexer tests for line comments, block comments, nested block comments, newline runs, and EOF trivia retention.
+- [x] Update the parser to transfer token trivia onto compilation-unit, item, and statement AST trivia.
+- [x] Add parser diagnostics for comments in unsupported interior positions.
+- [x] Add parser tests for trivia ownership and invalid comment placement.
+- [x] Add `crates/formatter` to the workspace.
+- [x] Implement formatter emission from the enriched AST with comment preservation and stable output.
+- [x] Add formatter tests and fixtures for comment-heavy supported inputs.
+- [x] Run `nao check`.

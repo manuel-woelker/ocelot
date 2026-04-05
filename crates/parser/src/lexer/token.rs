@@ -1,18 +1,31 @@
 use crate::lexer::token_type::TokenType;
+use ocelot_ast::trivia::Trivia;
 use ocelot_base::span::Span;
 
 /// Lexical token with its source span.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token {
     pub token_type: TokenType,
+    pub leading_trivia: Trivia,
     pub span: Span,
 }
 
 impl Token {
     /// Creates a token from its kind and byte offsets.
-    pub const fn new(token_type: TokenType, start: usize, end: usize) -> Self {
+    pub fn new(token_type: TokenType, start: usize, end: usize) -> Self {
+        Self::with_leading_trivia(token_type, Trivia::new(Vec::new(), Vec::new()), start, end)
+    }
+
+    /// Creates a token from its kind, leading trivia, and byte offsets.
+    pub fn with_leading_trivia(
+        token_type: TokenType,
+        leading_trivia: Trivia,
+        start: usize,
+        end: usize,
+    ) -> Self {
         Self {
             token_type,
+            leading_trivia,
             span: Span::new(start, end),
         }
     }
@@ -28,6 +41,7 @@ mod tests {
         let token = Token::new(TokenType::Identifier, 0, 7);
 
         assert_eq!(token.token_type, TokenType::Identifier);
+        assert!(token.leading_trivia.is_empty());
         assert_eq!(token.span.start(), 0);
         assert_eq!(token.span.end(), 7);
     }

@@ -1,5 +1,7 @@
 use crate::lexer::token::Token;
 use crate::lexer::token_type::TokenType;
+use ocelot_ast::trivia::Trivia;
+use ocelot_ast::trivia_piece::TriviaPiece;
 use ocelot_base::diagnostic_level::DiagnosticLevel;
 use ocelot_base::line_bounds::LineBounds;
 use ocelot_base::source_annotation::SourceAnnotation;
@@ -17,50 +19,96 @@ pub fn lex(source_file: &SourceFile, source_diagnostics: &mut SourceDiagnostics)
     let mut index = 0;
 
     while index < bytes.len() {
-        match skip_trivia(source_file, index) {
-            Ok(next_index) => index = next_index,
+        let leading_trivia = match collect_trivia(source_file, &mut index) {
+            Ok(leading_trivia) => leading_trivia,
             Err(diagnostic) => {
                 source_diagnostics.add_diagnostic(diagnostic);
                 index = bytes.len();
                 break;
             }
-        }
+        };
 
         if index >= bytes.len() {
-            break;
+            tokens.push(Token::with_leading_trivia(
+                TokenType::EndOfFile,
+                Trivia::new(leading_trivia, Vec::new()),
+                index,
+                index,
+            ));
+            return tokens;
         }
 
         match bytes[index] {
             b'(' => {
-                tokens.push(Token::new(TokenType::LeftParen, index, index + 1));
+                tokens.push(Token::with_leading_trivia(
+                    TokenType::LeftParen,
+                    Trivia::new(leading_trivia, Vec::new()),
+                    index,
+                    index + 1,
+                ));
                 index += 1;
             }
             b',' => {
-                tokens.push(Token::new(TokenType::Comma, index, index + 1));
+                tokens.push(Token::with_leading_trivia(
+                    TokenType::Comma,
+                    Trivia::new(leading_trivia, Vec::new()),
+                    index,
+                    index + 1,
+                ));
                 index += 1;
             }
             b':' if index + 1 < bytes.len() && bytes[index + 1] == b':' => {
-                tokens.push(Token::new(TokenType::DoubleColon, index, index + 2));
+                tokens.push(Token::with_leading_trivia(
+                    TokenType::DoubleColon,
+                    Trivia::new(leading_trivia, Vec::new()),
+                    index,
+                    index + 2,
+                ));
                 index += 2;
             }
             b':' => {
-                tokens.push(Token::new(TokenType::Colon, index, index + 1));
+                tokens.push(Token::with_leading_trivia(
+                    TokenType::Colon,
+                    Trivia::new(leading_trivia, Vec::new()),
+                    index,
+                    index + 1,
+                ));
                 index += 1;
             }
             b')' => {
-                tokens.push(Token::new(TokenType::RightParen, index, index + 1));
+                tokens.push(Token::with_leading_trivia(
+                    TokenType::RightParen,
+                    Trivia::new(leading_trivia, Vec::new()),
+                    index,
+                    index + 1,
+                ));
                 index += 1;
             }
             b'{' => {
-                tokens.push(Token::new(TokenType::LeftBrace, index, index + 1));
+                tokens.push(Token::with_leading_trivia(
+                    TokenType::LeftBrace,
+                    Trivia::new(leading_trivia, Vec::new()),
+                    index,
+                    index + 1,
+                ));
                 index += 1;
             }
             b'}' => {
-                tokens.push(Token::new(TokenType::RightBrace, index, index + 1));
+                tokens.push(Token::with_leading_trivia(
+                    TokenType::RightBrace,
+                    Trivia::new(leading_trivia, Vec::new()),
+                    index,
+                    index + 1,
+                ));
                 index += 1;
             }
             b';' => {
-                tokens.push(Token::new(TokenType::Semicolon, index, index + 1));
+                tokens.push(Token::with_leading_trivia(
+                    TokenType::Semicolon,
+                    Trivia::new(leading_trivia, Vec::new()),
+                    index,
+                    index + 1,
+                ));
                 index += 1;
             }
             b'"' => {
@@ -85,7 +133,12 @@ pub fn lex(source_file: &SourceFile, source_diagnostics: &mut SourceDiagnostics)
                 }
 
                 index += 1;
-                tokens.push(Token::new(TokenType::String, start, index));
+                tokens.push(Token::with_leading_trivia(
+                    TokenType::String,
+                    Trivia::new(leading_trivia, Vec::new()),
+                    start,
+                    index,
+                ));
             }
             byte if is_identifier_start(byte) => {
                 let start = index;
@@ -108,10 +161,20 @@ pub fn lex(source_file: &SourceFile, source_diagnostics: &mut SourceDiagnostics)
                     "use" => TokenType::Use,
                     _ => TokenType::Identifier,
                 };
-                tokens.push(Token::new(token_type, start, index));
+                tokens.push(Token::with_leading_trivia(
+                    token_type,
+                    Trivia::new(leading_trivia, Vec::new()),
+                    start,
+                    index,
+                ));
             }
             _ => {
-                tokens.push(Token::new(TokenType::Unexpected, index, index + 1));
+                tokens.push(Token::with_leading_trivia(
+                    TokenType::Unexpected,
+                    Trivia::new(leading_trivia, Vec::new()),
+                    index,
+                    index + 1,
+                ));
                 index += 1;
             }
         }
@@ -121,31 +184,81 @@ pub fn lex(source_file: &SourceFile, source_diagnostics: &mut SourceDiagnostics)
     tokens
 }
 
-fn skip_trivia(source_file: &SourceFile, mut index: usize) -> Result<usize, SourceDiagnostic> {
+fn collect_trivia(
+    source_file: &SourceFile,
+    index: &mut usize,
+) -> Result<Vec<TriviaPiece>, SourceDiagnostic> {
     let bytes = source_file.source().as_bytes();
+    let source = source_file.source();
+    let mut trivia = Vec::new();
 
     loop {
-        if index >= bytes.len() {
-            return Ok(index);
+        if *index >= bytes.len() {
+            return Ok(trivia);
         }
 
-        match bytes[index] {
-            b' ' | b'\t' | b'\n' | b'\r' => {
-                index += 1;
+        match bytes[*index] {
+            b' ' | b'\t' => {
+                *index += 1;
             }
-            b'/' if index + 1 < bytes.len() && bytes[index + 1] == b'/' => {
-                index += 2;
+            b'\n' | b'\r' => {
+                let start = *index;
+                let count = consume_newlines(bytes, index);
+                trivia.push(TriviaPiece::Newlines {
+                    count,
+                    span: Span::new(start, *index),
+                });
+            }
+            b'/' if *index + 1 < bytes.len() && bytes[*index + 1] == b'/' => {
+                let start = *index;
+                *index += 2;
 
-                while index < bytes.len() && bytes[index] != b'\n' && bytes[index] != b'\r' {
-                    index += 1;
+                while *index < bytes.len() && bytes[*index] != b'\n' && bytes[*index] != b'\r' {
+                    *index += 1;
                 }
+
+                trivia.push(TriviaPiece::LineComment {
+                    text: source[start..*index].into(),
+                    span: Span::new(start, *index),
+                });
             }
-            b'/' if index + 1 < bytes.len() && bytes[index + 1] == b'*' => {
-                index = skip_block_comment(source_file, index)?;
+            b'/' if *index + 1 < bytes.len() && bytes[*index + 1] == b'*' => {
+                let start = *index;
+                *index = skip_block_comment(source_file, *index)?;
+                trivia.push(TriviaPiece::BlockComment {
+                    text: source[start..*index].into(),
+                    span: Span::new(start, *index),
+                });
             }
-            _ => return Ok(index),
+            _ => return Ok(trivia),
         }
     }
+}
+
+fn consume_newlines(bytes: &[u8], index: &mut usize) -> usize {
+    let mut count = 0;
+
+    while *index < bytes.len() {
+        match bytes[*index] {
+            b'\n' => {
+                count += 1;
+                *index += 1;
+            }
+            b'\r' => {
+                count += 1;
+                *index += 1;
+                if *index < bytes.len() && bytes[*index] == b'\n' {
+                    *index += 1;
+                }
+            }
+            b' ' | b'\t' => {
+                *index += 1;
+            }
+            _ => break,
+        }
+    }
+
+    count
 }
 
 fn skip_block_comment(source_file: &SourceFile, start: usize) -> Result<usize, SourceDiagnostic> {
@@ -252,6 +365,7 @@ fn excerpt_with_annotation(
 mod tests {
     use super::lex;
     use crate::lexer::token_type::TokenType;
+    use ocelot_ast::trivia_piece::TriviaPiece;
     use ocelot_base::diagnostic_level::DiagnosticLevel;
     use ocelot_base::source_diagnostics::SourceDiagnostics;
     use ocelot_base::source_file::SourceFile;
@@ -548,6 +662,32 @@ mod tests {
     }
 
     #[test]
+    fn retains_line_comments_and_newlines_as_leading_trivia() {
+        let source_file = SourceFile::new(
+            "examples/comments.ocelot",
+            "// heading\nprintln(\"hello\");\n\n// footer",
+        );
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let tokens = lex(&source_file, &mut source_diagnostics);
+
+        assert!(!source_diagnostics.has_errors());
+        assert!(matches!(
+            &tokens[0].leading_trivia.leading[..],
+            [
+                TriviaPiece::LineComment { text, .. },
+                TriviaPiece::Newlines { count: 1, .. }
+            ] if text.as_str() == "// heading"
+        ));
+        assert!(matches!(
+            &tokens[tokens.len() - 1].leading_trivia.leading[..],
+            [
+                TriviaPiece::Newlines { count: 2, .. },
+                TriviaPiece::LineComment { text, .. }
+            ] if text.as_str() == "// footer"
+        ));
+    }
+
+    #[test]
     fn skips_block_comments_between_tokens() {
         let source_file = SourceFile::new(
             "examples/comments.ocelot",
@@ -597,6 +737,23 @@ mod tests {
             ]
         );
         assert!(!source_diagnostics.has_errors());
+    }
+
+    #[test]
+    fn retains_nested_block_comments_as_leading_trivia() {
+        let source_file = SourceFile::new(
+            "examples/comments.ocelot",
+            "println(/* outer /* inner */ value */\"hello\");",
+        );
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let tokens = lex(&source_file, &mut source_diagnostics);
+
+        assert!(!source_diagnostics.has_errors());
+        assert!(matches!(
+            &tokens[2].leading_trivia.leading[..],
+            [TriviaPiece::BlockComment { text, .. }] if
+                text.as_str() == "/* outer /* inner */ value */"
+        ));
     }
 
     #[test]

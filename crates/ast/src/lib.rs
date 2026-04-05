@@ -23,6 +23,8 @@ pub mod statement;
 pub mod statement_kind;
 pub mod string_literal_expression;
 pub mod test_item;
+pub mod trivia;
+pub mod trivia_piece;
 pub mod ty;
 pub mod type_index;
 pub mod type_kind;

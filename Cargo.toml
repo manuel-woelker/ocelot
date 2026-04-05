@@ -4,6 +4,7 @@ members = [
     "crates/base",
     "crates/cli",
     "crates/engine",
+    "crates/formatter",
     "crates/interpreter",
     "crates/pal",
     "crates/parser",

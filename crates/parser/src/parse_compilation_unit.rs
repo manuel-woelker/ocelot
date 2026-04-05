@@ -36,6 +36,7 @@ mod tests {
     use ocelot_ast::item_kind::ItemKind;
     use ocelot_ast::not_expression::NotExpression;
     use ocelot_ast::statement_kind::StatementKind;
+    use ocelot_ast::trivia_piece::TriviaPiece;
     use ocelot_ast::type_index::TypeIndex;
     use ocelot_base::diagnostic_level::DiagnosticLevel;
     use ocelot_base::source_diagnostics::SourceDiagnostics;
@@ -321,17 +322,49 @@ mod tests {
     }
 
     #[test]
-    fn parses_scripts_with_comments_without_changing_the_item_shape() {
+    fn attaches_supported_trivia_to_compilation_units_items_and_statements() {
         let source_file = SourceFile::new(
             "examples/comments.ocelot",
-            "// setup\nprintln(/* callee gap */\"first\"); /* between */ println(\"second\");",
+            "// setup\ntest \"prints one line\" {\n// enter body\nprintln(\"hello\"); // done\n}\n// footer",
         );
         let mut source_diagnostics = SourceDiagnostics::default();
 
         let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
-        assert_eq!(script.items.len(), 2);
+        assert_eq!(script.items.len(), 1);
         assert!(!source_diagnostics.has_errors());
+
+        assert!(matches!(
+            &script.trivia.leading[..],
+            [
+                TriviaPiece::LineComment { text, .. },
+                TriviaPiece::Newlines { count: 1, .. }
+            ] if text.as_str() == "// setup"
+        ));
+        assert!(matches!(
+            &script.trivia.trailing[..],
+            [
+                TriviaPiece::Newlines { count: 1, .. },
+                TriviaPiece::LineComment { text, .. }
+            ] if text.as_str() == "// footer"
+        ));
+
+        let ItemKind::Test(test_item) = &script.items[0].kind else {
+            panic!("expected test item");
+        };
+        assert_eq!(test_item.body.len(), 1);
+        assert!(matches!(
+            &test_item.body[0].trivia.leading[..],
+            [
+                TriviaPiece::Newlines { count: 1, .. },
+                TriviaPiece::LineComment { text, .. },
+                TriviaPiece::Newlines { count: 1, .. }
+            ] if text.as_str() == "// enter body"
+        ));
+        assert!(matches!(
+            &test_item.body[0].trivia.trailing[..],
+            [TriviaPiece::LineComment { text, .. }] if text.as_str() == "// done"
+        ));
     }
 
     #[test]
@@ -434,11 +467,9 @@ mod tests {
     }
 
     #[test]
-    fn parses_test_items_with_comments_around_the_name_and_body() {
-        let source_file = SourceFile::new(
-            "examples/tests.ocelot",
-            "test /* name */ \"prints one line\" /* body */ { // enter body\n println(\"hello\"); /* done */ }",
-        );
+    fn attaches_trailing_comments_to_top_level_items() {
+        let source_file =
+            SourceFile::new("examples/tests.ocelot", "println(\"hello\"); // trailing");
         let mut source_diagnostics = SourceDiagnostics::default();
 
         let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
@@ -446,14 +477,27 @@ mod tests {
         assert_eq!(script.items.len(), 1);
         assert!(!source_diagnostics.has_errors());
 
-        match &script.items[0].kind {
-            ItemKind::Function(_) => panic!("expected test item, got function item"),
-            ItemKind::Test(test_item) => {
-                assert_eq!(test_item.name, "prints one line");
-                assert_eq!(test_item.body.len(), 1);
-            }
-            other => panic!("expected test item, got {other:?}"),
-        }
+        assert!(matches!(
+            &script.items[0].trivia.trailing[..],
+            [TriviaPiece::LineComment { text, .. }] if text.as_str() == "// trailing"
+        ));
+    }
+
+    #[test]
+    fn rejects_comments_in_expression_positions() {
+        let source_file = SourceFile::new(
+            "examples/invalid.ocelot",
+            "println(/* callee gap */\"hello\");",
+        );
+        let mut source_diagnostics = SourceDiagnostics::default();
+
+        parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap_err();
+
+        assert!(source_diagnostics.has_errors());
+        assert_eq!(
+            source_diagnostics.diagnostics[0].message,
+            "comments are only allowed before items or statements"
+        );
     }
 
     #[test]
