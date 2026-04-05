@@ -100,6 +100,12 @@ impl PalHandle {
     }
 }
 
+impl From<&PalHandle> for PalHandle {
+    fn from(value: &PalHandle) -> Self {
+        value.clone()
+    }
+}
+
 // Implement Deref for convenience
 impl std::ops::Deref for PalHandle {
     type Target = dyn Pal;

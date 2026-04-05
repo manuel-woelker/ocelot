@@ -1,4 +1,5 @@
 use crate::discovered_test::DiscoveredTest;
+use crate::engine_worker::EngineWorker;
 use crate::failed_test_result::FailedTestResult;
 use crate::loaded_module::LoadedModule;
 use crate::loaded_program::LoadedProgram;
@@ -44,6 +45,16 @@ impl Engine {
     }
 
     pub fn run_file(&self, path: impl Into<FilePath>) -> OcelotResult<()> {
+        self.run_file_new(path.into())
+    }
+
+    pub fn run_file_new(&self, path: impl Into<FilePath>) -> OcelotResult<()> {
+        let worker = EngineWorker::new(&self.pal);
+        worker.run_file(path)?;
+        Ok(())
+    }
+
+    pub fn run_file_old(&self, path: impl Into<FilePath>) -> OcelotResult<()> {
         let program = self.compile_program(path.into())?;
         let entry_module = program.entry_module();
 
@@ -364,7 +375,10 @@ impl Engine {
     }
 }
 
-fn module_name_from_path(execution_root: &FilePath, path: &FilePath) -> OcelotResult<SharedString> {
+pub(crate) fn module_name_from_path(
+    execution_root: &FilePath,
+    path: &FilePath,
+) -> OcelotResult<SharedString> {
     let relative_path = path
         .as_path()
         .strip_prefix(execution_root.as_path())
@@ -382,7 +396,10 @@ fn module_name_from_path(execution_root: &FilePath, path: &FilePath) -> OcelotRe
     Ok(segments.join("::").into())
 }
 
-fn validate_loaded_module(module: &LoadedModule, compilation_context: &mut CompilationContext) {
+pub(crate) fn validate_loaded_module(
+    module: &LoadedModule,
+    compilation_context: &mut CompilationContext,
+) {
     if module.kind.allows_top_level_statements() {
         return;
     }
@@ -397,7 +414,7 @@ fn validate_loaded_module(module: &LoadedModule, compilation_context: &mut Compi
     ));
 }
 
-fn validate_reserved_core_module_name(
+pub(crate) fn validate_reserved_core_module_name(
     module: &LoadedModule,
     compilation_context: &mut CompilationContext,
 ) {
