@@ -127,6 +127,15 @@ impl Pal for CapturingPal {
         Ok(())
     }
 
+    fn rename(&self, from: &FilePath, to: &FilePath) -> OcelotResult<()> {
+        if let Some(content) = self.virtual_files.write().remove(from) {
+            self.virtual_files.write().insert(to.clone(), content);
+            return Ok(());
+        }
+
+        self.inner.rename(from, to)
+    }
+
     fn append_file(&self, path: &FilePath, content: &[u8]) -> OcelotResult<()> {
         self.virtual_files
             .write()

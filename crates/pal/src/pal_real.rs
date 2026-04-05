@@ -321,6 +321,15 @@ impl Pal for PalReal {
         Ok(())
     }
 
+    fn rename(&self, from: &FilePath, to: &FilePath) -> OcelotResult<()> {
+        std::fs::rename(
+            self.resolve_process_path(from)?,
+            self.resolve_process_path(to)?,
+        )
+        .with_context(|| format!("Unable to rename '{}' to '{}'", from, to))?;
+        Ok(())
+    }
+
     fn append_file(&self, path: &FilePath, content: &[u8]) -> OcelotResult<()> {
         let resolved_path = self.resolve_process_path(path)?;
         if let Some(parent) = resolved_path.parent() {

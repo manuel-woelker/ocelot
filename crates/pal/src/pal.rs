@@ -62,6 +62,9 @@ pub trait Pal: Debug + Sync + Send + 'static {
     /// Write a full file, replacing any previous contents.
     fn write_file(&self, path: &FilePath, content: &[u8]) -> OcelotResult<()>;
 
+    /// Rename or replace one file path with another path.
+    fn rename(&self, from: &FilePath, to: &FilePath) -> OcelotResult<()>;
+
     /// Append bytes to a file, creating it if it does not exist.
     fn append_file(&self, path: &FilePath, content: &[u8]) -> OcelotResult<()>;
 

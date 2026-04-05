@@ -227,6 +227,17 @@ impl Pal for PalMock {
         Ok(())
     }
 
+    fn rename(&self, from: &FilePath, to: &FilePath) -> OcelotResult<()> {
+        self.log_effect(format!("RENAME FILE: {} -> {}", from, to));
+        let mut inner = self.inner.write();
+        let contents = inner
+            .file_map
+            .remove(from)
+            .with_context(|| format!("File '{from}' does not exist"))?;
+        inner.file_map.insert(to.clone(), contents);
+        Ok(())
+    }
+
     fn append_file(&self, path: &FilePath, content: &[u8]) -> OcelotResult<()> {
         self.log_effect(format!(
             "APPEND FILE: {} -> {}",
@@ -418,6 +429,28 @@ mod tests {
                 FilePath::from("examples/helper.ocelot"),
                 FilePath::from("examples/main.ocelot-script"),
             ]
+        );
+    }
+
+    #[test]
+    fn rename_moves_file_contents_and_logs_the_effect() {
+        let pal = PalMock::new();
+        pal.set_file("examples/source.tmp", "hello");
+
+        pal.rename(
+            &FilePath::from("examples/source.tmp"),
+            &FilePath::from("examples/target.ocelot"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            pal.read_file_string("examples/target.ocelot").as_deref(),
+            Some("hello")
+        );
+        assert_eq!(pal.read_file_string("examples/source.tmp"), None);
+        assert!(
+            pal.get_effects()
+                .contains("RENAME FILE: examples/source.tmp -> examples/target.ocelot")
         );
     }
 }

@@ -1,16 +1,22 @@
 use ocelot_base::cli::format_cli_error;
+use ocelot_base::error::OcelotError;
 use ocelot_base::file_path::FilePath;
 use ocelot_base::result::OcelotResult;
+use ocelot_base::source_diagnostics::SourceDiagnostics;
+use ocelot_base::source_file::SourceFile;
 use ocelot_engine::engine::Engine;
 use ocelot_engine::failed_test_result::FailedTestResult;
 use ocelot_engine::test_run_summary::TestRunSummary;
+use ocelot_formatter::format_compilation_unit::format_compilation_unit;
 use ocelot_pal::pal::PalHandle;
 use ocelot_pal::pal_real::PalReal;
+use ocelot_parser::parse_compilation_unit::parse_compilation_unit;
 use std::ffi::OsString;
 use std::process::ExitCode;
 
 #[derive(Debug, PartialEq, Eq)]
 enum CliCommand {
+    Fmt,
     Run { path: String },
     Test { script_paths: Vec<String> },
 }
@@ -41,6 +47,8 @@ fn parse_command(args: Vec<OsString>) -> Option<CliCommand> {
     let first_arg = args.next()?;
 
     match first_arg.as_str() {
+        "fmt" if args.next().is_none() => Some(CliCommand::Fmt),
+        "fmt" => None,
         "test" => Some(CliCommand::Test {
             script_paths: args.collect(),
         }),
@@ -68,6 +76,10 @@ fn try_execute_command(pal: PalHandle, command: &CliCommand) -> OcelotResult<Exi
     let engine = Engine::new(pal.clone());
 
     match command {
+        CliCommand::Fmt => {
+            format_current_directory(&pal)?;
+            Ok(ExitCode::SUCCESS)
+        }
         CliCommand::Run { path } => {
             engine.run_file(path.as_str())?;
             Ok(ExitCode::SUCCESS)
@@ -78,6 +90,39 @@ fn try_execute_command(pal: PalHandle, command: &CliCommand) -> OcelotResult<Exi
             Ok(exit_code_for_test_summary(&summary))
         }
     }
+}
+
+fn format_current_directory(pal: &PalHandle) -> OcelotResult<()> {
+    for path in discover_ocelot_files(pal)? {
+        format_file(pal, &path)?;
+    }
+
+    Ok(())
+}
+
+fn format_file(pal: &PalHandle, path: &FilePath) -> OcelotResult<()> {
+    let source = pal.read_file_to_string(path)?;
+    let source_file = SourceFile::new(path.clone(), source.clone());
+    let mut source_diagnostics = SourceDiagnostics::default();
+    let compilation_unit = parse_compilation_unit(&source_file, &mut source_diagnostics)?;
+    let formatted = format_compilation_unit(&compilation_unit);
+
+    if formatted == source.as_str() {
+        return Ok(());
+    }
+
+    let temporary_path = formatting_temporary_path(path)?;
+    pal.write_file(&temporary_path, formatted.as_bytes())?;
+    pal.rename(&temporary_path, path)?;
+    Ok(())
+}
+
+fn formatting_temporary_path(path: &FilePath) -> OcelotResult<FilePath> {
+    let parent = path.parent().unwrap_or_default();
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| OcelotError::message(format!("path '{}' has no file name", path)))?;
+    Ok(parent.join(format!(".{file_name}.ocelot-fmt.tmp")))
 }
 
 fn run_test_files(
@@ -145,7 +190,7 @@ fn exit_code_for_test_summary(summary: &TestRunSummary) -> ExitCode {
 }
 
 fn print_usage() {
-    eprintln!("Usage:\n  ocelot <source-file>\n  ocelot test [source-file...]");
+    eprintln!("Usage:\n  ocelot fmt\n  ocelot <source-file>\n  ocelot test [source-file...]");
 }
 
 fn report_test_summary(summary: &TestRunSummary) {
@@ -214,6 +259,25 @@ mod tests {
             Some(CliCommand::Run {
                 path: "examples/hello.ocelot-script".into(),
             })
+        );
+    }
+
+    #[test]
+    fn parses_fmt_command() {
+        assert_eq!(
+            parse_command(vec![OsString::from("fmt")]),
+            Some(CliCommand::Fmt)
+        );
+    }
+
+    #[test]
+    fn rejects_fmt_command_with_extra_arguments() {
+        assert_eq!(
+            parse_command(vec![
+                OsString::from("fmt"),
+                OsString::from("examples/main.ocelot")
+            ]),
+            None
         );
     }
 
@@ -293,6 +357,56 @@ mod tests {
         assert!(effects.contains("READ FILE: examples/first.ocelot-script"));
         assert!(effects.contains("READ FILE: examples/second.ocelot"));
         assert_eq!(pal.take_printed_output(), "one\ntwo\n");
+    }
+
+    #[test]
+    fn fmt_skips_files_that_are_already_formatted() {
+        let pal = PalMock::new();
+        pal.set_file("examples/main.ocelot-script", "println(\"hello\");");
+        pal.set_args(["fmt"]);
+
+        assert_eq!(run_command(PalHandle::new(pal.clone())), ExitCode::SUCCESS);
+        let effects = pal.get_effects();
+        assert!(effects.contains("READ FILE: examples/main.ocelot-script"));
+        assert!(!effects.contains("WRITE FILE:"));
+        assert!(!effects.contains("RENAME FILE:"));
+    }
+
+    #[test]
+    fn fmt_rewrites_misformatted_files_atomically() {
+        let pal = PalMock::new();
+        pal.set_file("examples/main.ocelot-script", "println( \"hello\" );");
+        pal.set_args(["fmt"]);
+
+        assert_eq!(run_command(PalHandle::new(pal.clone())), ExitCode::SUCCESS);
+        assert_eq!(
+            pal.read_file_string("examples/main.ocelot-script")
+                .as_deref(),
+            Some("println(\"hello\");")
+        );
+        let effects = pal.get_effects();
+        assert!(effects.contains(
+            "WRITE FILE: examples/.main.ocelot-script.ocelot-fmt.tmp -> println(\"hello\");"
+        ));
+        assert!(effects.contains("RENAME FILE: examples/.main.ocelot-script.ocelot-fmt.tmp -> examples/main.ocelot-script"));
+    }
+
+    #[test]
+    fn fmt_fails_when_a_file_does_not_parse() {
+        let pal = PalMock::new();
+        pal.set_file("examples/broken.ocelot-script", "println(\"hello);");
+        pal.set_args(["fmt"]);
+
+        assert_eq!(run_command(PalHandle::new(pal.clone())), ExitCode::FAILURE);
+        assert_eq!(
+            pal.read_file_string("examples/broken.ocelot-script")
+                .as_deref(),
+            Some("println(\"hello);")
+        );
+        let effects = pal.get_effects();
+        assert!(effects.contains("READ FILE: examples/broken.ocelot-script"));
+        assert!(!effects.contains("WRITE FILE:"));
+        assert!(!effects.contains("RENAME FILE:"));
     }
 
     #[test]

@@ -109,6 +109,13 @@ Required coverage:
 - CLI tests showing parser failures surface as normal command failures
 - `nao check`
 
+# What verification was completed?
+
+Verification completed with:
+
+- `cargo test -p ocelot-pal -p ocelot`
+- `nao check`
+
 # What assumptions, risks, and open questions should stay explicit?
 
 - This plan assumes recursive discovery from the current directory is the right first default for `fmt`, matching the user's request and the repository's existing test discovery pattern.
@@ -119,13 +126,13 @@ Required coverage:
 
 # What concrete tasks should track this plan?
 
-- [ ] Add `rename()` to [`crates/pal/src/pal.rs`](/data/projects/ocelot/crates/pal/src/pal.rs).
-- [ ] Implement `rename()` in [`crates/pal/src/pal_real.rs`](/data/projects/ocelot/crates/pal/src/pal_real.rs).
-- [ ] Implement `rename()` and effect logging in [`crates/pal/src/pal_mock.rs`](/data/projects/ocelot/crates/pal/src/pal_mock.rs).
-- [ ] Add PAL tests covering rename behavior.
-- [ ] Extend [`crates/cli/src/main.rs`](/data/projects/ocelot/crates/cli/src/main.rs) with a `Fmt` command variant and updated usage text.
-- [ ] Add CLI helpers to discover `*.ocelot` and `*.ocelot-script` files from the current directory for formatting.
-- [ ] Implement in-memory parse and format for each discovered file.
-- [ ] Write changed files through a temporary sibling file and replace originals with `Pal::rename()`.
-- [ ] Add CLI tests for `fmt` parsing, no-op files, rewritten files, and parse-failure handling.
-- [ ] Run `nao check`.
+- [x] Add `rename()` to [`crates/pal/src/pal.rs`](/data/projects/ocelot/crates/pal/src/pal.rs).
+- [x] Implement `rename()` in [`crates/pal/src/pal_real.rs`](/data/projects/ocelot/crates/pal/src/pal_real.rs).
+- [x] Implement `rename()` and effect logging in [`crates/pal/src/pal_mock.rs`](/data/projects/ocelot/crates/pal/src/pal_mock.rs).
+- [x] Add PAL tests covering rename behavior.
+- [x] Extend [`crates/cli/src/main.rs`](/data/projects/ocelot/crates/cli/src/main.rs) with a `Fmt` command variant and updated usage text.
+- [x] Add CLI helpers to discover `*.ocelot` and `*.ocelot-script` files from the current directory for formatting.
+- [x] Implement in-memory parse and format for each discovered file.
+- [x] Write changed files through a temporary sibling file and replace originals with `Pal::rename()`.
+- [x] Add CLI tests for `fmt` parsing, no-op files, rewritten files, and parse-failure handling.
+- [x] Run `nao check`.

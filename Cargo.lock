@@ -371,7 +371,9 @@ version = "0.1.2"
 dependencies = [
  "ocelot-base",
  "ocelot-engine",
+ "ocelot-formatter",
  "ocelot-pal",
+ "ocelot-parser",
  "pico-args",
 ]
 
