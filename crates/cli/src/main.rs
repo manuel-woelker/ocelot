@@ -351,7 +351,7 @@ mod tests {
         assert!(
             !summary.failed[0]
                 .message
-                .contains("crates/parser/src/parse_script.rs")
+                .contains("crates/parser/src/parse_compilation_unit.rs")
         );
     }
 

@@ -3,6 +3,7 @@ use crate::lexer::token::Token;
 use crate::lexer::token_type::TokenType;
 use ocelot_ast::boolean_literal_expression::BooleanLiteralExpression;
 use ocelot_ast::call_expression::CallExpression;
+use ocelot_ast::compilation_unit::CompilationUnit;
 use ocelot_ast::effect_item::EffectItem;
 use ocelot_ast::expression::Expression;
 use ocelot_ast::expression_kind::ExpressionKind;
@@ -15,7 +16,6 @@ use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_ast::not_expression::NotExpression;
 use ocelot_ast::qualified_identifier::QualifiedIdentifier;
-use ocelot_ast::script::Script;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
 use ocelot_ast::string_literal_expression::StringLiteralExpression;
@@ -55,8 +55,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parses the source file into a script AST.
-    pub fn parse_script(&mut self) -> OcelotResult<Script> {
+    /// Parses the source file into a compilation unit AST.
+    pub fn parse_compilation_unit(&mut self) -> OcelotResult<CompilationUnit> {
         if self.source_diagnostics.has_errors() {
             return Err(OcelotError::compilation_error(CompilationStage::Parser));
         }
@@ -71,7 +71,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Ok(Script::new(
+        Ok(CompilationUnit::new(
             items,
             Span::new(0, self.source_file.source().len()),
         ))
@@ -576,7 +576,7 @@ mod tests {
         let mut source_diagnostics = SourceDiagnostics::default();
         let mut parser = Parser::new(&source_file, &mut source_diagnostics);
 
-        let script = parser.parse_script().unwrap();
+        let script = parser.parse_compilation_unit().unwrap();
         let ItemKind::Statement(statement) = &script.items[0].kind else {
             panic!("expected statement");
         };
@@ -599,7 +599,7 @@ mod tests {
         let mut source_diagnostics = SourceDiagnostics::default();
         let mut parser = Parser::new(&source_file, &mut source_diagnostics);
 
-        let script = parser.parse_script().unwrap();
+        let script = parser.parse_compilation_unit().unwrap();
         let ItemKind::Use(UseItem {
             module_path,
             imported_names,
@@ -623,7 +623,7 @@ mod tests {
         let mut source_diagnostics = SourceDiagnostics::default();
         let mut parser = Parser::new(&source_file, &mut source_diagnostics);
 
-        let script = parser.parse_script().unwrap();
+        let script = parser.parse_compilation_unit().unwrap();
         let ItemKind::Use(UseItem {
             module_path,
             imported_names,

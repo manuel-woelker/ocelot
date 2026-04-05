@@ -2,9 +2,9 @@ use crate::declaration_indexer::DeclarationIndex;
 use crate::declaration_indexer::DeclarationIndexer;
 use crate::effect_propagation::propagate_function_effects;
 use crate::resolver::Resolver;
+use ocelot_ast::compilation_unit::CompilationUnit;
 use ocelot_ast::function_item::FunctionItem;
 use ocelot_ast::identifier::Identifier;
-use ocelot_ast::script::Script;
 use ocelot_base::compilation_stage::CompilationStage;
 use ocelot_base::error::OcelotError;
 use ocelot_base::file_path::FilePath;
@@ -26,9 +26,9 @@ const CORE_MODULE_NAME: &str = "core";
 const CORE_MODULE_PATH: &str = "crates/engine/resources/core.ocelot";
 const CORE_MODULE_SOURCE: &str = include_str!("../../engine/resources/core.ocelot");
 
-/// Resolves one script as though it were the only loaded module.
+/// Resolves one compilation unit as though it were the only loaded module.
 pub fn resolve(
-    script: &mut Script,
+    script: &mut CompilationUnit,
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
     environment: &mut ProgramEnvironment,
@@ -88,7 +88,7 @@ pub fn register_core_module(
     }
 
     let source_file = SourceFile::new(CORE_MODULE_PATH, CORE_MODULE_SOURCE);
-    let mut script = ocelot_parser::parse_script::parse_script(
+    let mut script = ocelot_parser::parse_compilation_unit::parse_compilation_unit(
         &source_file,
         &mut compilation_context.source_diagnostics,
     )?;
@@ -115,7 +115,7 @@ pub fn register_core_module(
 
 /// Registers all effect declarations for one module and lowers them out of the item list.
 pub fn register_module_effects(
-    script: &mut Script,
+    script: &mut CompilationUnit,
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
     declaration_index: &mut impl DeclarationIndex,
@@ -136,7 +136,7 @@ pub fn register_module_effects(
 
 /// Registers all function declarations for one module and lowers them out of the item list.
 pub fn register_module_functions(
-    script: &mut Script,
+    script: &mut CompilationUnit,
     module_name: &str,
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
@@ -158,7 +158,7 @@ pub fn register_module_functions(
 
 /// Registers all import declarations for one module and lowers them out of the item list.
 pub fn register_module_imports(
-    script: &mut Script,
+    script: &mut CompilationUnit,
     module_name: &str,
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
@@ -180,7 +180,7 @@ pub fn register_module_imports(
 
 /// Resolves all non-function items in one module after registration.
 pub fn resolve_module_items(
-    script: &mut Script,
+    script: &mut CompilationUnit,
     module_name: &str,
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,

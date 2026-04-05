@@ -1,5 +1,6 @@
 use crate::diagnostics::source_diagnostic_for_span;
 use crate::diagnostics::source_excerpt_for_span;
+use ocelot_ast::compilation_unit::CompilationUnit;
 use ocelot_ast::effect::Effect;
 use ocelot_ast::effect_index::EffectIndex;
 use ocelot_ast::effect_item::EffectItem;
@@ -8,7 +9,6 @@ use ocelot_ast::function_item::FunctionItem;
 use ocelot_ast::function_parameter::FunctionParameter;
 use ocelot_ast::identifier::Identifier;
 use ocelot_ast::item_kind::ItemKind;
-use ocelot_ast::script::Script;
 use ocelot_ast::type_index::TypeIndex;
 use ocelot_ast::use_item::UseItem;
 use ocelot_base::result::OcelotResult;
@@ -136,7 +136,7 @@ impl<'a, D: DeclarationIndex> DeclarationIndexer<'a, D> {
         }
     }
 
-    pub(crate) fn register_effect_items(&mut self, script: &mut Script) {
+    pub(crate) fn register_effect_items(&mut self, script: &mut CompilationUnit) {
         let mut retained_items = Vec::with_capacity(script.items.len());
 
         for item in std::mem::take(&mut script.items) {
@@ -149,7 +149,10 @@ impl<'a, D: DeclarationIndex> DeclarationIndexer<'a, D> {
         script.items = retained_items;
     }
 
-    pub(crate) fn register_function_items(&mut self, script: &mut Script) -> OcelotResult<()> {
+    pub(crate) fn register_function_items(
+        &mut self,
+        script: &mut CompilationUnit,
+    ) -> OcelotResult<()> {
         let mut retained_items = Vec::with_capacity(script.items.len());
 
         for item in std::mem::take(&mut script.items) {
@@ -164,7 +167,7 @@ impl<'a, D: DeclarationIndex> DeclarationIndexer<'a, D> {
         Ok(())
     }
 
-    pub(crate) fn register_use_items(&mut self, script: &mut Script) {
+    pub(crate) fn register_use_items(&mut self, script: &mut CompilationUnit) {
         let mut retained_items = Vec::with_capacity(script.items.len());
 
         for item in std::mem::take(&mut script.items) {

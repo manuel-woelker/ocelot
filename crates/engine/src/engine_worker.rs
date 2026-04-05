@@ -89,7 +89,7 @@ impl EngineWorker {
 
         match entry_module.kind {
             SourceFileKind::Script => ocelot_interpreter::interpret_script::interpret_script(
-                &entry_module.script,
+                &entry_module.compilation_unit,
                 &entry_module.source_file,
                 &self.program_environment,
                 &*self.pal,
@@ -103,7 +103,7 @@ impl EngineWorker {
     fn run_selected_test(&self, test_name: &str) -> OcelotResult<()> {
         let entry_module = self.entry_module()?;
         let test_item = entry_module
-            .script
+            .compilation_unit
             .items
             .iter()
             .find_map(|item| match &item.kind {
@@ -146,7 +146,7 @@ impl EngineWorker {
         );
         let mut summary = TestRunSummary::new();
 
-        for item in &entry_module.script.items {
+        for item in &entry_module.compilation_unit.items {
             let ItemKind::Test(test_item) = &item.kind else {
                 continue;
             };
@@ -213,7 +213,7 @@ impl EngineWorker {
 
         for module in &mut self.parsed_modules {
             ocelot_resolver::resolution::register_module_effects(
-                &mut module.script,
+                &mut module.compilation_unit,
                 &module.source_file,
                 &mut self.compilation_context,
                 &mut symbol_table,
@@ -222,7 +222,7 @@ impl EngineWorker {
 
         for module in &mut self.parsed_modules {
             ocelot_resolver::resolution::register_module_functions(
-                &mut module.script,
+                &mut module.compilation_unit,
                 module.module_name.as_str(),
                 &module.source_file,
                 &mut self.compilation_context,
@@ -236,7 +236,7 @@ impl EngineWorker {
 
         for module in &mut self.parsed_modules {
             ocelot_resolver::resolution::register_module_imports(
-                &mut module.script,
+                &mut module.compilation_unit,
                 module.module_name.as_str(),
                 &module.source_file,
                 &mut self.compilation_context,
@@ -249,7 +249,7 @@ impl EngineWorker {
 
         for module in &mut self.parsed_modules {
             ocelot_resolver::resolution::resolve_module_items(
-                &mut module.script,
+                &mut module.compilation_unit,
                 module.module_name.as_str(),
                 &module.source_file,
                 &mut self.compilation_context,
@@ -317,13 +317,13 @@ impl EngineWorker {
         let source_file = self.read_source_file(path.clone())?;
         let base_path = self.command.base_path.clone();
         let path = path.clone();
-        self.parse_source_file(source_file, |source_file, script| {
+        self.parse_source_file(source_file, |source_file, compilation_unit| {
             let source_kind = SourceFileKind::from_path(&path)?;
             Ok(ParsedModule::new(
                 module_name_from_path(&base_path, &path)?,
                 source_kind,
                 source_file,
-                script,
+                compilation_unit,
             ))
         })
     }
@@ -333,12 +333,12 @@ impl EngineWorker {
         builtin_module: BuiltinModule,
     ) -> OcelotResult<Option<ParsedModule>> {
         let source_file = SourceFile::new(builtin_module.source_file_path(), builtin_module.source);
-        self.parse_source_file(source_file, |source_file, script| {
+        self.parse_source_file(source_file, |source_file, compilation_unit| {
             Ok(ParsedModule::new(
                 builtin_module.module_name,
                 SourceFileKind::Module,
                 source_file,
-                script,
+                compilation_unit,
             ))
         })
     }
@@ -346,17 +346,20 @@ impl EngineWorker {
     fn parse_source_file(
         &mut self,
         source_file: SourceFile,
-        build_module: impl FnOnce(SourceFile, ocelot_ast::script::Script) -> OcelotResult<ParsedModule>,
+        build_module: impl FnOnce(
+            SourceFile,
+            ocelot_ast::compilation_unit::CompilationUnit,
+        ) -> OcelotResult<ParsedModule>,
     ) -> OcelotResult<Option<ParsedModule>> {
-        let script = match ocelot_parser::parse_script::parse_script(
+        let compilation_unit = match ocelot_parser::parse_compilation_unit::parse_compilation_unit(
             &source_file,
             &mut self.compilation_context.source_diagnostics,
         ) {
-            Ok(script) => script,
+            Ok(compilation_unit) => compilation_unit,
             Err(error) if is_parser_compilation_error(&error) => return Ok(None),
             Err(error) => return Err(error),
         };
-        Ok(Some(build_module(source_file, script)?))
+        Ok(Some(build_module(source_file, compilation_unit)?))
     }
 
     fn read_source_file(&self, path: FilePath) -> OcelotResult<SourceFile> {
@@ -462,7 +465,7 @@ fn validate_loaded_module(module: &ParsedModule, compilation_context: &mut Compi
         return;
     }
 
-    let Some(statement) = module.script.statements().next() else {
+    let Some(statement) = module.compilation_unit.statements().next() else {
         return;
     };
 

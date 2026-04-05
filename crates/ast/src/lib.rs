@@ -2,6 +2,7 @@
 
 pub mod boolean_literal_expression;
 pub mod call_expression;
+pub mod compilation_unit;
 pub mod effect;
 pub mod effect_index;
 pub mod effect_item;
@@ -18,7 +19,6 @@ pub mod item;
 pub mod item_kind;
 pub mod not_expression;
 pub mod qualified_identifier;
-pub mod script;
 pub mod statement;
 pub mod statement_kind;
 pub mod string_literal_expression;

@@ -7,6 +7,7 @@ use crate::resolution::resolve;
 use crate::resolution::resolve_module_items;
 use crate::resolution::resolve_user_defined_function_definitions;
 use ocelot_ast::call_expression::CallExpression;
+use ocelot_ast::compilation_unit::CompilationUnit;
 use ocelot_ast::effect_item::EffectItem;
 use ocelot_ast::expression::Expression;
 use ocelot_ast::expression_kind::ExpressionKind;
@@ -18,7 +19,6 @@ use ocelot_ast::identifier::Identifier;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_ast::qualified_identifier::QualifiedIdentifier;
-use ocelot_ast::script::Script;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
 use ocelot_ast::string_literal_expression::StringLiteralExpression;
@@ -99,7 +99,7 @@ fn create_symbol_table() -> SymbolTable {
 
 #[test]
 fn resolves_native_call_expressions() {
-    let mut script = Script::new(
+    let mut script = CompilationUnit::new(
         vec![Item::new(
             ItemKind::Statement(Statement::new(
                 StatementKind::Expression(ExpressionStatement::new(call(
@@ -152,7 +152,7 @@ fn resolves_native_call_expressions() {
 
 #[test]
 fn resolves_parameter_references_inside_function_bodies() {
-    let mut script = Script::new(
+    let mut script = CompilationUnit::new(
         vec![
             Item::new(
                 ItemKind::Function(FunctionItem::new(
@@ -226,7 +226,7 @@ fn resolves_parameter_references_inside_function_bodies() {
 
 #[test]
 fn reports_duplicate_function_parameter_names() {
-    let mut script = Script::new(
+    let mut script = CompilationUnit::new(
         vec![Item::new(
             ItemKind::Function(FunctionItem::new(
                 Identifier::new("greet", Span::new(4, 9)),
@@ -273,7 +273,7 @@ fn reports_duplicate_function_parameter_names() {
 
 #[test]
 fn reports_unknown_function_parameter_types() {
-    let mut script = Script::new(
+    let mut script = CompilationUnit::new(
         vec![Item::new(
             ItemKind::Function(FunctionItem::new(
                 Identifier::new("greet", Span::new(4, 9)),
@@ -310,7 +310,7 @@ fn reports_unknown_function_parameter_types() {
 
 #[test]
 fn reports_any_in_user_defined_function_signatures() {
-    let mut script = Script::new(
+    let mut script = CompilationUnit::new(
         vec![Item::new(
             ItemKind::Function(FunctionItem::new(
                 Identifier::new("greet", Span::new(4, 9)),
@@ -351,7 +351,7 @@ fn reports_any_in_user_defined_function_signatures() {
 
 #[test]
 fn reports_native_functions_outside_core() {
-    let mut script = Script::new(
+    let mut script = CompilationUnit::new(
         vec![Item::new(
             ItemKind::Function(FunctionItem::new_native(
                 Identifier::new("println", Span::new(11, 18)),
@@ -391,7 +391,7 @@ fn reports_native_functions_outside_core() {
 
 #[test]
 fn reports_wrong_user_defined_call_arity() {
-    let mut script = Script::new(
+    let mut script = CompilationUnit::new(
         vec![
             Item::new(
                 ItemKind::Function(FunctionItem::new(
@@ -445,7 +445,7 @@ fn reports_wrong_user_defined_call_arity() {
 
 #[test]
 fn reports_wrong_user_defined_call_argument_types() {
-    let mut script = Script::new(
+    let mut script = CompilationUnit::new(
         vec![
             Item::new(
                 ItemKind::Function(FunctionItem::new(
@@ -499,7 +499,7 @@ fn reports_wrong_user_defined_call_argument_types() {
 
 #[test]
 fn resolves_module_qualified_calls() {
-    let mut main_script = Script::new(
+    let mut main_script = CompilationUnit::new(
         vec![Item::new(
             ItemKind::Statement(Statement::new(
                 StatementKind::Expression(ExpressionStatement::new(call(
@@ -516,7 +516,7 @@ fn resolves_module_qualified_calls() {
         )],
         Span::new(0, 21),
     );
-    let mut module_script = Script::new(
+    let mut module_script = CompilationUnit::new(
         vec![Item::new(
             ItemKind::Function(FunctionItem::new(
                 Identifier::new("hello", Span::new(4, 9)),
@@ -593,7 +593,7 @@ fn resolves_module_qualified_calls() {
 
 #[test]
 fn resolves_imported_function_calls() {
-    let mut main_script = Script::new(
+    let mut main_script = CompilationUnit::new(
         vec![
             Item::new(
                 ItemKind::Use(UseItem::new(
@@ -617,7 +617,7 @@ fn resolves_imported_function_calls() {
         ],
         Span::new(0, 27),
     );
-    let mut helper_script = Script::new(
+    let mut helper_script = CompilationUnit::new(
         vec![Item::new(
             ItemKind::Function(FunctionItem::new(
                 Identifier::new("greet", Span::new(4, 9)),
@@ -705,7 +705,7 @@ fn resolves_imported_function_calls() {
 
 #[test]
 fn imported_names_are_available_inside_function_bodies() {
-    let mut main_script = Script::new(
+    let mut main_script = CompilationUnit::new(
         vec![
             Item::new(
                 ItemKind::Use(UseItem::new(
@@ -736,7 +736,7 @@ fn imported_names_are_available_inside_function_bodies() {
         ],
         Span::new(0, 43),
     );
-    let mut helper_script = Script::new(
+    let mut helper_script = CompilationUnit::new(
         vec![Item::new(
             ItemKind::Function(FunctionItem::new(
                 Identifier::new("greet", Span::new(4, 9)),
@@ -845,7 +845,7 @@ fn imported_names_are_available_inside_function_bodies() {
 
 #[test]
 fn local_functions_win_over_imported_names() {
-    let mut main_script = Script::new(
+    let mut main_script = CompilationUnit::new(
         vec![
             Item::new(
                 ItemKind::Use(UseItem::new(
@@ -880,7 +880,7 @@ fn local_functions_win_over_imported_names() {
         ],
         Span::new(0, 40),
     );
-    let mut helper_script = Script::new(
+    let mut helper_script = CompilationUnit::new(
         vec![Item::new(
             ItemKind::Function(FunctionItem::new(
                 Identifier::new("greet", Span::new(4, 9)),
@@ -947,7 +947,7 @@ fn local_functions_win_over_imported_names() {
 
 #[test]
 fn reports_duplicate_imports() {
-    let mut main_script = Script::new(
+    let mut main_script = CompilationUnit::new(
         vec![
             Item::new(
                 ItemKind::Use(UseItem::new(
@@ -968,7 +968,7 @@ fn reports_duplicate_imports() {
         ],
         Span::new(0, 37),
     );
-    let mut helper_script = Script::new(
+    let mut helper_script = CompilationUnit::new(
         vec![Item::new(
             ItemKind::Function(FunctionItem::new(
                 Identifier::new("greet", Span::new(4, 9)),
@@ -1021,7 +1021,7 @@ fn reports_duplicate_imports() {
 
 #[test]
 fn reports_unknown_functions_in_use_items() {
-    let mut main_script = Script::new(
+    let mut main_script = CompilationUnit::new(
         vec![Item::new(
             ItemKind::Use(UseItem::new(
                 QualifiedIdentifier::new(vec![Identifier::new("helper", Span::new(4, 10))]),
@@ -1032,7 +1032,7 @@ fn reports_unknown_functions_in_use_items() {
         )],
         Span::new(0, 18),
     );
-    let mut helper_script = Script::new(
+    let mut helper_script = CompilationUnit::new(
         vec![Item::new(
             ItemKind::Function(FunctionItem::new(
                 Identifier::new("wave", Span::new(4, 8)),
@@ -1086,7 +1086,7 @@ fn reports_unknown_functions_in_use_items() {
 
 #[test]
 fn reports_unknown_modules() {
-    let mut script = Script::new(
+    let mut script = CompilationUnit::new(
         vec![Item::new(
             ItemKind::Statement(Statement::new(
                 StatementKind::Expression(ExpressionStatement::new(call(
@@ -1134,7 +1134,7 @@ fn reports_unknown_modules() {
 
 #[test]
 fn lowers_function_items_before_resolving_tests() {
-    let mut script = Script::new(
+    let mut script = CompilationUnit::new(
         vec![
             Item::new(
                 ItemKind::Function(FunctionItem::new(
@@ -1184,7 +1184,7 @@ fn lowers_function_items_before_resolving_tests() {
 
 #[test]
 fn registers_effect_items_before_function_resolution() {
-    let mut script = Script::new(
+    let mut script = CompilationUnit::new(
         vec![Item::new(
             ItemKind::Effect(EffectItem::new(
                 Identifier::new("exec", Span::new(7, 11)),
@@ -1206,7 +1206,7 @@ fn registers_effect_items_before_function_resolution() {
 
 #[test]
 fn propagates_explicit_can_effects_to_callers() {
-    let mut script = Script::new(
+    let mut script = CompilationUnit::new(
         vec![
             Item::new(
                 ItemKind::Effect(EffectItem::new(
@@ -1304,7 +1304,7 @@ fn propagates_explicit_can_effects_to_callers() {
 
 #[test]
 fn reports_transitive_forbidden_effects() {
-    let mut script = Script::new(
+    let mut script = CompilationUnit::new(
         vec![
             Item::new(
                 ItemKind::Effect(EffectItem::new(
@@ -1406,7 +1406,7 @@ fn reports_transitive_forbidden_effects() {
 
 #[test]
 fn reports_direct_builtin_effect_violations_at_the_call_site() {
-    let mut script = Script::new(
+    let mut script = CompilationUnit::new(
         vec![Item::new(
             ItemKind::Function(FunctionItem::new(
                 Identifier::new("quiet", Span::new(4, 9)),
@@ -1467,7 +1467,7 @@ fn reports_direct_builtin_effect_violations_at_the_call_site() {
 
 #[test]
 fn reports_unknown_effect_names_in_function_annotations() {
-    let mut script = Script::new(
+    let mut script = CompilationUnit::new(
         vec![Item::new(
             ItemKind::Function(FunctionItem::new(
                 Identifier::new("quiet", Span::new(4, 9)),
@@ -1505,7 +1505,7 @@ fn reports_unknown_effect_names_in_function_annotations() {
 
 #[test]
 fn reports_duplicate_effect_declarations() {
-    let mut script = Script::new(
+    let mut script = CompilationUnit::new(
         vec![
             Item::new(
                 ItemKind::Effect(EffectItem::new(

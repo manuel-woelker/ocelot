@@ -1,5 +1,5 @@
 use crate::interpreter::Interpreter;
-use ocelot_ast::script::Script;
+use ocelot_ast::compilation_unit::CompilationUnit;
 use ocelot_base::result::OcelotResult;
 use ocelot_base::source_file::SourceFile;
 use ocelot_pal::pal::Pal;
@@ -7,7 +7,7 @@ use ocelot_semantic::program_environment::ProgramEnvironment;
 
 /// Executes a parsed script.
 pub fn interpret_script(
-    script: &Script,
+    script: &CompilationUnit,
     source_file: &SourceFile,
     environment: &ProgramEnvironment,
     pal: &dyn Pal,
@@ -20,6 +20,7 @@ mod tests {
     use super::interpret_script as interpret_resolved_script;
     use ocelot_ast::boolean_literal_expression::BooleanLiteralExpression;
     use ocelot_ast::call_expression::CallExpression;
+    use ocelot_ast::compilation_unit::CompilationUnit;
     use ocelot_ast::expression::Expression;
     use ocelot_ast::expression_kind::ExpressionKind;
     use ocelot_ast::expression_statement::ExpressionStatement;
@@ -29,7 +30,6 @@ mod tests {
     use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
     use ocelot_ast::not_expression::NotExpression;
-    use ocelot_ast::script::Script;
     use ocelot_ast::statement::Statement;
     use ocelot_ast::statement_kind::StatementKind;
     use ocelot_ast::string_literal_expression::StringLiteralExpression;
@@ -49,7 +49,7 @@ mod tests {
     }
 
     fn interpret_script(
-        script: &Script,
+        script: &CompilationUnit,
         source_file: &SourceFile,
         pal: &PalMock,
     ) -> OcelotResult<()> {
@@ -101,7 +101,7 @@ mod tests {
 
     #[test]
     fn interprets_println_string_literal() {
-        let script = Script::new(
+        let script = CompilationUnit::new(
             vec![Item::new(
                 ItemKind::Statement(Statement::new(
                     StatementKind::Expression(ExpressionStatement::new(Expression::new(
@@ -138,7 +138,7 @@ mod tests {
 
     #[test]
     fn ignores_test_items_during_normal_script_execution() {
-        let script = Script::new(
+        let script = CompilationUnit::new(
             vec![
                 Item::new(
                     ItemKind::Statement(Statement::new(
@@ -208,7 +208,7 @@ mod tests {
 
     #[test]
     fn interprets_user_defined_zero_argument_functions() {
-        let script = Script::new(
+        let script = CompilationUnit::new(
             vec![
                 Item::new(
                     ItemKind::Function(FunctionItem::new(
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn interprets_user_defined_functions_with_string_parameters() {
-        let script = Script::new(
+        let script = CompilationUnit::new(
             vec![
                 Item::new(
                     ItemKind::Function(FunctionItem::new(
@@ -318,7 +318,7 @@ mod tests {
 
     #[test]
     fn interprets_user_defined_functions_with_boolean_parameters() {
-        let script = Script::new(
+        let script = CompilationUnit::new(
             vec![
                 Item::new(
                     ItemKind::Function(FunctionItem::new(
@@ -372,7 +372,7 @@ mod tests {
 
     #[test]
     fn interprets_println_boolean_literal() {
-        let script = Script::new(
+        let script = CompilationUnit::new(
             vec![Item::new(
                 ItemKind::Statement(Statement::new(
                     StatementKind::Expression(ExpressionStatement::new(Expression::new(
@@ -407,7 +407,7 @@ mod tests {
 
     #[test]
     fn interprets_println_not_false() {
-        let script = Script::new(
+        let script = CompilationUnit::new(
             vec![Item::new(
                 ItemKind::Statement(Statement::new(
                     StatementKind::Expression(ExpressionStatement::new(call_expression(
@@ -439,7 +439,7 @@ mod tests {
 
     #[test]
     fn interprets_nested_not_expressions() {
-        let script = Script::new(
+        let script = CompilationUnit::new(
             vec![Item::new(
                 ItemKind::Statement(Statement::new(
                     StatementKind::Expression(ExpressionStatement::new(call_expression(
@@ -474,7 +474,7 @@ mod tests {
 
     #[test]
     fn interprets_assert_eq_when_values_match() {
-        let script = Script::new(
+        let script = CompilationUnit::new(
             vec![Item::new(
                 ItemKind::Statement(Statement::new(
                     StatementKind::Expression(ExpressionStatement::new(call_expression(
@@ -509,7 +509,7 @@ mod tests {
 
     #[test]
     fn interprets_assert_eq_for_boolean_values() {
-        let script = Script::new(
+        let script = CompilationUnit::new(
             vec![Item::new(
                 ItemKind::Statement(Statement::new(
                     StatementKind::Expression(ExpressionStatement::new(call_expression(
@@ -541,7 +541,7 @@ mod tests {
 
     #[test]
     fn interprets_assert_when_condition_is_true() {
-        let script = Script::new(
+        let script = CompilationUnit::new(
             vec![Item::new(
                 ItemKind::Statement(Statement::new(
                     StatementKind::Expression(ExpressionStatement::new(call_expression(
@@ -567,7 +567,7 @@ mod tests {
 
     #[test]
     fn reports_assert_false_as_an_assertion_error_without_a_diff_block() {
-        let script = Script::new(
+        let script = CompilationUnit::new(
             vec![Item::new(
                 ItemKind::Statement(Statement::new(
                     StatementKind::Expression(ExpressionStatement::new(call_expression(
@@ -601,7 +601,7 @@ mod tests {
 
     #[test]
     fn interprets_assert_with_a_not_expression() {
-        let script = Script::new(
+        let script = CompilationUnit::new(
             vec![Item::new(
                 ItemKind::Statement(Statement::new(
                     StatementKind::Expression(ExpressionStatement::new(call_expression(
@@ -632,7 +632,7 @@ mod tests {
 
     #[test]
     fn reports_assert_not_true_as_a_minimal_assertion_error() {
-        let script = Script::new(
+        let script = CompilationUnit::new(
             vec![Item::new(
                 ItemKind::Statement(Statement::new(
                     StatementKind::Expression(ExpressionStatement::new(call_expression(
@@ -667,7 +667,7 @@ mod tests {
 
     #[test]
     fn reports_assert_eq_mismatches_as_assertion_errors() {
-        let script = Script::new(
+        let script = CompilationUnit::new(
             vec![Item::new(
                 ItemKind::Statement(Statement::new(
                     StatementKind::Expression(ExpressionStatement::new(call_expression(
@@ -700,7 +700,7 @@ mod tests {
 
     #[test]
     fn reports_boolean_assert_eq_mismatches_with_boolean_values() {
-        let script = Script::new(
+        let script = CompilationUnit::new(
             vec![Item::new(
                 ItemKind::Statement(Statement::new(
                     StatementKind::Expression(ExpressionStatement::new(call_expression(
@@ -745,7 +745,7 @@ mod tests {
 
     #[test]
     fn reports_assert_eq_wrong_arity() {
-        let script = Script::new(
+        let script = CompilationUnit::new(
             vec![Item::new(
                 ItemKind::Statement(Statement::new(
                     StatementKind::Expression(ExpressionStatement::new(call_expression(
@@ -776,7 +776,7 @@ mod tests {
 
     #[test]
     fn reports_assert_wrong_arity() {
-        let script = Script::new(
+        let script = CompilationUnit::new(
             vec![Item::new(
                 ItemKind::Statement(Statement::new(
                     StatementKind::Expression(ExpressionStatement::new(call_expression(
@@ -804,7 +804,7 @@ mod tests {
 
     #[test]
     fn reports_assert_wrong_type() {
-        let script = Script::new(
+        let script = CompilationUnit::new(
             vec![Item::new(
                 ItemKind::Statement(Statement::new(
                     StatementKind::Expression(ExpressionStatement::new(call_expression(
@@ -839,7 +839,7 @@ mod tests {
 
     #[test]
     fn reports_not_wrong_type() {
-        let script = Script::new(
+        let script = CompilationUnit::new(
             vec![Item::new(
                 ItemKind::Statement(Statement::new(
                     StatementKind::Expression(ExpressionStatement::new(call_expression(

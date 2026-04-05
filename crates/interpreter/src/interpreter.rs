@@ -59,8 +59,11 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    /// Executes a script AST.
-    pub fn interpret_script(&self, script: &ocelot_ast::script::Script) -> OcelotResult<()> {
+    /// Executes a compilation unit AST.
+    pub fn interpret_script(
+        &self,
+        script: &ocelot_ast::compilation_unit::CompilationUnit,
+    ) -> OcelotResult<()> {
         for item in &script.items {
             self.interpret_item(item)?;
         }

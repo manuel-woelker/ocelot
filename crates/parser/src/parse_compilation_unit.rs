@@ -1,5 +1,5 @@
 use crate::parser::Parser;
-use ocelot_ast::script::Script;
+use ocelot_ast::compilation_unit::CompilationUnit;
 use ocelot_base::compilation_stage::CompilationStage;
 use ocelot_base::error::OcelotError;
 use ocelot_base::render_source_diagnostics::render_source_diagnostics;
@@ -7,12 +7,12 @@ use ocelot_base::result::OcelotResult;
 use ocelot_base::source_diagnostics::SourceDiagnostics;
 use ocelot_base::source_file::SourceFile;
 
-/// Parses a source file into a script AST.
-pub fn parse_script(
+/// Parses a source file into a compilation unit AST.
+pub fn parse_compilation_unit(
     source_file: &SourceFile,
     source_diagnostics: &mut SourceDiagnostics,
-) -> OcelotResult<Script> {
-    match Parser::new(source_file, source_diagnostics).parse_script() {
+) -> OcelotResult<CompilationUnit> {
+    match Parser::new(source_file, source_diagnostics).parse_compilation_unit() {
         Ok(script) => Ok(script),
         Err(_) if source_diagnostics.has_errors() => Err(OcelotError::compilation_error(
             CompilationStage::Parser,
@@ -26,7 +26,7 @@ pub fn parse_script(
 
 #[cfg(test)]
 mod tests {
-    use super::parse_script;
+    use super::parse_compilation_unit;
     use ocelot_ast::boolean_literal_expression::BooleanLiteralExpression;
     use ocelot_ast::call_expression::CallExpression;
     use ocelot_ast::expression::Expression;
@@ -47,7 +47,7 @@ mod tests {
         let source_file = SourceFile::new("examples/hello.ocelot", "println(\"hello\");");
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
         assert!(!source_diagnostics.has_errors());
@@ -91,7 +91,7 @@ mod tests {
         );
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 2);
         assert_eq!(script.span.start(), 0);
@@ -104,7 +104,7 @@ mod tests {
         let source_file = SourceFile::new("examples/booleans.ocelot", "true;");
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
         assert!(!source_diagnostics.has_errors());
@@ -127,7 +127,7 @@ mod tests {
         let source_file = SourceFile::new("examples/booleans.ocelot", "false;");
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
         assert!(!source_diagnostics.has_errors());
@@ -150,7 +150,7 @@ mod tests {
         let source_file = SourceFile::new("examples/types.ocelot", "not false;");
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         let ItemKind::Statement(statement) = &script.items[0].kind else {
             panic!("expected statement item");
@@ -169,7 +169,7 @@ mod tests {
         let source_file = SourceFile::new("examples/booleans.ocelot", "assert_eq(true, false);");
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
         assert!(!source_diagnostics.has_errors());
@@ -201,7 +201,7 @@ mod tests {
         let source_file = SourceFile::new("examples/not.ocelot", "not true;");
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
         assert!(!source_diagnostics.has_errors());
@@ -227,7 +227,7 @@ mod tests {
         let source_file = SourceFile::new("examples/not.ocelot", "not not false;");
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
         assert!(!source_diagnostics.has_errors());
@@ -258,7 +258,7 @@ mod tests {
         let source_file = SourceFile::new("examples/not.ocelot", "not foo();");
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
         assert!(!source_diagnostics.has_errors());
@@ -294,7 +294,7 @@ mod tests {
         let source_file = SourceFile::new("examples/not.ocelot", "assert(not false);");
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
         assert!(!source_diagnostics.has_errors());
@@ -328,7 +328,7 @@ mod tests {
         );
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 2);
         assert!(!source_diagnostics.has_errors());
@@ -342,7 +342,7 @@ mod tests {
         );
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 2);
         assert!(!source_diagnostics.has_errors());
@@ -365,7 +365,7 @@ mod tests {
         );
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
         assert!(!source_diagnostics.has_errors());
@@ -391,7 +391,7 @@ mod tests {
         );
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 2);
         assert!(matches!(
@@ -418,7 +418,7 @@ mod tests {
         );
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 2);
         assert!(!source_diagnostics.has_errors());
@@ -441,7 +441,7 @@ mod tests {
         );
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
         assert!(!source_diagnostics.has_errors());
@@ -461,7 +461,7 @@ mod tests {
         let source_file = SourceFile::new("examples/invalid.ocelot", "test { println(\"x\"); }");
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
+        parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap_err();
         assert!(source_diagnostics.has_errors());
         assert_eq!(source_diagnostics.diagnostics.len(), 1);
         assert_eq!(
@@ -479,7 +479,7 @@ mod tests {
         let source_file = SourceFile::new("examples/invalid.ocelot", "fun () { println(\"x\"); }");
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
+        parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap_err();
         assert!(source_diagnostics.has_errors());
         assert_eq!(source_diagnostics.diagnostics.len(), 1);
         assert_eq!(
@@ -493,7 +493,7 @@ mod tests {
         let source_file = SourceFile::new("examples/invalid.ocelot", "fun greet(name:) {}");
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
+        parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap_err();
         assert!(source_diagnostics.has_errors());
         assert_eq!(source_diagnostics.diagnostics.len(), 1);
         assert_eq!(
@@ -507,7 +507,7 @@ mod tests {
         let source_file = SourceFile::new("examples/invalid.ocelot", "fun greet(name: string,) {}");
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
+        parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap_err();
         assert!(source_diagnostics.has_errors());
         assert_eq!(
             source_diagnostics.diagnostics[0].message,
@@ -523,7 +523,7 @@ mod tests {
         );
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
+        parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap_err();
         assert!(source_diagnostics.has_errors());
         assert_eq!(source_diagnostics.diagnostics.len(), 1);
         assert_eq!(
@@ -540,7 +540,7 @@ mod tests {
         );
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
+        parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap_err();
         assert!(source_diagnostics.has_errors());
         assert_eq!(source_diagnostics.diagnostics.len(), 1);
         assert_eq!(
@@ -554,7 +554,7 @@ mod tests {
         let source_file = SourceFile::new("examples/statement.ocelot", "\"hello\"; name;");
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 2);
         assert!(!source_diagnostics.has_errors());
@@ -568,7 +568,7 @@ mod tests {
         );
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
         assert!(!source_diagnostics.has_errors());
@@ -579,7 +579,7 @@ mod tests {
         let source_file = SourceFile::new("examples/invalid.ocelot", "println();");
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
         assert!(!source_diagnostics.has_errors());
@@ -590,7 +590,7 @@ mod tests {
         let source_file = SourceFile::new("examples/invalid.ocelot", "println(\"hello);");
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
+        parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap_err();
         assert!(source_diagnostics.has_errors());
         assert_eq!(source_diagnostics.diagnostics.len(), 1);
         assert_eq!(
@@ -609,7 +609,7 @@ mod tests {
         let source_file = SourceFile::new("examples/invalid.ocelot", "println(/* hello");
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
+        parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap_err();
         assert!(source_diagnostics.has_errors());
         assert_eq!(source_diagnostics.diagnostics.len(), 1);
         assert_eq!(
@@ -627,7 +627,7 @@ mod tests {
         let source_file = SourceFile::new("examples/invalid.ocelot", "println(\"hello\",);");
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
+        parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap_err();
         assert!(source_diagnostics.has_errors());
         assert_eq!(
             source_diagnostics.diagnostics[0].message,
@@ -640,7 +640,7 @@ mod tests {
         let source_file = SourceFile::new("examples/effects.ocelot", "effect exec;");
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
         assert!(!source_diagnostics.has_errors());
@@ -660,7 +660,7 @@ mod tests {
         );
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
         assert!(!source_diagnostics.has_errors());
@@ -697,7 +697,7 @@ mod tests {
         );
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
+        parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap_err();
 
         assert!(source_diagnostics.has_errors());
         assert_eq!(
@@ -714,7 +714,7 @@ mod tests {
         );
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        let script = parse_script(&source_file, &mut source_diagnostics).unwrap();
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
 
         assert_eq!(script.items.len(), 1);
         assert!(!source_diagnostics.has_errors());
@@ -738,7 +738,7 @@ mod tests {
         );
         let mut source_diagnostics = SourceDiagnostics::default();
 
-        parse_script(&source_file, &mut source_diagnostics).unwrap_err();
+        parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap_err();
 
         assert!(source_diagnostics.has_errors());
         assert_eq!(

@@ -3,15 +3,15 @@ use crate::item_kind::ItemKind;
 use crate::statement::Statement;
 use ocelot_base::span::Span;
 
-/// Root syntax node for a script-like `ocelot` source file.
+/// Root syntax node for one parsed `ocelot` source file.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Script {
+pub struct CompilationUnit {
     pub items: Vec<Item>,
     pub span: Span,
 }
 
-impl Script {
-    /// Creates a script from its items and source span.
+impl CompilationUnit {
+    /// Creates a compilation unit from its items and source span.
     pub fn new(items: Vec<Item>, span: Span) -> Self {
         Self { items, span }
     }
@@ -28,7 +28,7 @@ impl Script {
     }
 }
 
-impl Default for Script {
+impl Default for CompilationUnit {
     fn default() -> Self {
         Self::new(Vec::new(), Span::default())
     }
