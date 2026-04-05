@@ -43,7 +43,11 @@ pub fn render_validation_report(report: &ValidationReport) -> String {
             let _ = writeln!(&mut rendered, "  actual:\n{}", indent_block(actual_output));
         }
     }
-
+    let _ = writeln!(
+        &mut rendered,
+        "Task outcome: {} spec examples passed",
+        report.passed_example_count
+    );
     rendered
 }
 
@@ -93,6 +97,7 @@ mod tests {
                 expected
               actual:
                 actual
+            Task outcome: 4 spec examples passed
         "#]]
         .assert_eq(&rendered);
     }
@@ -122,6 +127,7 @@ mod tests {
                 type error
               actual:
                 hello
+            Task outcome: 0 spec examples passed
         "#]]
         .assert_eq(&rendered);
     }

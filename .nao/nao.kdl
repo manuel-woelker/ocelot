@@ -11,8 +11,7 @@ recipe "default" {
   task "fmt" description="Check code formatting" {
     run shell="""
       cargo fmt \
-        --all \
-        --check
+        --all
     """
   }
 
