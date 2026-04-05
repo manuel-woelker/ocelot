@@ -6,19 +6,26 @@ use ocelot_ast::compilation_unit::CompilationUnit;
 use ocelot_ast::function_item::FunctionItem;
 use ocelot_ast::identifier::Identifier;
 use ocelot_base::compilation_stage::CompilationStage;
+use ocelot_base::diagnostic_level::DiagnosticLevel;
 use ocelot_base::error::OcelotError;
 use ocelot_base::file_path::FilePath;
+use ocelot_base::line_bounds::LineBounds;
 use ocelot_base::render_source_diagnostics::render_source_diagnostics;
 use ocelot_base::result::OcelotResult;
 use ocelot_base::shared_string::SharedString;
+use ocelot_base::source_annotation::SourceAnnotation;
+use ocelot_base::source_diagnostic::SourceDiagnostic;
+use ocelot_base::source_excerpt::SourceExcerpt;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 use ocelot_semantic::compilation_context::CompilationContext;
 use ocelot_semantic::compilation_session::CompilationSession;
 use ocelot_semantic::function_kind::FunctionKind;
 use ocelot_semantic::module_environment::ModuleEnvironment;
+use ocelot_semantic::parsed_module::ParsedModule;
 use ocelot_semantic::program_environment::ProgramEnvironment;
 use ocelot_semantic::resolved_function::ResolvedFunction;
+use ocelot_semantic::resolved_program::ResolvedProgram;
 use ocelot_semantic::symbol_table::SymbolTable;
 use std::collections::HashMap;
 
@@ -72,9 +79,106 @@ pub fn resolve(
         &HashMap::from([(source_file.path.clone(), module_environment)]),
         compilation_session,
     )?;
+    compilation_context.symbol_table = symbol_table.clone();
     *environment = ProgramEnvironment::from_symbol_table(&symbol_table);
     environment.apply_resolved_functions(resolved_functions)?;
     finish_resolution(compilation_context)
+}
+
+/// Resolves a parsed multi-module program into one semantic result.
+pub fn resolve_program(
+    mut modules: Vec<ParsedModule>,
+    compilation_session: &CompilationSession,
+) -> OcelotResult<ResolvedProgram> {
+    let mut compilation_context = CompilationContext::default();
+    let mut symbol_table = SymbolTable::new();
+
+    if !modules
+        .iter()
+        .any(|module| module.module_name == CORE_MODULE_NAME)
+    {
+        register_core_module(
+            &mut compilation_context,
+            &mut symbol_table,
+            compilation_session,
+        )?;
+    }
+    validate_loaded_modules(&modules, &mut compilation_context);
+
+    let mut module_environments: HashMap<FilePath, ModuleEnvironment> = modules
+        .iter()
+        .map(|module| (module.source_file.path.clone(), ModuleEnvironment::new()))
+        .collect();
+
+    for module in &modules {
+        symbol_table.add_module(module.module_name.clone());
+    }
+
+    for module in &mut modules {
+        register_module_effects(
+            &mut module.compilation_unit,
+            &module.source_file,
+            &mut compilation_context,
+            &mut symbol_table,
+        )?;
+    }
+
+    for module in &mut modules {
+        register_module_functions(
+            &mut module.compilation_unit,
+            module.module_name.as_str(),
+            &module.source_file,
+            &mut compilation_context,
+            &mut symbol_table,
+            module_environments
+                .get_mut(&module.source_file.path)
+                .expect("module environment should exist for parsed module"),
+            compilation_session,
+        )?;
+    }
+
+    for module in &mut modules {
+        register_module_imports(
+            &mut module.compilation_unit,
+            module.module_name.as_str(),
+            &module.source_file,
+            &mut compilation_context,
+            &mut symbol_table,
+            module_environments
+                .get_mut(&module.source_file.path)
+                .expect("module environment should exist for parsed module"),
+        )?;
+    }
+
+    for module in &mut modules {
+        resolve_module_items(
+            &mut module.compilation_unit,
+            module.module_name.as_str(),
+            &module.source_file,
+            &mut compilation_context,
+            &symbol_table,
+            module_environments
+                .get(&module.source_file.path)
+                .expect("module environment should exist for parsed module"),
+            compilation_session,
+        )?;
+    }
+
+    let resolved_functions = resolve_user_defined_function_definitions(
+        &mut compilation_context,
+        &symbol_table,
+        &module_environments,
+        compilation_session,
+    )?;
+    let mut program_environment = ProgramEnvironment::from_symbol_table(&symbol_table);
+    program_environment.apply_resolved_functions(resolved_functions)?;
+    compilation_context.symbol_table = SymbolTable::from_environment(&program_environment);
+
+    Ok(ResolvedProgram::new(
+        modules,
+        compilation_context.source_diagnostics,
+        compilation_context.symbol_table,
+    ))
 }
 
 /// Registers the compiler-provided `core` module into one program environment.
@@ -285,4 +389,104 @@ pub fn finish_resolution(compilation_context: &CompilationContext) -> OcelotResu
 
 fn default_module_name(source_file: &SourceFile) -> SharedString {
     source_file.path.file_stem().unwrap_or_default().into()
+}
+
+fn validate_loaded_modules(modules: &[ParsedModule], compilation_context: &mut CompilationContext) {
+    for module in modules {
+        validate_loaded_module(module, compilation_context);
+    }
+
+    let mut modules_by_name: HashMap<SharedString, Vec<&SourceFile>> = HashMap::new();
+    for module in modules {
+        modules_by_name
+            .entry(module.module_name.clone())
+            .or_default()
+            .push(&module.source_file);
+    }
+
+    for (module_name, source_files) in modules_by_name {
+        if source_files.len() < 2 {
+            continue;
+        }
+
+        let builtin_source_file = source_files
+            .iter()
+            .copied()
+            .find(|source_file| source_file.path.as_str().starts_with("<builtin:"));
+        let original_source_file = source_files[0];
+
+        for source_file in source_files {
+            if builtin_source_file.is_some() && source_file.path.as_str().starts_with("<builtin:") {
+                continue;
+            }
+
+            compilation_context.add_diagnostic(module_name_conflict_diagnostic(
+                source_file,
+                builtin_source_file.unwrap_or(original_source_file),
+                module_name.as_str(),
+            ));
+        }
+    }
+}
+
+fn validate_loaded_module(module: &ParsedModule, compilation_context: &mut CompilationContext) {
+    if module.kind.allows_top_level_statements() {
+        return;
+    }
+
+    let Some(statement) = module.compilation_unit.statements().next() else {
+        return;
+    };
+
+    compilation_context.add_diagnostic(module_statement_diagnostic(
+        &module.source_file,
+        statement.span.clone(),
+    ));
+}
+
+fn module_name_conflict_diagnostic(
+    source_file: &SourceFile,
+    original_source_file: &SourceFile,
+    module_name: &str,
+) -> SourceDiagnostic {
+    let message = if original_source_file.path.as_str().starts_with("<builtin:") {
+        format!("module name `{module_name}` is reserved for a builtin module")
+    } else {
+        format!("module name `{module_name}` is already defined")
+    };
+
+    SourceDiagnostic::new(DiagnosticLevel::Error, &source_file.path, message).with_excerpt(
+        source_excerpt_for_path(source_file, "rename this file or module path"),
+    )
+}
+
+fn module_statement_diagnostic(source_file: &SourceFile, span: Span) -> SourceDiagnostic {
+    let line_bounds = LineBounds::new(source_file.source(), span.start());
+    let source_line = &source_file.source()[line_bounds.line_start..line_bounds.line_end];
+    let relative_start = span.start().saturating_sub(line_bounds.line_start);
+    let relative_end = span.end().saturating_sub(line_bounds.line_start);
+
+    SourceDiagnostic::new(
+        DiagnosticLevel::Error,
+        &source_file.path,
+        "top-level statements are only allowed in `.ocelot-script` files",
+    )
+    .with_excerpt(
+        SourceExcerpt::new(&source_file.path, line_bounds.line_number, source_line)
+            .with_annotation(SourceAnnotation::new(
+                Span::new(relative_start, relative_end),
+                "move this statement into `main()` or rename the file to `.ocelot-script`",
+            )),
+    )
+}
+
+fn source_excerpt_for_path(
+    source_file: &SourceFile,
+    annotation: impl Into<SharedString>,
+) -> SourceExcerpt {
+    let annotation = annotation.into();
+    let source_line = source_file.source().lines().next().unwrap_or_default();
+
+    SourceExcerpt::new(&source_file.path, 1, source_line)
+        .with_annotation(SourceAnnotation::new(Span::new(0, 0), annotation))
 }

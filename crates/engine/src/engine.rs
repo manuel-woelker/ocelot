@@ -82,13 +82,13 @@ fn attach_compilation_diagnostics(error: OcelotError, worker: &EngineWorker) -> 
 mod tests {
     use super::Engine;
     use crate::module_name_from_path::module_name_from_path;
-    use crate::source_file_kind::SourceFileKind;
     use expect_test::expect;
     use ocelot_base::compilation_stage::CompilationStage;
     use ocelot_base::error::ErrorKind;
     use ocelot_base::file_path::FilePath;
     use ocelot_pal::pal::PalHandle;
     use ocelot_pal::pal_mock::PalMock;
+    use ocelot_semantic::source_file_kind::SourceFileKind;
 
     #[test]
     fn derives_nested_module_names_from_paths() {

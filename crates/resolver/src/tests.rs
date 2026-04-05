@@ -5,6 +5,7 @@ use crate::resolution::register_module_functions;
 use crate::resolution::register_module_imports;
 use crate::resolution::resolve;
 use crate::resolution::resolve_module_items;
+use crate::resolution::resolve_program;
 use crate::resolution::resolve_user_defined_function_definitions;
 use ocelot_ast::call_expression::CallExpression;
 use ocelot_ast::compilation_unit::CompilationUnit;
@@ -32,7 +33,9 @@ use ocelot_semantic::compilation_context::CompilationContext;
 use ocelot_semantic::compilation_session::CompilationSession;
 use ocelot_semantic::function_kind::FunctionKind;
 use ocelot_semantic::module_environment::ModuleEnvironment;
+use ocelot_semantic::parsed_module::ParsedModule;
 use ocelot_semantic::program_environment::ProgramEnvironment;
+use ocelot_semantic::source_file_kind::SourceFileKind;
 use ocelot_semantic::symbol_table::SymbolTable;
 use std::collections::HashMap;
 
@@ -97,6 +100,17 @@ fn create_symbol_table() -> SymbolTable {
     SymbolTable::new()
 }
 
+fn parse_module(module_name: &str, path: &str, kind: SourceFileKind, source: &str) -> ParsedModule {
+    let source_file = SourceFile::new(path, source);
+    let compilation_unit = ocelot_parser::parse_compilation_unit::parse_compilation_unit(
+        &source_file,
+        &mut Default::default(),
+    )
+    .unwrap();
+
+    ParsedModule::new(module_name, kind, source_file, compilation_unit)
+}
+
 #[test]
 fn resolves_native_call_expressions() {
     let mut script = CompilationUnit::new(
@@ -148,6 +162,90 @@ fn resolves_native_call_expressions() {
     };
     assert_eq!(call_expression.function_index().unwrap(), println_index);
     assert_eq!(expression.ty, TypeIndex::unresolved());
+}
+
+#[test]
+fn resolve_program_returns_resolved_modules_and_symbol_table() {
+    let modules = vec![
+        parse_module(
+            "main",
+            "examples/main.ocelot-script",
+            SourceFileKind::Script,
+            "use helper::greet;\ngreet();",
+        ),
+        parse_module(
+            "helper",
+            "examples/helper.ocelot",
+            SourceFileKind::Module,
+            "fun greet() { println(\"hello\"); }",
+        ),
+    ];
+
+    let resolved_program = resolve_program(modules, &compilation_session()).unwrap();
+
+    assert!(!resolved_program.source_diagnostics.has_errors());
+    assert!(
+        resolved_program
+            .symbol_table
+            .resolve_function_exact("helper::greet")
+            .is_some()
+    );
+
+    let main_module = resolved_program
+        .modules
+        .iter()
+        .find(|module| module.module_name == "main")
+        .unwrap();
+    let statement = main_module
+        .compilation_unit
+        .items
+        .iter()
+        .find_map(|item| match &item.kind {
+            ItemKind::Statement(statement) => Some(statement),
+            _ => None,
+        })
+        .expect("expected statement");
+    let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+    let ExpressionKind::Call(call_expression) = &expression.kind else {
+        panic!("expected call expression");
+    };
+    assert_eq!(
+        call_expression.function_index().unwrap(),
+        resolved_program
+            .symbol_table
+            .resolve_function_exact("helper::greet")
+            .unwrap()
+    );
+}
+
+#[test]
+fn resolve_program_reports_builtin_module_name_conflicts() {
+    let modules = vec![
+        parse_module(
+            "helpers",
+            "examples/helpers.ocelot",
+            SourceFileKind::Module,
+            "fun greet() {}",
+        ),
+        parse_module(
+            "helpers",
+            "<builtin:helpers>",
+            SourceFileKind::Module,
+            "fun greet() { core::println(\"builtin\"); }",
+        ),
+    ];
+
+    let resolved_program = resolve_program(modules, &compilation_session()).unwrap();
+
+    assert!(resolved_program.source_diagnostics.has_errors());
+    assert!(
+        resolved_program
+            .source_diagnostics
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message
+                == "module name `helpers` is reserved for a builtin module")
+    );
 }
 
 #[test]

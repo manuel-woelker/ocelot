@@ -52,10 +52,12 @@ Add a new `ResolvedProgram` type with a focused API.
 
 Recommended initial shape:
 
-- `entry_module_index: usize` so the engine can keep cheap entry-module lookup
 - `modules: Vec<ParsedModule>` for the resolved compilation units
 - `source_diagnostics: SourceDiagnostics` so the engine can render compilation errors without borrowing resolver internals
 - `symbol_table: SymbolTable` as the semantic output promised by this slice
+
+The implemented version does not need `entry_module_index`.
+[`EngineWorker`](/data/projects/ocelot/crates/engine/src/engine_worker.rs) already knows the entry path from its command and can look up the entry module without introducing another index to keep in sync.
 
 This deliberately keeps the return type smaller than today’s engine state.
 If runtime execution still needs a [`ProgramEnvironment`](/data/projects/ocelot/crates/semantic/src/program_environment.rs), the engine can derive it from the returned `SymbolTable` or the resolver can expose a helper for that conversion.
@@ -101,7 +103,7 @@ The implementation should:
 4. register declarations across all modules
 5. resolve module items and user-defined function bodies
 6. package resolved modules, diagnostics, and symbol table into `ResolvedProgram`
-7. return a resolver-stage compilation error if diagnostics contain errors
+7. return resolver diagnostics in `ResolvedProgram` and let the engine wrapper raise `CompilationStage::Resolver` when errors are present
 
 Builtin modules should not be a separate resolver input for this slice.
 If the engine already parses builtin modules into `Vec<ParsedModule>`, the resolver should treat them like any other parsed module.
@@ -117,12 +119,8 @@ Recommended behavior:
 - resolver compilation errors should still be reported as `CompilationStage::Resolver`
 - if resolution fails, the engine should still be able to read and render the accumulated `SourceDiagnostics`
 
-There is one design choice to settle during implementation:
-
-- either `ResolvedProgram` is returned only on success and diagnostics are accessed through an attached error payload
-- or `ResolvedProgram` is returned even when diagnostics contain errors, with a separate helper for `finish_resolution`
-
-The second option aligns better with the requested “return a `ResolvedProgram` with source diagnostics and a symbol table,” but it requires some care so error paths do not silently proceed into execution.
+This landed with `ResolvedProgram` returned even when resolver diagnostics contain errors.
+[`EngineWorker::resolve_modules()`](/data/projects/ocelot/crates/engine/src/engine_worker.rs) stores that result and then raises a resolver-stage compilation error if `source_diagnostics` contains errors, so diagnostics stay available for rendering without letting execution continue.
 
 # What implementation order keeps this change controlled?
 
@@ -160,15 +158,28 @@ If a test in the engine crate still needs to know about per-module environments 
 - `CompilationSession` should remain an explicit resolver input. `ParsedModule` contains parsed syntax, including `native fn` declarations from builtin modules, but the boxed native implementations still come from the compilation session registry.
 - The engine currently uses [`ProgramEnvironment`](/data/projects/ocelot/crates/semantic/src/program_environment.rs) directly during interpretation. If that remains true, introduce an explicit conversion step from `SymbolTable` to `ProgramEnvironment` rather than quietly rebuilding the old flow inside `EngineWorker`.
 
+# What landed from this plan?
+
+This refactor landed the simplified multi-module resolver boundary:
+
+- [`ParsedModule`](/data/projects/ocelot/crates/semantic/src/parsed_module.rs), [`SourceFileKind`](/data/projects/ocelot/crates/semantic/src/source_file_kind.rs), and [`ResolvedProgram`](/data/projects/ocelot/crates/semantic/src/resolved_program.rs) now live in [`ocelot-semantic`](/data/projects/ocelot/crates/semantic/src/lib.rs), so both the engine and resolver can share the same program-boundary types without a crate cycle
+- [`ocelot_resolver::resolution::resolve_program()`](/data/projects/ocelot/crates/resolver/src/resolution.rs) now owns multi-module resolution orchestration and returns a [`ResolvedProgram`](/data/projects/ocelot/crates/semantic/src/resolved_program.rs)
+- module validation moved out of [`EngineWorker`](/data/projects/ocelot/crates/engine/src/engine_worker.rs) and into the resolver boundary, including duplicate builtin-module name diagnostics based on the parsed module set
+- [`EngineWorker::resolve_modules()`](/data/projects/ocelot/crates/engine/src/engine_worker.rs) is now a thin wrapper around `resolve_program`
+- the engine now stores `ResolvedProgram`, reads diagnostics from it, and derives [`ProgramEnvironment`](/data/projects/ocelot/crates/semantic/src/program_environment.rs) through [`ResolvedProgram::program_environment()`](/data/projects/ocelot/crates/semantic/src/resolved_program.rs)
+- `CompilationContext.symbol_table` did not become the working mutable symbol table for multi-module resolution; instead, the resolver keeps a local symbol table during orchestration and writes the final semantic table into the returned result
+- resolver tests now cover the public `resolve_program()` boundary directly, and engine tests still cover resolver-error surfacing through the worker
+- `cargo test -p ocelot-resolver -p ocelot-engine` and `nao check` pass
+
 # What concrete tasks should track this plan?
 
-- [ ] Add `ResolvedProgram` with resolved modules, `SourceDiagnostics`, and `SymbolTable`.
-- [ ] Place `ResolvedProgram` in a crate shared cleanly by the engine and resolver without introducing a dependency cycle.
-- [ ] Add one public resolver entry point that accepts `Vec<ParsedModule>` plus `CompilationSession` and returns `ResolvedProgram`.
-- [ ] Move multi-module resolution orchestration out of `EngineWorker` and into that resolver entry point.
-- [ ] Keep `EngineWorker::resolve_modules()` as a thin wrapper around the new resolver entry point.
-- [ ] Decide whether `CompilationContext.symbol_table` becomes authoritative or is removed from this workflow.
-- [ ] Update `EngineWorker` to call only the new resolver API after parsing.
-- [ ] Keep interpreter setup working through an explicit adapter from the resolved semantic output.
-- [ ] Add resolver and engine tests for the new boundary and error-reporting behavior.
-- [ ] Run `nao check`.
+- [x] Add `ResolvedProgram` with resolved modules, `SourceDiagnostics`, and `SymbolTable`.
+- [x] Place `ResolvedProgram` in a crate shared cleanly by the engine and resolver without introducing a dependency cycle.
+- [x] Add one public resolver entry point that accepts `Vec<ParsedModule>` plus `CompilationSession` and returns `ResolvedProgram`.
+- [x] Move multi-module resolution orchestration out of `EngineWorker` and into that resolver entry point.
+- [x] Keep `EngineWorker::resolve_modules()` as a thin wrapper around the new resolver entry point.
+- [x] Decide whether `CompilationContext.symbol_table` becomes authoritative or is removed from this workflow.
+- [x] Update `EngineWorker` to call only the new resolver API after parsing.
+- [x] Keep interpreter setup working through an explicit adapter from the resolved semantic output.
+- [x] Add resolver and engine tests for the new boundary and error-reporting behavior.
+- [x] Run `nao check`.
