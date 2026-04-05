@@ -27,12 +27,13 @@ use ocelot_semantic::module_environment::ModuleEnvironment;
 use ocelot_semantic::program_environment::ProgramEnvironment;
 use ocelot_semantic::symbol_table::SymbolTable;
 use std::collections::HashMap;
+use ocelot_base::compilation_stage::CompilationStage;
+use ocelot_base::source_diagnostics::SourceDiagnostics;
 use ocelot_parser::parse_script::parse_script;
 use crate::engine_command::EngineCommand;
 
 pub struct EngineWorker {
     pal: PalHandle,
-    #[allow(dead_code)]
     compilation_context: CompilationContext,
     command: EngineCommand,
     parsed_modules: Vec<ParsedModule>,
@@ -48,17 +49,42 @@ impl EngineWorker {
         }
     }
 
-    pub fn run_command(mut self, _command: &EngineCommand) -> OcelotResult<()> {
-        self.load_modules()?;
+    pub fn run_command(&mut self, _command: &EngineCommand) -> OcelotResult<()> {
+        self.parse_modules()?;
+        self.early_abort(CompilationStage::Parser)?;
+        self.resolve_modules()?;
+        self.early_abort(CompilationStage::Resolver)?;
+        self.execute()?;
         Ok(())
     }
 
-    fn load_modules(&mut self) -> OcelotResult<()> {
+    pub fn source_diagnostics(&self) -> &SourceDiagnostics {
+        &self.compilation_context.source_diagnostics
+    }
+
+    pub fn execute(&mut self) -> OcelotResult<()> {
+        Ok(())
+    }
+
+    fn resolve_modules(&self) -> OcelotResult<()> {
+        Ok(())
+    }
+
+    fn early_abort(&self, stage: CompilationStage) -> OcelotResult<()> {
+        if self.compilation_context.has_errors() {
+            return Err(OcelotError::new(ErrorKind::CompilationError(stage)));
+        }
+        Ok(())
+    }
+
+    fn parse_modules(&mut self) -> OcelotResult<()> {
         let files = self.collect_files()?;
         let modules: Vec<ParsedModule> = files.iter().map(|file| {
             self.load_module(file)
         }).collect::<OcelotResult<Vec<ParsedModule>>>()?;
+
         self.parsed_modules = modules;
+        self.parsed_modules.push(load_core_module()?);
         Ok(())
     }
 
@@ -350,6 +376,7 @@ impl EngineWorker {
 
         Ok(summary)
     }
+
 }
 
 fn validate_reserved_core_module_name(
