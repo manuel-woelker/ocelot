@@ -1,10 +1,22 @@
-use crate::core_module::load_core_module;
+use crate::core_module::{CORE_MODULE_NAME, CORE_MODULE_PATH, load_core_module};
+use crate::failed_test_result::FailedTestResult;
 use crate::loaded_module::LoadedModule;
 use crate::loaded_program::LoadedProgram;
 use crate::source_file_kind::SourceFileKind;
+use crate::test_run_summary::TestRunSummary;
+use ocelot_ast::item_kind::ItemKind;
+use ocelot_base::assertion_error::render_assertion_error;
+use ocelot_base::diagnostic_level::DiagnosticLevel;
+use ocelot_base::error::{ErrorKind, OcelotError};
 use ocelot_base::file_path::FilePath;
-use ocelot_base::result::{OcelotResult, OptionExt};
+use ocelot_base::render_source_diagnostics::render_source_diagnostics;
+use ocelot_base::result::{OcelotResult, OptionExt, ResultExt};
+use ocelot_base::shared_string::SharedString;
+use ocelot_base::source_annotation::SourceAnnotation;
+use ocelot_base::source_diagnostic::SourceDiagnostic;
+use ocelot_base::source_excerpt::SourceExcerpt;
 use ocelot_base::source_file::SourceFile;
+use ocelot_base::span::Span;
 use ocelot_pal::pal::PalHandle;
 use ocelot_semantic::compilation_context::CompilationContext;
 use ocelot_semantic::compilation_session::CompilationSession;
@@ -83,7 +95,7 @@ impl EngineWorker {
         let mut compilation_context = CompilationContext::default();
         for module in &modules {
             crate::engine::validate_loaded_module(module, &mut compilation_context);
-            crate::engine::validate_reserved_core_module_name(module, &mut compilation_context);
+            EngineWorker::validate_reserved_core_module_name(module, &mut compilation_context);
         }
         ocelot_resolver::resolution::finish_resolution(&compilation_context)?;
 
@@ -220,5 +232,130 @@ impl EngineWorker {
 
         ocelot_interpreter::interpreter::Interpreter::new(&*self.pal, source_file, environment)
             .interpret_statements(&function.body)
+    }
+
+    pub fn run_test(&self, path: impl Into<FilePath>, test_name: &str) -> OcelotResult<()> {
+        let program = self.compile_program(path.into())?;
+        let entry_module = program.entry_module();
+        let test_item = entry_module
+            .script
+            .items
+            .iter()
+            .find_map(|item| match &item.kind {
+                ItemKind::Test(test_item) if test_item.name == test_name => Some(test_item),
+                _ => None,
+            })
+            .context(format!("unknown test `{test_name}`"))?;
+
+        if let Err(error) = ocelot_interpreter::interpreter::Interpreter::new(
+            &*self.pal,
+            &entry_module.source_file,
+            &program.environment,
+        )
+        .interpret_statements(&test_item.body)
+        {
+            return match error.kind() {
+                ErrorKind::AssertionError(assertion_error) => Err(OcelotError::message(format!(
+                    "test `{}` failed\n{}",
+                    test_item.name,
+                    render_assertion_error(assertion_error)
+                ))),
+                ErrorKind::RuntimeError(diagnostic) => Err(OcelotError::message(format!(
+                    "test `{}` failed\n{}",
+                    test_item.name,
+                    render_source_diagnostics(std::slice::from_ref(diagnostic.as_ref()))
+                ))),
+                _ => Err(error).context(format!("test `{}` failed", test_item.name)),
+            };
+        }
+
+        Ok(())
+    }
+
+    pub fn run_tests(&self, path: impl Into<FilePath>) -> OcelotResult<TestRunSummary> {
+        let program = self.compile_program(path.into())?;
+        let entry_module = program.entry_module();
+        let interpreter = ocelot_interpreter::interpreter::Interpreter::new(
+            &*self.pal,
+            &entry_module.source_file,
+            &program.environment,
+        );
+        let mut summary = TestRunSummary::new();
+
+        for item in &entry_module.script.items {
+            let ItemKind::Test(test_item) = &item.kind else {
+                continue;
+            };
+
+            match interpreter.interpret_statements(&test_item.body) {
+                Ok(()) => summary.passed.push(test_item.name.clone()),
+                Err(error) => match error.kind() {
+                    ErrorKind::AssertionError(assertion_error) => {
+                        summary.failed.push(FailedTestResult::new(
+                            test_item.name.clone(),
+                            format!(
+                                "test `{}` failed\n{}",
+                                test_item.name,
+                                render_assertion_error(assertion_error)
+                            ),
+                        ))
+                    }
+                    ErrorKind::RuntimeError(diagnostic) => {
+                        summary.failed.push(FailedTestResult::new(
+                            test_item.name.clone(),
+                            format!(
+                                "test `{}` failed\n{}",
+                                test_item.name,
+                                render_source_diagnostics(std::slice::from_ref(
+                                    diagnostic.as_ref()
+                                ))
+                            ),
+                        ))
+                    }
+                    _ => summary.failed.push(FailedTestResult::new(
+                        test_item.name.clone(),
+                        OcelotError::message(format!("test `{}` failed", test_item.name))
+                            .with_source(error)
+                            .to_test_string(),
+                    )),
+                },
+            }
+        }
+
+        Ok(summary)
+    }
+
+    fn validate_reserved_core_module_name(
+        module: &LoadedModule,
+        compilation_context: &mut CompilationContext,
+    ) {
+        if module.module_name != CORE_MODULE_NAME
+            || module.source_file.path.as_str() == CORE_MODULE_PATH
+        {
+            return;
+        }
+
+        compilation_context.add_diagnostic(
+            SourceDiagnostic::new(
+                DiagnosticLevel::Error,
+                &module.source_file.path,
+                "module name `core` is reserved",
+            )
+            .with_excerpt(source_excerpt_for_path(
+                &module.source_file,
+                "rename this file or module path",
+            )),
+        );
+
+        fn source_excerpt_for_path(
+            source_file: &SourceFile,
+            annotation: impl Into<SharedString>,
+        ) -> SourceExcerpt {
+            let annotation = annotation.into();
+            let source_line = source_file.source().lines().next().unwrap_or_default();
+
+            SourceExcerpt::new(&source_file.path, 1, source_line)
+                .with_annotation(SourceAnnotation::new(Span::new(0, 0), annotation))
+        }
     }
 }

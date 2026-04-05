@@ -4,8 +4,8 @@ use ocelot_base::result::OcelotResult;
 use ocelot_base::source_file::SourceFile;
 use ocelot_semantic::compilation_context::CompilationContext;
 
-const CORE_MODULE_NAME: &str = "core";
-const CORE_MODULE_PATH: &str = "crates/engine/resources/core.ocelot";
+pub const CORE_MODULE_NAME: &str = "core";
+pub const CORE_MODULE_PATH: &str = "crates/engine/resources/core.ocelot";
 const CORE_MODULE_SOURCE: &str = include_str!("../resources/core.ocelot");
 
 pub fn load_core_module() -> OcelotResult<LoadedModule> {
