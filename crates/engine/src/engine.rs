@@ -26,7 +26,7 @@ use ocelot_semantic::compilation_session::CompilationSession;
 use ocelot_semantic::function_kind::FunctionKind;
 use ocelot_semantic::module_environment::ModuleEnvironment;
 use ocelot_semantic::program_environment::ProgramEnvironment;
-use ocelot_semantic::program_index::ProgramIndex;
+use ocelot_semantic::symbol_table::SymbolTable;
 use std::collections::HashMap;
 
 const CORE_MODULE_NAME: &str = "core";
@@ -214,14 +214,14 @@ impl Engine {
         ocelot_resolver::resolution::finish_resolution(&compilation_context)?;
 
         let compilation_session = self.create_compilation_session();
-        let mut program_index = self.create_program_index();
+        let mut symbol_table = self.create_symbol_table();
         let mut module_environments: HashMap<FilePath, ModuleEnvironment> = modules
             .iter()
             .map(|module| (module.source_file.path.clone(), ModuleEnvironment::new()))
             .collect();
 
         for module in &modules {
-            program_index.add_module(module.module_name.clone());
+            symbol_table.add_module(module.module_name.clone());
         }
 
         for module in &mut modules {
@@ -229,7 +229,7 @@ impl Engine {
                 &mut module.script,
                 &module.source_file,
                 &mut compilation_context,
-                &mut program_index,
+                &mut symbol_table,
             )?;
         }
 
@@ -239,7 +239,7 @@ impl Engine {
                 module.module_name.as_str(),
                 &module.source_file,
                 &mut compilation_context,
-                &mut program_index,
+                &mut symbol_table,
                 module_environments
                     .get_mut(&module.source_file.path)
                     .expect("module environment should exist for loaded module"),
@@ -253,7 +253,7 @@ impl Engine {
                 module.module_name.as_str(),
                 &module.source_file,
                 &mut compilation_context,
-                &mut program_index,
+                &mut symbol_table,
                 module_environments
                     .get_mut(&module.source_file.path)
                     .expect("module environment should exist for loaded module"),
@@ -266,7 +266,7 @@ impl Engine {
                 module.module_name.as_str(),
                 &module.source_file,
                 &mut compilation_context,
-                &program_index,
+                &symbol_table,
                 module_environments
                     .get_mut(&module.source_file.path)
                     .expect("module environment should exist for loaded module"),
@@ -277,11 +277,11 @@ impl Engine {
         let resolved_functions =
             ocelot_resolver::resolution::resolve_user_defined_function_definitions(
                 &mut compilation_context,
-                &program_index,
+                &symbol_table,
                 &module_environments,
                 &compilation_session,
             )?;
-        let mut environment = ProgramEnvironment::from_program_index(&program_index);
+        let mut environment = ProgramEnvironment::from_symbol_table(&symbol_table);
         environment.apply_resolved_functions(resolved_functions)?;
         ocelot_resolver::resolution::finish_resolution(&compilation_context)?;
 
@@ -324,8 +324,8 @@ impl Engine {
         ))
     }
 
-    fn create_program_index(&self) -> ProgramIndex {
-        ProgramIndex::new()
+    fn create_symbol_table(&self) -> SymbolTable {
+        SymbolTable::new()
     }
 
     fn create_compilation_session(&self) -> CompilationSession {

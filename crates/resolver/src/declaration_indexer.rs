@@ -21,7 +21,7 @@ use ocelot_semantic::function_definition::FunctionDefinition;
 use ocelot_semantic::function_kind::FunctionKind;
 use ocelot_semantic::module_environment::ModuleEnvironment;
 use ocelot_semantic::native_function::native_type_label;
-use ocelot_semantic::program_index::ProgramIndex;
+use ocelot_semantic::symbol_table::SymbolTable;
 use std::collections::BTreeSet;
 use std::collections::HashMap;
 
@@ -49,62 +49,62 @@ pub trait DeclarationIndex {
     fn any_type_index(&self) -> TypeIndex;
 }
 
-impl DeclarationIndex for ProgramIndex {
+impl DeclarationIndex for SymbolTable {
     fn resolve_effect(&self, name: &str) -> Option<EffectIndex> {
-        ProgramIndex::resolve_effect(self, name)
+        SymbolTable::resolve_effect(self, name)
     }
 
     fn effect_definition(&self, effect_index: EffectIndex) -> OcelotResult<&Effect> {
-        ProgramIndex::effect_definition(self, effect_index)
+        SymbolTable::effect_definition(self, effect_index)
     }
 
     fn add_effect(&mut self, effect: Effect) -> EffectIndex {
-        ProgramIndex::add_effect(self, effect)
+        SymbolTable::add_effect(self, effect)
     }
 
     fn qualify_function_name(&self, module_name: &str, function_name: &str) -> SharedString {
-        ProgramIndex::qualify_function_name(self, module_name, function_name)
+        SymbolTable::qualify_function_name(self, module_name, function_name)
     }
 
     fn resolve_function_exact(
         &self,
         name: &str,
     ) -> Option<ocelot_ast::function_index::FunctionIndex> {
-        ProgramIndex::resolve_function_exact(self, name)
+        SymbolTable::resolve_function_exact(self, name)
     }
 
     fn function_definition(
         &self,
         function_index: ocelot_ast::function_index::FunctionIndex,
     ) -> OcelotResult<&FunctionDefinition> {
-        ProgramIndex::function_definition(self, function_index)
+        SymbolTable::function_definition(self, function_index)
     }
 
     fn add_function(
         &mut self,
         function: FunctionDefinition,
     ) -> ocelot_ast::function_index::FunctionIndex {
-        ProgramIndex::add_function(self, function)
+        SymbolTable::add_function(self, function)
     }
 
     fn add_module(&mut self, module_name: impl Into<SharedString>) {
-        ProgramIndex::add_module(self, module_name);
+        SymbolTable::add_module(self, module_name);
     }
 
     fn has_module(&self, module_name: &str) -> bool {
-        ProgramIndex::has_module(self, module_name)
+        SymbolTable::has_module(self, module_name)
     }
 
     fn resolve_type(&self, name: &str) -> Option<TypeIndex> {
-        ProgramIndex::resolve_type(self, name)
+        SymbolTable::resolve_type(self, name)
     }
 
     fn type_definition(&self, type_index: TypeIndex) -> OcelotResult<&ocelot_ast::ty::Ty> {
-        ProgramIndex::type_definition(self, type_index)
+        SymbolTable::type_definition(self, type_index)
     }
 
     fn any_type_index(&self) -> TypeIndex {
-        ProgramIndex::any_type_index(self)
+        SymbolTable::any_type_index(self)
     }
 }
 

@@ -18,8 +18,8 @@ use ocelot_semantic::compilation_session::CompilationSession;
 use ocelot_semantic::function_kind::FunctionKind;
 use ocelot_semantic::module_environment::ModuleEnvironment;
 use ocelot_semantic::program_environment::ProgramEnvironment;
-use ocelot_semantic::program_index::ProgramIndex;
 use ocelot_semantic::resolved_function::ResolvedFunction;
+use ocelot_semantic::symbol_table::SymbolTable;
 use std::collections::HashMap;
 
 const CORE_MODULE_NAME: &str = "core";
@@ -34,18 +34,18 @@ pub fn resolve(
     environment: &mut ProgramEnvironment,
     compilation_session: &CompilationSession,
 ) -> OcelotResult<()> {
-    let mut program_index = ProgramIndex::new();
-    register_core_module(compilation_context, &mut program_index, compilation_session)?;
+    let mut symbol_table = SymbolTable::new();
+    register_core_module(compilation_context, &mut symbol_table, compilation_session)?;
     let module_name = default_module_name(source_file);
     let mut module_environment = ModuleEnvironment::new();
-    program_index.add_module(module_name.clone());
-    register_module_effects(script, source_file, compilation_context, &mut program_index)?;
+    symbol_table.add_module(module_name.clone());
+    register_module_effects(script, source_file, compilation_context, &mut symbol_table)?;
     register_module_functions(
         script,
         &module_name,
         source_file,
         compilation_context,
-        &mut program_index,
+        &mut symbol_table,
         &mut module_environment,
         compilation_session,
     )?;
@@ -54,7 +54,7 @@ pub fn resolve(
         &module_name,
         source_file,
         compilation_context,
-        &mut program_index,
+        &mut symbol_table,
         &mut module_environment,
     )?;
     resolve_module_items(
@@ -62,17 +62,17 @@ pub fn resolve(
         &module_name,
         source_file,
         compilation_context,
-        &program_index,
+        &symbol_table,
         &module_environment,
         compilation_session,
     )?;
     let resolved_functions = resolve_user_defined_function_definitions(
         compilation_context,
-        &program_index,
+        &symbol_table,
         &HashMap::from([(source_file.path.clone(), module_environment)]),
         compilation_session,
     )?;
-    *environment = ProgramEnvironment::from_program_index(&program_index);
+    *environment = ProgramEnvironment::from_symbol_table(&symbol_table);
     environment.apply_resolved_functions(resolved_functions)?;
     finish_resolution(compilation_context)
 }
@@ -181,7 +181,7 @@ pub fn resolve_module_items(
     module_name: &str,
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
-    program_index: &ProgramIndex,
+    symbol_table: &SymbolTable,
     module_environment: &ModuleEnvironment,
     _compilation_session: &CompilationSession,
 ) -> OcelotResult<()> {
@@ -189,7 +189,7 @@ pub fn resolve_module_items(
         source_file,
         module_name,
         compilation_context,
-        program_index,
+        symbol_table,
         module_environment,
         None,
     );
@@ -202,16 +202,16 @@ pub fn resolve_module_items(
 /// Resolves the bodies of all registered user-defined functions.
 pub fn resolve_user_defined_function_definitions(
     compilation_context: &mut CompilationContext,
-    program_index: &ProgramIndex,
+    symbol_table: &SymbolTable,
     module_environments: &HashMap<FilePath, ModuleEnvironment>,
     _compilation_session: &CompilationSession,
 ) -> OcelotResult<Vec<ResolvedFunction>> {
-    let function_indices = program_index.user_defined_function_indices();
+    let function_indices = symbol_table.user_defined_function_indices();
     let mut resolved_functions = Vec::with_capacity(function_indices.len());
 
     for function_index in function_indices {
         let (module_name, source_file) = {
-            let function_definition = program_index.function_definition(function_index)?;
+            let function_definition = symbol_table.function_definition(function_index)?;
             let FunctionKind::UserDefined { source_file, .. } = &function_definition.kind else {
                 ocelot_base::bail!(
                     "internal error: function index did not reference a user-defined function"
@@ -223,7 +223,7 @@ pub fn resolve_user_defined_function_definitions(
             )
         };
 
-        let function_definition = program_index.function_definition(function_index)?;
+        let function_definition = symbol_table.function_definition(function_index)?;
         let FunctionKind::UserDefined { function, .. } = &function_definition.kind else {
             ocelot_base::bail!(
                 "internal error: function index did not reference a user-defined function"
@@ -252,7 +252,7 @@ pub fn resolve_user_defined_function_definitions(
             &source_file,
             module_name.as_str(),
             compilation_context,
-            program_index,
+            symbol_table,
             module_environment,
             Some(&mut resolved_function),
         )
@@ -261,7 +261,7 @@ pub fn resolve_user_defined_function_definitions(
         resolved_functions.push(resolved_function);
     }
 
-    propagate_function_effects(compilation_context, program_index, &mut resolved_functions)?;
+    propagate_function_effects(compilation_context, symbol_table, &mut resolved_functions)?;
     Ok(resolved_functions)
 }
 

@@ -12,8 +12,8 @@ use std::collections::HashSet;
 
 use crate::function_definition::FunctionDefinition;
 use crate::function_kind::FunctionKind;
-use crate::program_index::ProgramIndex;
 use crate::resolved_function::ResolvedFunction;
+use crate::symbol_table::SymbolTable;
 /// Shared program-level data needed by resolution and interpretation.
 #[derive(Debug, Clone)]
 pub struct ProgramEnvironment {
@@ -35,19 +35,19 @@ impl Default for ProgramEnvironment {
 impl ProgramEnvironment {
     /// Creates a program environment seeded with primitive types and native implementations.
     pub fn new() -> Self {
-        Self::from_program_index(&ProgramIndex::new())
+        Self::from_symbol_table(&SymbolTable::new())
     }
 
     /// Creates a mutable program environment from one declaration index.
-    pub fn from_program_index(program_index: &ProgramIndex) -> Self {
+    pub fn from_symbol_table(symbol_table: &SymbolTable) -> Self {
         Self {
-            functions: program_index.functions.clone(),
-            function_symbols: program_index.function_symbols.clone(),
-            module_symbols: program_index.module_symbols.clone(),
-            effects: program_index.effects.clone(),
-            effect_symbols: program_index.effect_symbols.clone(),
-            types: program_index.types.clone(),
-            type_symbols: program_index.type_symbols.clone(),
+            functions: symbol_table.functions.clone(),
+            function_symbols: symbol_table.function_symbols.clone(),
+            module_symbols: symbol_table.module_symbols.clone(),
+            effects: symbol_table.effects.clone(),
+            effect_symbols: symbol_table.effect_symbols.clone(),
+            types: symbol_table.types.clone(),
+            type_symbols: symbol_table.type_symbols.clone(),
         }
     }
 

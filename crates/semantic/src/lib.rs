@@ -6,6 +6,6 @@ pub mod function_kind;
 pub mod module_environment;
 pub mod native_function;
 pub mod program_environment;
-pub mod program_index;
 pub mod resolved_function;
 pub mod runtime_value;
+pub mod symbol_table;

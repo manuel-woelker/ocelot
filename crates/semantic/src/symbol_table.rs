@@ -15,7 +15,7 @@ use crate::program_environment::ProgramEnvironment;
 
 /// Immutable semantic index built from the declaration phase.
 #[derive(Debug, Clone)]
-pub struct ProgramIndex {
+pub struct SymbolTable {
     pub functions: Vec<Option<FunctionDefinition>>,
     pub function_symbols: HashMap<SharedString, FunctionIndex>,
     pub module_symbols: HashSet<SharedString>,
@@ -25,13 +25,13 @@ pub struct ProgramIndex {
     pub type_symbols: HashMap<SharedString, TypeIndex>,
 }
 
-impl Default for ProgramIndex {
+impl Default for SymbolTable {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ProgramIndex {
+impl SymbolTable {
     /// Creates a declaration index seeded with primitive types.
     pub fn new() -> Self {
         let mut index = Self {

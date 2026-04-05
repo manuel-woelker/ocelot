@@ -18,15 +18,15 @@ use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 use ocelot_semantic::function_kind::FunctionKind;
 use ocelot_semantic::module_environment::ModuleEnvironment;
-use ocelot_semantic::program_index::ProgramIndex;
 use ocelot_semantic::resolved_function::ResolvedFunction;
+use ocelot_semantic::symbol_table::SymbolTable;
 use std::collections::HashMap;
 
 pub(crate) struct Resolver<'a> {
     source_file: &'a SourceFile,
     module_name: &'a str,
     compilation_context: &'a mut CompilationContext,
-    program_index: &'a ProgramIndex,
+    symbol_table: &'a SymbolTable,
     module_environment: &'a ModuleEnvironment,
     resolved_function: Option<&'a mut ResolvedFunction>,
     local_value_types: HashMap<SharedString, TypeIndex>,
@@ -37,7 +37,7 @@ impl<'a> Resolver<'a> {
         source_file: &'a SourceFile,
         module_name: &'a str,
         compilation_context: &'a mut CompilationContext,
-        program_index: &'a ProgramIndex,
+        symbol_table: &'a SymbolTable,
         module_environment: &'a ModuleEnvironment,
         resolved_function: Option<&'a mut ResolvedFunction>,
     ) -> Self {
@@ -45,7 +45,7 @@ impl<'a> Resolver<'a> {
             source_file,
             module_name,
             compilation_context,
-            program_index,
+            symbol_table,
             module_environment,
             resolved_function,
             local_value_types: HashMap::new(),
@@ -180,7 +180,7 @@ impl<'a> Resolver<'a> {
             .collect::<Vec<_>>()
             .join("::");
 
-        if !self.program_index.has_module(&module_name) {
+        if !self.symbol_table.has_module(&module_name) {
             self.add_diagnostic(
                 format!("unknown module `{module_name}`"),
                 identifier.span(),
@@ -190,7 +190,7 @@ impl<'a> Resolver<'a> {
         }
 
         let Some(function_index) = self
-            .program_index
+            .symbol_table
             .resolve_function_exact(qualified_name.as_str())
         else {
             let function_name = identifier
@@ -211,9 +211,9 @@ impl<'a> Resolver<'a> {
     fn resolve_local_function(&self, name: &str) -> Option<FunctionIndex> {
         if !self.module_name.is_empty() {
             let qualified_name = self
-                .program_index
+                .symbol_table
                 .qualify_function_name(self.module_name, name);
-            if let Some(function_index) = self.program_index.resolve_function_exact(&qualified_name)
+            if let Some(function_index) = self.symbol_table.resolve_function_exact(&qualified_name)
             {
                 return Some(function_index);
             }
@@ -223,8 +223,8 @@ impl<'a> Resolver<'a> {
             return Some(function_index);
         }
 
-        let core_function_name = self.program_index.qualify_function_name("core", name);
-        self.program_index
+        let core_function_name = self.symbol_table.qualify_function_name("core", name);
+        self.symbol_table
             .resolve_function_exact(&core_function_name)
     }
 
@@ -233,9 +233,7 @@ impl<'a> Resolver<'a> {
             return;
         };
 
-        let Ok(called_function) = self
-            .program_index
-            .function_definition(called_function_index)
+        let Ok(called_function) = self.symbol_table.function_definition(called_function_index)
         else {
             return;
         };
@@ -265,10 +263,10 @@ impl<'a> Resolver<'a> {
         call_expression: &CallExpression,
         function_index: FunctionIndex,
     ) {
-        let Ok(function_definition) = self.program_index.function_definition(function_index) else {
+        let Ok(function_definition) = self.symbol_table.function_definition(function_index) else {
             return;
         };
-        let any_type_index = self.program_index.any_type_index();
+        let any_type_index = self.symbol_table.any_type_index();
 
         for (argument_index, (argument, expected_type)) in call_expression
             .arguments
@@ -298,7 +296,7 @@ impl<'a> Resolver<'a> {
         call_expression: &CallExpression,
         function_index: FunctionIndex,
     ) -> bool {
-        let Ok(function_definition) = self.program_index.function_definition(function_index) else {
+        let Ok(function_definition) = self.symbol_table.function_definition(function_index) else {
             return true;
         };
         let expected = function_definition.argument_types.len();
@@ -321,8 +319,8 @@ impl<'a> Resolver<'a> {
     }
 
     fn annotate_expression_type(&mut self, expression: &mut Expression) {
-        let boolean_type_index = self.program_index.boolean_type_index();
-        let string_type_index = self.program_index.string_type_index();
+        let boolean_type_index = self.symbol_table.boolean_type_index();
+        let string_type_index = self.symbol_table.string_type_index();
 
         match &expression.kind {
             ExpressionKind::BooleanLiteral(_) => expression.ty = boolean_type_index,
@@ -364,7 +362,7 @@ impl<'a> Resolver<'a> {
     ) -> SharedString {
         if argument_index == 0
             && function_name == "assert"
-            && expected_type == self.program_index.boolean_type_index()
+            && expected_type == self.symbol_table.boolean_type_index()
         {
             return "type error: `assert` expects a bool argument".into();
         }
@@ -410,7 +408,7 @@ impl<'a> Resolver<'a> {
     }
 
     fn type_label(&self, type_index: TypeIndex) -> SharedString {
-        self.program_index
+        self.symbol_table
             .type_definition(type_index)
             .map(|ty| ty.name.clone())
             .unwrap_or_else(|_| "unknown".into())

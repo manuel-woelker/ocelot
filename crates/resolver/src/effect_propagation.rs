@@ -8,13 +8,13 @@ use ocelot_base::shared_string::SharedString;
 use ocelot_base::span::Span;
 use ocelot_semantic::function_definition::FunctionDefinition;
 use ocelot_semantic::function_kind::FunctionKind;
-use ocelot_semantic::program_index::ProgramIndex;
 use ocelot_semantic::resolved_function::ResolvedFunction;
+use ocelot_semantic::symbol_table::SymbolTable;
 use std::collections::HashMap;
 
 pub(crate) fn propagate_function_effects(
     compilation_context: &mut CompilationContext,
-    program_index: &ProgramIndex,
+    symbol_table: &SymbolTable,
     resolved_functions: &mut [ResolvedFunction],
 ) -> OcelotResult<()> {
     let resolved_function_map = resolved_functions
@@ -42,7 +42,7 @@ pub(crate) fn propagate_function_effects(
                     next_effects.extend(inferred_effects.iter().copied());
                 } else {
                     let called_function =
-                        program_index.function_definition(*called_function_index)?;
+                        symbol_table.function_definition(*called_function_index)?;
                     next_effects.extend(called_function.inferred_effects.iter().copied());
                 }
             }
@@ -55,19 +55,19 @@ pub(crate) fn propagate_function_effects(
     }
 
     for function in resolved_functions.iter() {
-        let function_definition = program_index.function_definition(function.function_index)?;
+        let function_definition = symbol_table.function_definition(function.function_index)?;
 
         for forbidden_effect in &function_definition.cannot_effects {
             if !function.inferred_effects.contains(forbidden_effect) {
                 continue;
             }
 
-            let effect_name = program_index
+            let effect_name = symbol_table
                 .effect_definition(*forbidden_effect)?
                 .name
                 .clone();
             let Some((span, annotation)) = violation_source(
-                program_index,
+                symbol_table,
                 function_definition,
                 function,
                 resolved_functions,
@@ -108,7 +108,7 @@ pub(crate) fn propagate_function_effects(
 }
 
 fn violation_source(
-    program_index: &ProgramIndex,
+    symbol_table: &SymbolTable,
     function_definition: &FunctionDefinition,
     resolved_function: &ResolvedFunction,
     resolved_functions: &[ResolvedFunction],
@@ -128,7 +128,7 @@ fn violation_source(
                     .inferred_effects
                     .contains(&effect_index)
             } else {
-                program_index
+                symbol_table
                     .function_definition(*called_function_index)?
                     .inferred_effects
                     .contains(&effect_index)
@@ -138,7 +138,7 @@ fn violation_source(
                 span.clone(),
                 format!(
                     "this has a `{}` effect",
-                    effect_label(program_index, effect_index)?
+                    effect_label(symbol_table, effect_index)?
                 )
                 .into(),
             )));
@@ -150,7 +150,7 @@ fn violation_source(
             span.clone(),
             format!(
                 "this has a `{}` effect",
-                effect_label(program_index, effect_index)?
+                effect_label(symbol_table, effect_index)?
             )
             .into(),
         )));
@@ -164,8 +164,8 @@ fn violation_source(
 }
 
 fn effect_label(
-    program_index: &ProgramIndex,
+    symbol_table: &SymbolTable,
     effect_index: EffectIndex,
 ) -> OcelotResult<SharedString> {
-    Ok(program_index.effect_definition(effect_index)?.name.clone())
+    Ok(symbol_table.effect_definition(effect_index)?.name.clone())
 }
