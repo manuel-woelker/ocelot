@@ -1,6 +1,6 @@
 use crate::core_module::{CORE_MODULE_NAME, CORE_MODULE_PATH, load_core_module};
 use crate::failed_test_result::FailedTestResult;
-use crate::loaded_module::LoadedModule;
+use crate::loaded_module::ParsedModule;
 use crate::loaded_program::LoadedProgram;
 use crate::module_name_from_path::module_name_from_path;
 use crate::source_file_kind::SourceFileKind;
@@ -27,20 +27,51 @@ use ocelot_semantic::module_environment::ModuleEnvironment;
 use ocelot_semantic::program_environment::ProgramEnvironment;
 use ocelot_semantic::symbol_table::SymbolTable;
 use std::collections::HashMap;
+use ocelot_parser::parse_script::parse_script;
+use crate::engine_command::EngineCommand;
 
-#[allow(dead_code)]
 pub struct EngineWorker {
     pal: PalHandle,
+    #[allow(dead_code)]
     compilation_context: CompilationContext,
+    command: EngineCommand,
+    parsed_modules: Vec<ParsedModule>,
 }
 
 impl EngineWorker {
-    pub fn new(pal_handle: impl Into<PalHandle>) -> Self {
+    pub fn new(pal_handle: impl Into<PalHandle>, command: EngineCommand) -> Self {
         Self {
             pal: pal_handle.into(),
             compilation_context: CompilationContext::default(),
+            command,
+            parsed_modules: Vec::new(),
         }
     }
+
+    pub fn run_command(mut self, _command: &EngineCommand) -> OcelotResult<()> {
+        self.load_modules()?;
+        Ok(())
+    }
+
+    fn load_modules(&mut self) -> OcelotResult<()> {
+        let files = self.collect_files()?;
+        let modules: Vec<ParsedModule> = files.iter().map(|file| {
+            self.load_module(file)
+        }).collect::<OcelotResult<Vec<ParsedModule>>>()?;
+        self.parsed_modules = modules;
+        Ok(())
+    }
+
+    fn collect_files(&self) -> OcelotResult<Vec<FilePath>> {
+        let mut file_paths = self
+            .pal
+            .walk_directory(&self.command.base_path, &[String::from("*.ocelot")])?
+            .collect::<OcelotResult<Vec<_>>>()?;
+        file_paths.retain(|path| path.extension() == Some("ocelot"));
+        file_paths.sort();
+        Ok(file_paths)
+    }
+
 
     pub fn run_file(self, path: impl Into<FilePath>) -> OcelotResult<()> {
         let program = self.compile_program(path.into())?;
@@ -61,7 +92,6 @@ impl EngineWorker {
     }
 
     fn compile_program(&self, entry_path: FilePath) -> OcelotResult<LoadedProgram> {
-        let entry_kind = SourceFileKind::from_path(&entry_path)?;
         let execution_root = entry_path.parent().unwrap_or_else(|| FilePath::from(""));
         let mut module_paths = self
             .pal
@@ -80,12 +110,7 @@ impl EngineWorker {
             module_paths
                 .into_iter()
                 .map(|path| {
-                    let module_kind = if path == entry_path {
-                        entry_kind
-                    } else {
-                        SourceFileKind::Module
-                    };
-                    self.load_module(&execution_root, path, module_kind)
+                    self.load_module(&path)
                 })
                 .collect::<OcelotResult<Vec<_>>>()?,
         );
@@ -178,19 +203,18 @@ impl EngineWorker {
 
     fn load_module(
         &self,
-        execution_root: &FilePath,
-        path: FilePath,
-        kind: SourceFileKind,
-    ) -> OcelotResult<LoadedModule> {
+        path: &FilePath,
+    ) -> OcelotResult<ParsedModule> {
         let source_file = self.load_source_file(path.clone())?;
         let mut compilation_context = CompilationContext::default();
-        let script = ocelot_parser::parse_script::parse_script(
+        let script = parse_script(
             &source_file,
             &mut compilation_context.source_diagnostics,
         )?;
-        Ok(LoadedModule::new(
-            module_name_from_path(execution_root, &path)?,
-            kind,
+        let source_kind = SourceFileKind::from_path(&path)?;
+        Ok(ParsedModule::new(
+            module_name_from_path(&self.command.base_path, path)?,
+            source_kind,
             source_file,
             script,
         ))
@@ -211,7 +235,7 @@ impl EngineWorker {
 
     fn run_module_entrypoint(
         &self,
-        entry_module: &LoadedModule,
+        entry_module: &ParsedModule,
         environment: &ProgramEnvironment,
     ) -> OcelotResult<()> {
         let entrypoint_name = environment.qualify_function_name(&entry_module.module_name, "main");
@@ -329,7 +353,7 @@ impl EngineWorker {
 }
 
 fn validate_reserved_core_module_name(
-    module: &LoadedModule,
+    module: &ParsedModule,
     compilation_context: &mut CompilationContext,
 ) {
     if module.module_name != CORE_MODULE_NAME
@@ -362,7 +386,7 @@ fn validate_reserved_core_module_name(
     }
 }
 
-fn validate_loaded_module(module: &LoadedModule, compilation_context: &mut CompilationContext) {
+fn validate_loaded_module(module: &ParsedModule, compilation_context: &mut CompilationContext) {
     if module.kind.allows_top_level_statements() {
         return;
     }

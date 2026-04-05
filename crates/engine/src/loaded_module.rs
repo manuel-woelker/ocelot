@@ -5,14 +5,14 @@ use ocelot_base::source_file::SourceFile;
 
 /// One parsed module participating in a multi-file program.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LoadedModule {
+pub struct ParsedModule {
     pub module_name: SharedString,
     pub kind: SourceFileKind,
     pub source_file: SourceFile,
     pub script: Script,
 }
 
-impl LoadedModule {
+impl ParsedModule {
     /// Creates a loaded module from its logical name, source file, and parsed script.
     pub fn new(
         module_name: impl Into<SharedString>,

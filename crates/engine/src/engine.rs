@@ -3,6 +3,7 @@ use crate::test_run_summary::TestRunSummary;
 use ocelot_base::file_path::FilePath;
 use ocelot_base::result::OcelotResult;
 use ocelot_pal::pal::PalHandle;
+use crate::engine_command::EngineCommand;
 
 #[derive(Debug, Clone)]
 pub struct Engine {
@@ -15,19 +16,22 @@ impl Engine {
     }
 
     pub fn run_file(&self, path: impl Into<FilePath>) -> OcelotResult<()> {
-        let worker = EngineWorker::new(&self.pal);
+        let path = path.into();
+        let worker = EngineWorker::new(&self.pal, EngineCommand::run_file(path.clone())?);
         worker.run_file(path)?;
         Ok(())
     }
 
     pub fn run_test(&self, path: impl Into<FilePath>, test_name: &str) -> OcelotResult<()> {
-        let worker = EngineWorker::new(&self.pal);
+        let path = path.into();
+        let worker = EngineWorker::new(&self.pal, EngineCommand::run_file(path.clone())?);
         worker.run_test(path, test_name)?;
         Ok(())
     }
 
     pub fn run_tests(&self, path: impl Into<FilePath>) -> OcelotResult<TestRunSummary> {
-        let worker = EngineWorker::new(&self.pal);
+        let path = path.into();
+        let worker = EngineWorker::new(&self.pal, EngineCommand::run_file(path.clone())?);
         worker.run_tests(path)
     }
 }
