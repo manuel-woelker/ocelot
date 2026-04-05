@@ -9,7 +9,9 @@ repository = "https://github.com/manuel-woelker/ocelot"
 [dependencies]
 ocelot-base = { path = "../base", version = "0.1.2" }
 ocelot-engine = { path = "../engine", version = "0.1.2" }
+ocelot-formatter = { path = "../formatter", version = "0.1.2" }
 ocelot-pal = { path = "../pal", version = "0.1.2" }
+ocelot-parser = { path = "../parser", version = "0.1.2" }
 
 [dev-dependencies]
 expect-test = { workspace = true }
