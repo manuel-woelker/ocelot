@@ -31,7 +31,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: rustfmt, clippy, llvm-tools-preview
           targets: ${{ matrix.build.rust_targets }}
 
       - name: Install musl toolchain
@@ -56,6 +56,12 @@ jobs:
         with:
           tool: cargo-nextest
 
+      - name: Install cargo-llvm-cov
+        if: ${{ matrix.build.name == 'default' }}
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
       - name: Format check
         if: ${{ matrix.build.name == 'default' }}
         run: cargo fmt -- --check
@@ -69,41 +75,18 @@ jobs:
 
       - name: Tests
         if: ${{ matrix.build.name == 'default' }}
-        run: cargo nextest run --workspace --all-targets --all-features
-
-      - name: Musl tests
-        if: ${{ matrix.build.run_musl_tests }}
-        run: cargo nextest run --target x86_64-unknown-linux-musl --workspace --all-targets --all-features
-
-  coverage:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-          override: true
-
-      - name: Build
-        run: cargo build --workspace --all-targets --all-features --verbose
-
-      - name: Run tests
-        run: cargo test --workspace --all-targets --all-features --verbose
-        env:
-          CARGO_INCREMENTAL: '0'
-          RUSTFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
-          RUSTDOCFLAGS: '-Zprofile -Ccodegen-units=1 -Cinline-threshold=0 -Clink-dead-code -Coverflow-checks=off -Cpanic=abort -Zpanic_abort_tests'
-
-      - name: rust-grcov
-        uses: actions-rs/grcov@v0.1
+        run: cargo llvm-cov nextest --workspace --all-targets --all-features --lcov --output-path lcov.info
 
       - name: Codecov
+        if: ${{ matrix.build.name == 'default' }}
         uses: codecov/codecov-action@v5
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         with:
+          files: lcov.info
           verbose: true
           fail_ci_if_error: true
+
+      - name: Musl tests
+        if: ${{ matrix.build.run_musl_tests }}
+        run: cargo nextest run --target x86_64-unknown-linux-musl --workspace --all-targets --all-features
