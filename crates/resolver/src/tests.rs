@@ -30,11 +30,10 @@ use ocelot_base::compilation_stage::CompilationStage;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 use ocelot_semantic::compilation_context::CompilationContext;
-use ocelot_semantic::compilation_session::CompilationSession;
+use ocelot_semantic::compilation_inputs::CompilationInputs;
 use ocelot_semantic::function_kind::FunctionKind;
-use ocelot_semantic::module_environment::ModuleEnvironment;
+use ocelot_semantic::module_imports::ModuleImports;
 use ocelot_semantic::parsed_module::ParsedModule;
-use ocelot_semantic::program_environment::ProgramEnvironment;
 use ocelot_semantic::source_file_kind::SourceFileKind;
 use ocelot_semantic::symbol_table::SymbolTable;
 use std::collections::HashMap;
@@ -88,12 +87,12 @@ fn parameter(name: &str, type_name: &str, span: Span) -> FunctionParameter {
     )
 }
 
-fn compilation_session() -> CompilationSession {
-    CompilationSession::with_default_native_functions()
+fn compilation_inputs() -> CompilationInputs {
+    CompilationInputs::with_default_native_functions()
 }
 
-fn create_module_environment() -> ModuleEnvironment {
-    ModuleEnvironment::new()
+fn create_module_imports() -> ModuleImports {
+    ModuleImports::new()
 }
 
 fn create_symbol_table() -> SymbolTable {
@@ -129,12 +128,12 @@ fn resolves_native_call_expressions() {
     );
     let source_file = SourceFile::new("examples/hello.ocelot", "println(\"hello\");");
     let mut symbol_table = create_symbol_table();
-    let compilation_session = compilation_session();
+    let compilation_inputs = compilation_inputs();
     let println_index = {
         register_core_module(
             &mut CompilationContext::default(),
             &mut symbol_table,
-            &compilation_session,
+            &compilation_inputs,
         )
         .unwrap();
         symbol_table
@@ -142,14 +141,14 @@ fn resolves_native_call_expressions() {
             .unwrap()
     };
     let mut context = CompilationContext::default();
-    let mut environment = ProgramEnvironment::new();
+    let mut environment = SymbolTable::new();
 
     resolve(
         &mut script,
         &source_file,
         &mut context,
         &mut environment,
-        &compilation_session,
+        &compilation_inputs,
     )
     .unwrap();
 
@@ -181,9 +180,18 @@ fn resolve_program_returns_resolved_modules_and_symbol_table() {
         ),
     ];
 
-    let resolved_program = resolve_program(modules, &compilation_session()).unwrap();
+    let resolved_program = resolve_program(
+        "examples/main.ocelot-script".into(),
+        modules,
+        &compilation_inputs(),
+    )
+    .unwrap();
 
     assert!(!resolved_program.source_diagnostics.has_errors());
+    assert_eq!(
+        resolved_program.entry_path.as_str(),
+        "examples/main.ocelot-script"
+    );
     assert!(
         resolved_program
             .symbol_table
@@ -235,7 +243,12 @@ fn resolve_program_reports_builtin_module_name_conflicts() {
         ),
     ];
 
-    let resolved_program = resolve_program(modules, &compilation_session()).unwrap();
+    let resolved_program = resolve_program(
+        "examples/helpers.ocelot".into(),
+        modules,
+        &compilation_inputs(),
+    )
+    .unwrap();
 
     assert!(resolved_program.source_diagnostics.has_errors());
     assert!(
@@ -288,8 +301,8 @@ fn resolves_parameter_references_inside_function_bodies() {
         "examples/functions.ocelot",
         "fun greet(name: string) { println(name); } greet(\"hello\");",
     );
-    let mut environment = ProgramEnvironment::new();
-    let compilation_session = compilation_session();
+    let mut environment = SymbolTable::new();
+    let compilation_inputs = compilation_inputs();
     let mut context = CompilationContext::default();
 
     resolve(
@@ -297,7 +310,7 @@ fn resolves_parameter_references_inside_function_bodies() {
         &source_file,
         &mut context,
         &mut environment,
-        &compilation_session,
+        &compilation_inputs,
     )
     .unwrap();
 
@@ -346,8 +359,8 @@ fn reports_duplicate_function_parameter_names() {
         "fun greet(name: string, name: bool) {}",
     );
     let mut symbol_table = create_symbol_table();
-    let compilation_session = compilation_session();
-    let mut module_environment = create_module_environment();
+    let compilation_inputs = compilation_inputs();
+    let mut module_imports = create_module_imports();
     let mut context = CompilationContext::default();
 
     register_module_functions(
@@ -356,8 +369,8 @@ fn reports_duplicate_function_parameter_names() {
         &source_file,
         &mut context,
         &mut symbol_table,
-        &mut module_environment,
-        &compilation_session,
+        &mut module_imports,
+        &compilation_inputs,
     )
     .unwrap();
 
@@ -387,8 +400,8 @@ fn reports_unknown_function_parameter_types() {
     );
     let source_file = SourceFile::new("examples/functions.ocelot", "fun greet(name: number) {}");
     let mut symbol_table = create_symbol_table();
-    let compilation_session = compilation_session();
-    let mut module_environment = create_module_environment();
+    let compilation_inputs = compilation_inputs();
+    let mut module_imports = create_module_imports();
     let mut context = CompilationContext::default();
 
     register_module_functions(
@@ -397,8 +410,8 @@ fn reports_unknown_function_parameter_types() {
         &source_file,
         &mut context,
         &mut symbol_table,
-        &mut module_environment,
-        &compilation_session,
+        &mut module_imports,
+        &compilation_inputs,
     )
     .unwrap();
 
@@ -424,8 +437,8 @@ fn reports_any_in_user_defined_function_signatures() {
     );
     let source_file = SourceFile::new("examples/functions.ocelot", "fun greet(value: any) {}");
     let mut symbol_table = create_symbol_table();
-    let compilation_session = compilation_session();
-    let mut module_environment = create_module_environment();
+    let compilation_inputs = compilation_inputs();
+    let mut module_imports = create_module_imports();
     let mut context = CompilationContext::default();
 
     register_module_functions(
@@ -434,8 +447,8 @@ fn reports_any_in_user_defined_function_signatures() {
         &source_file,
         &mut context,
         &mut symbol_table,
-        &mut module_environment,
-        &compilation_session,
+        &mut module_imports,
+        &compilation_inputs,
     )
     .unwrap();
 
@@ -464,8 +477,8 @@ fn reports_native_functions_outside_core() {
     );
     let source_file = SourceFile::new("examples/helper.ocelot", "native fun println(value: any);");
     let mut symbol_table = create_symbol_table();
-    let compilation_session = compilation_session();
-    let mut module_environment = create_module_environment();
+    let compilation_inputs = compilation_inputs();
+    let mut module_imports = create_module_imports();
     let mut context = CompilationContext::default();
 
     register_module_functions(
@@ -474,8 +487,8 @@ fn reports_native_functions_outside_core() {
         &source_file,
         &mut context,
         &mut symbol_table,
-        &mut module_environment,
-        &compilation_session,
+        &mut module_imports,
+        &compilation_inputs,
     )
     .unwrap();
 
@@ -520,8 +533,8 @@ fn reports_wrong_user_defined_call_arity() {
         "examples/functions.ocelot",
         "fun greet(name: string) {} greet();",
     );
-    let mut environment = ProgramEnvironment::new();
-    let compilation_session = compilation_session();
+    let mut environment = SymbolTable::new();
+    let compilation_inputs = compilation_inputs();
     let mut context = CompilationContext::default();
 
     resolve(
@@ -529,7 +542,7 @@ fn reports_wrong_user_defined_call_arity() {
         &source_file,
         &mut context,
         &mut environment,
-        &compilation_session,
+        &compilation_inputs,
     )
     .unwrap_err();
 
@@ -574,8 +587,8 @@ fn reports_wrong_user_defined_call_argument_types() {
         "examples/functions.ocelot",
         "fun greet(excited: bool) {} greet(\"hello\");",
     );
-    let mut environment = ProgramEnvironment::new();
-    let compilation_session = compilation_session();
+    let mut environment = SymbolTable::new();
+    let compilation_inputs = compilation_inputs();
     let mut context = CompilationContext::default();
 
     resolve(
@@ -583,7 +596,7 @@ fn reports_wrong_user_defined_call_argument_types() {
         &source_file,
         &mut context,
         &mut environment,
-        &compilation_session,
+        &compilation_inputs,
     )
     .unwrap_err();
 
@@ -633,11 +646,11 @@ fn resolves_module_qualified_calls() {
     let mut symbol_table = create_symbol_table();
     symbol_table.add_module("main");
     symbol_table.add_module("math::greet");
-    let compilation_session = compilation_session();
-    let mut module_environment = create_module_environment();
-    let mut module_environments = HashMap::from([
-        (main_source_file.path.clone(), create_module_environment()),
-        (module_source_file.path.clone(), create_module_environment()),
+    let compilation_inputs = compilation_inputs();
+    let mut module_imports = create_module_imports();
+    let mut module_importss = HashMap::from([
+        (main_source_file.path.clone(), create_module_imports()),
+        (module_source_file.path.clone(), create_module_imports()),
     ]);
     let mut context = CompilationContext::default();
 
@@ -647,8 +660,8 @@ fn resolves_module_qualified_calls() {
         &module_source_file,
         &mut context,
         &mut symbol_table,
-        &mut module_environment,
-        &compilation_session,
+        &mut module_imports,
+        &compilation_inputs,
     )
     .unwrap();
     resolve_module_items(
@@ -657,20 +670,20 @@ fn resolves_module_qualified_calls() {
         &main_source_file,
         &mut context,
         &symbol_table,
-        module_environments
+        module_importss
             .get_mut(&main_source_file.path)
             .expect("module environment should exist"),
-        &compilation_session,
+        &compilation_inputs,
     )
     .unwrap();
     let resolved_functions = resolve_user_defined_function_definitions(
         &mut context,
         &symbol_table,
-        &module_environments,
-        &compilation_session,
+        &module_importss,
+        &compilation_inputs,
     )
     .unwrap();
-    let mut environment = ProgramEnvironment::from_symbol_table(&symbol_table);
+    let mut environment = symbol_table.clone();
     environment
         .apply_resolved_functions(resolved_functions)
         .unwrap();
@@ -734,11 +747,11 @@ fn resolves_imported_function_calls() {
     let mut symbol_table = create_symbol_table();
     symbol_table.add_module("main");
     symbol_table.add_module("helper");
-    let compilation_session = compilation_session();
-    let mut helper_module_environment = create_module_environment();
-    let mut module_environments = HashMap::from([
-        (main_source_file.path.clone(), create_module_environment()),
-        (helper_source_file.path.clone(), create_module_environment()),
+    let compilation_inputs = compilation_inputs();
+    let mut helper_module_imports = create_module_imports();
+    let mut module_importss = HashMap::from([
+        (main_source_file.path.clone(), create_module_imports()),
+        (helper_source_file.path.clone(), create_module_imports()),
     ]);
     let mut context = CompilationContext::default();
 
@@ -748,8 +761,8 @@ fn resolves_imported_function_calls() {
         &helper_source_file,
         &mut context,
         &mut symbol_table,
-        &mut helper_module_environment,
-        &compilation_session,
+        &mut helper_module_imports,
+        &compilation_inputs,
     )
     .unwrap();
     register_module_imports(
@@ -758,7 +771,7 @@ fn resolves_imported_function_calls() {
         &main_source_file,
         &mut context,
         &mut symbol_table,
-        module_environments
+        module_importss
             .get_mut(&main_source_file.path)
             .expect("module environment should exist"),
     )
@@ -769,20 +782,20 @@ fn resolves_imported_function_calls() {
         &main_source_file,
         &mut context,
         &symbol_table,
-        module_environments
+        module_importss
             .get_mut(&main_source_file.path)
             .expect("module environment should exist"),
-        &compilation_session,
+        &compilation_inputs,
     )
     .unwrap();
     let resolved_functions = resolve_user_defined_function_definitions(
         &mut context,
         &symbol_table,
-        &module_environments,
-        &compilation_session,
+        &module_importss,
+        &compilation_inputs,
     )
     .unwrap();
-    let mut environment = ProgramEnvironment::from_symbol_table(&symbol_table);
+    let mut environment = symbol_table.clone();
     environment
         .apply_resolved_functions(resolved_functions)
         .unwrap();
@@ -854,17 +867,14 @@ fn imported_names_are_available_inside_function_bodies() {
     let mut symbol_table = create_symbol_table();
     symbol_table.add_module("main");
     symbol_table.add_module("helper");
-    let compilation_session = compilation_session();
-    let mut main_module_environment = create_module_environment();
-    let mut helper_module_environment = create_module_environment();
-    let mut module_environments = HashMap::from([
-        (
-            main_source_file.path.clone(),
-            main_module_environment.clone(),
-        ),
+    let compilation_inputs = compilation_inputs();
+    let mut main_module_imports = create_module_imports();
+    let mut helper_module_imports = create_module_imports();
+    let mut module_importss = HashMap::from([
+        (main_source_file.path.clone(), main_module_imports.clone()),
         (
             helper_source_file.path.clone(),
-            helper_module_environment.clone(),
+            helper_module_imports.clone(),
         ),
     ]);
     let mut context = CompilationContext::default();
@@ -875,8 +885,8 @@ fn imported_names_are_available_inside_function_bodies() {
         &main_source_file,
         &mut context,
         &mut symbol_table,
-        &mut main_module_environment,
-        &compilation_session,
+        &mut main_module_imports,
+        &compilation_inputs,
     )
     .unwrap();
     register_module_functions(
@@ -885,8 +895,8 @@ fn imported_names_are_available_inside_function_bodies() {
         &helper_source_file,
         &mut context,
         &mut symbol_table,
-        &mut helper_module_environment,
-        &compilation_session,
+        &mut helper_module_imports,
+        &compilation_inputs,
     )
     .unwrap();
     register_module_imports(
@@ -895,7 +905,7 @@ fn imported_names_are_available_inside_function_bodies() {
         &main_source_file,
         &mut context,
         &mut symbol_table,
-        module_environments
+        module_importss
             .get_mut(&main_source_file.path)
             .expect("module environment should exist"),
     )
@@ -906,20 +916,20 @@ fn imported_names_are_available_inside_function_bodies() {
         &main_source_file,
         &mut context,
         &symbol_table,
-        module_environments
+        module_importss
             .get_mut(&main_source_file.path)
             .expect("module environment should exist"),
-        &compilation_session,
+        &compilation_inputs,
     )
     .unwrap();
     let resolved_functions = resolve_user_defined_function_definitions(
         &mut context,
         &symbol_table,
-        &module_environments,
-        &compilation_session,
+        &module_importss,
+        &compilation_inputs,
     )
     .unwrap();
-    let mut environment = ProgramEnvironment::from_symbol_table(&symbol_table);
+    let mut environment = symbol_table.clone();
     environment
         .apply_resolved_functions(resolved_functions)
         .unwrap();
@@ -1000,9 +1010,9 @@ fn local_functions_win_over_imported_names() {
     let mut symbol_table = create_symbol_table();
     symbol_table.add_module("main");
     symbol_table.add_module("helper");
-    let compilation_session = compilation_session();
-    let mut main_module_environment = create_module_environment();
-    let mut helper_module_environment = create_module_environment();
+    let compilation_inputs = compilation_inputs();
+    let mut main_module_imports = create_module_imports();
+    let mut helper_module_imports = create_module_imports();
     let mut context = CompilationContext::default();
 
     register_module_functions(
@@ -1011,8 +1021,8 @@ fn local_functions_win_over_imported_names() {
         &main_source_file,
         &mut context,
         &mut symbol_table,
-        &mut main_module_environment,
-        &compilation_session,
+        &mut main_module_imports,
+        &compilation_inputs,
     )
     .unwrap();
     register_module_functions(
@@ -1021,8 +1031,8 @@ fn local_functions_win_over_imported_names() {
         &helper_source_file,
         &mut context,
         &mut symbol_table,
-        &mut helper_module_environment,
-        &compilation_session,
+        &mut helper_module_imports,
+        &compilation_inputs,
     )
     .unwrap();
     register_module_imports(
@@ -1031,7 +1041,7 @@ fn local_functions_win_over_imported_names() {
         &main_source_file,
         &mut context,
         &mut symbol_table,
-        &mut main_module_environment,
+        &mut main_module_imports,
     )
     .unwrap();
 
@@ -1088,9 +1098,9 @@ fn reports_duplicate_imports() {
     let mut symbol_table = create_symbol_table();
     symbol_table.add_module("main");
     symbol_table.add_module("helper");
-    let compilation_session = compilation_session();
-    let mut helper_module_environment = create_module_environment();
-    let mut main_module_environment = create_module_environment();
+    let compilation_inputs = compilation_inputs();
+    let mut helper_module_imports = create_module_imports();
+    let mut main_module_imports = create_module_imports();
     let mut context = CompilationContext::default();
 
     register_module_functions(
@@ -1099,8 +1109,8 @@ fn reports_duplicate_imports() {
         &helper_source_file,
         &mut context,
         &mut symbol_table,
-        &mut helper_module_environment,
-        &compilation_session,
+        &mut helper_module_imports,
+        &compilation_inputs,
     )
     .unwrap();
     register_module_imports(
@@ -1109,7 +1119,7 @@ fn reports_duplicate_imports() {
         &main_source_file,
         &mut context,
         &mut symbol_table,
-        &mut main_module_environment,
+        &mut main_module_imports,
     )
     .unwrap();
 
@@ -1149,9 +1159,9 @@ fn reports_unknown_functions_in_use_items() {
     let mut symbol_table = create_symbol_table();
     symbol_table.add_module("main");
     symbol_table.add_module("helper");
-    let compilation_session = compilation_session();
-    let mut helper_module_environment = create_module_environment();
-    let mut main_module_environment = create_module_environment();
+    let compilation_inputs = compilation_inputs();
+    let mut helper_module_imports = create_module_imports();
+    let mut main_module_imports = create_module_imports();
     let mut context = CompilationContext::default();
 
     register_module_functions(
@@ -1160,8 +1170,8 @@ fn reports_unknown_functions_in_use_items() {
         &helper_source_file,
         &mut context,
         &mut symbol_table,
-        &mut helper_module_environment,
-        &compilation_session,
+        &mut helper_module_imports,
+        &compilation_inputs,
     )
     .unwrap();
     register_module_imports(
@@ -1170,7 +1180,7 @@ fn reports_unknown_functions_in_use_items() {
         &main_source_file,
         &mut context,
         &mut symbol_table,
-        &mut main_module_environment,
+        &mut main_module_imports,
     )
     .unwrap();
 
@@ -1204,8 +1214,8 @@ fn reports_unknown_modules() {
     let source_file = SourceFile::new("main.ocelot", "math::greet::hello();");
     let mut symbol_table = create_symbol_table();
     symbol_table.add_module("main");
-    let compilation_session = compilation_session();
-    let module_environment = create_module_environment();
+    let compilation_inputs = compilation_inputs();
+    let module_imports = create_module_imports();
     let mut context = CompilationContext::default();
     resolve_module_items(
         &mut script,
@@ -1213,8 +1223,8 @@ fn reports_unknown_modules() {
         &source_file,
         &mut context,
         &symbol_table,
-        &module_environment,
-        &compilation_session,
+        &module_imports,
+        &compilation_inputs,
     )
     .unwrap();
     let error = finish_resolution(&context).unwrap_err();
@@ -1254,8 +1264,8 @@ fn lowers_function_items_before_resolving_tests() {
     );
     let source_file = SourceFile::new("main.ocelot", "fun helper() {} test \"works\" {}");
     let mut symbol_table = create_symbol_table();
-    let compilation_session = compilation_session();
-    let mut module_environment = create_module_environment();
+    let compilation_inputs = compilation_inputs();
+    let mut module_imports = create_module_imports();
     let mut context = CompilationContext::default();
 
     register_module_functions(
@@ -1264,8 +1274,8 @@ fn lowers_function_items_before_resolving_tests() {
         &source_file,
         &mut context,
         &mut symbol_table,
-        &mut module_environment,
-        &compilation_session,
+        &mut module_imports,
+        &compilation_inputs,
     )
     .unwrap();
 
@@ -1350,10 +1360,9 @@ fn propagates_explicit_can_effects_to_callers() {
         "effect exec; fun child() can exec {} fun parent() { child(); }",
     );
     let mut symbol_table = create_symbol_table();
-    let compilation_session = compilation_session();
-    let mut module_environment = create_module_environment();
-    let mut module_environments =
-        HashMap::from([(source_file.path.clone(), create_module_environment())]);
+    let compilation_inputs = compilation_inputs();
+    let mut module_imports = create_module_imports();
+    let mut module_importss = HashMap::from([(source_file.path.clone(), create_module_imports())]);
     let mut context = CompilationContext::default();
 
     register_module_effects(&mut script, &source_file, &mut context, &mut symbol_table).unwrap();
@@ -1363,8 +1372,8 @@ fn propagates_explicit_can_effects_to_callers() {
         &source_file,
         &mut context,
         &mut symbol_table,
-        &mut module_environment,
-        &compilation_session,
+        &mut module_imports,
+        &compilation_inputs,
     )
     .unwrap();
     resolve_module_items(
@@ -1373,20 +1382,20 @@ fn propagates_explicit_can_effects_to_callers() {
         &source_file,
         &mut context,
         &symbol_table,
-        module_environments
+        module_importss
             .get_mut(&source_file.path)
             .expect("module environment should exist"),
-        &compilation_session,
+        &compilation_inputs,
     )
     .unwrap();
     let resolved_functions = resolve_user_defined_function_definitions(
         &mut context,
         &symbol_table,
-        &module_environments,
-        &compilation_session,
+        &module_importss,
+        &compilation_inputs,
     )
     .unwrap();
-    let mut environment = ProgramEnvironment::from_symbol_table(&symbol_table);
+    let mut environment = symbol_table.clone();
     environment
         .apply_resolved_functions(resolved_functions)
         .unwrap();
@@ -1448,10 +1457,9 @@ fn reports_transitive_forbidden_effects() {
         "effect exec; fun child() can exec {} fun parent() cannot exec { child(); }",
     );
     let mut symbol_table = create_symbol_table();
-    let compilation_session = compilation_session();
-    let mut module_environment = create_module_environment();
-    let mut module_environments =
-        HashMap::from([(source_file.path.clone(), create_module_environment())]);
+    let compilation_inputs = compilation_inputs();
+    let mut module_imports = create_module_imports();
+    let mut module_importss = HashMap::from([(source_file.path.clone(), create_module_imports())]);
     let mut context = CompilationContext::default();
 
     register_module_effects(&mut script, &source_file, &mut context, &mut symbol_table).unwrap();
@@ -1461,8 +1469,8 @@ fn reports_transitive_forbidden_effects() {
         &source_file,
         &mut context,
         &mut symbol_table,
-        &mut module_environment,
-        &compilation_session,
+        &mut module_imports,
+        &compilation_inputs,
     )
     .unwrap();
     resolve_module_items(
@@ -1471,20 +1479,20 @@ fn reports_transitive_forbidden_effects() {
         &source_file,
         &mut context,
         &symbol_table,
-        module_environments
+        module_importss
             .get_mut(&source_file.path)
             .expect("module environment should exist"),
-        &compilation_session,
+        &compilation_inputs,
     )
     .unwrap();
     let resolved_functions = resolve_user_defined_function_definitions(
         &mut context,
         &symbol_table,
-        &module_environments,
-        &compilation_session,
+        &module_importss,
+        &compilation_inputs,
     )
     .unwrap();
-    let mut environment = ProgramEnvironment::from_symbol_table(&symbol_table);
+    let mut environment = symbol_table.clone();
     environment
         .apply_resolved_functions(resolved_functions)
         .unwrap();
@@ -1530,10 +1538,9 @@ fn reports_direct_builtin_effect_violations_at_the_call_site() {
         "fun quiet() cannot write_stdout { println(\"hello\"); }",
     );
     let mut symbol_table = create_symbol_table();
-    let compilation_session = compilation_session();
-    let mut module_environment = create_module_environment();
-    let module_environments =
-        HashMap::from([(source_file.path.clone(), create_module_environment())]);
+    let compilation_inputs = compilation_inputs();
+    let mut module_imports = create_module_imports();
+    let module_importss = HashMap::from([(source_file.path.clone(), create_module_imports())]);
     let mut context = CompilationContext::default();
 
     register_module_functions(
@@ -1542,18 +1549,18 @@ fn reports_direct_builtin_effect_violations_at_the_call_site() {
         &source_file,
         &mut context,
         &mut symbol_table,
-        &mut module_environment,
-        &compilation_session,
+        &mut module_imports,
+        &compilation_inputs,
     )
     .unwrap();
     let resolved_functions = resolve_user_defined_function_definitions(
         &mut context,
         &symbol_table,
-        &module_environments,
-        &compilation_session,
+        &module_importss,
+        &compilation_inputs,
     )
     .unwrap();
-    let mut environment = ProgramEnvironment::from_symbol_table(&symbol_table);
+    let mut environment = symbol_table.clone();
     environment
         .apply_resolved_functions(resolved_functions)
         .unwrap();
@@ -1581,8 +1588,8 @@ fn reports_unknown_effect_names_in_function_annotations() {
     );
     let source_file = SourceFile::new("main.ocelot", "fun quiet() can exec {}");
     let mut symbol_table = create_symbol_table();
-    let compilation_session = compilation_session();
-    let mut module_environment = create_module_environment();
+    let compilation_inputs = compilation_inputs();
+    let mut module_imports = create_module_imports();
     let mut context = CompilationContext::default();
 
     register_module_functions(
@@ -1591,8 +1598,8 @@ fn reports_unknown_effect_names_in_function_annotations() {
         &source_file,
         &mut context,
         &mut symbol_table,
-        &mut module_environment,
-        &compilation_session,
+        &mut module_imports,
+        &compilation_inputs,
     )
     .unwrap();
 

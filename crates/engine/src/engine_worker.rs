@@ -13,19 +13,18 @@ use ocelot_base::result::{OcelotResult, OptionExt, ResultExt};
 use ocelot_base::source_diagnostics::SourceDiagnostics;
 use ocelot_base::source_file::SourceFile;
 use ocelot_pal::pal::PalHandle;
-use ocelot_semantic::compilation_session::CompilationSession;
+use ocelot_semantic::compilation_inputs::CompilationInputs;
 use ocelot_semantic::function_kind::FunctionKind;
 use ocelot_semantic::parsed_module::ParsedModule;
-use ocelot_semantic::program_environment::ProgramEnvironment;
 use ocelot_semantic::resolved_program::ResolvedProgram;
 use ocelot_semantic::source_file_kind::SourceFileKind;
+use ocelot_semantic::symbol_table::SymbolTable;
 
 pub struct EngineWorker {
     pal: PalHandle,
     parser_source_diagnostics: SourceDiagnostics,
     command: EngineCommand,
     builtin_modules: Vec<BuiltinModule>,
-    parsed_modules: Vec<ParsedModule>,
     resolved_program: Option<ResolvedProgram>,
     test_run_summary: TestRunSummary,
 }
@@ -41,16 +40,15 @@ impl EngineWorker {
             parser_source_diagnostics: SourceDiagnostics::default(),
             command,
             builtin_modules,
-            parsed_modules: Vec::new(),
             resolved_program: None,
             test_run_summary: TestRunSummary::default(),
         }
     }
 
     pub fn run_command(&mut self) -> OcelotResult<()> {
-        self.parse_modules()?;
+        let parsed_modules = self.parse_modules()?;
         self.early_abort(CompilationStage::Parser)?;
-        self.resolve_modules()?;
+        self.resolve_modules(parsed_modules)?;
         self.early_abort(CompilationStage::Resolver)?;
         self.execute()
     }
@@ -79,24 +77,22 @@ impl EngineWorker {
 
     fn execute_entry_module(&self) -> OcelotResult<()> {
         let entry_module = self.entry_module()?;
-        let program_environment = self.program_environment();
+        let symbol_table = self.symbol_table();
 
         match entry_module.kind {
             SourceFileKind::Script => ocelot_interpreter::interpret_script::interpret_script(
                 &entry_module.compilation_unit,
                 &entry_module.source_file,
-                &program_environment,
+                symbol_table,
                 &*self.pal,
             ),
-            SourceFileKind::Module => {
-                self.run_module_entrypoint(entry_module, &program_environment)
-            }
+            SourceFileKind::Module => self.run_module_entrypoint(entry_module, symbol_table),
         }
     }
 
     fn run_selected_test(&self, test_name: &str) -> OcelotResult<()> {
         let entry_module = self.entry_module()?;
-        let program_environment = self.program_environment();
+        let symbol_table = self.symbol_table();
         let test_item = entry_module
             .compilation_unit
             .items
@@ -110,7 +106,7 @@ impl EngineWorker {
         if let Err(error) = ocelot_interpreter::interpreter::Interpreter::new(
             &*self.pal,
             &entry_module.source_file,
-            &program_environment,
+            symbol_table,
         )
         .interpret_statements(&test_item.body)
         {
@@ -134,11 +130,11 @@ impl EngineWorker {
 
     fn run_all_tests(&self) -> OcelotResult<TestRunSummary> {
         let entry_module = self.entry_module()?;
-        let program_environment = self.program_environment();
+        let symbol_table = self.symbol_table();
         let interpreter = ocelot_interpreter::interpreter::Interpreter::new(
             &*self.pal,
             &entry_module.source_file,
-            &program_environment,
+            symbol_table,
         );
         let mut summary = TestRunSummary::new();
 
@@ -185,11 +181,12 @@ impl EngineWorker {
         Ok(summary)
     }
 
-    fn resolve_modules(&mut self) -> OcelotResult<()> {
-        let compilation_session = self.create_compilation_session();
+    fn resolve_modules(&mut self, parsed_modules: Vec<ParsedModule>) -> OcelotResult<()> {
+        let compilation_inputs = CompilationInputs::with_default_native_functions();
         let resolved_program = ocelot_resolver::resolution::resolve_program(
-            std::mem::take(&mut self.parsed_modules),
-            &compilation_session,
+            self.command.entry_path().clone(),
+            parsed_modules,
+            &compilation_inputs,
         )?;
         let has_errors = resolved_program.source_diagnostics.has_errors();
         self.resolved_program = Some(resolved_program);
@@ -208,23 +205,23 @@ impl EngineWorker {
         Ok(())
     }
 
-    fn parse_modules(&mut self) -> OcelotResult<()> {
-        self.parsed_modules.clear();
+    fn parse_modules(&mut self) -> OcelotResult<Vec<ParsedModule>> {
         self.resolved_program = None;
+        let mut parsed_modules = Vec::new();
 
         for file in self.collect_files()? {
             if let Some(module) = self.parse_module(&file)? {
-                self.parsed_modules.push(module);
+                parsed_modules.push(module);
             }
         }
 
         let builtin_modules = self.builtin_modules.clone();
         for builtin_module in builtin_modules {
             if let Some(module) = self.parse_builtin_module(builtin_module)? {
-                self.parsed_modules.push(module);
+                parsed_modules.push(module);
             }
         }
-        Ok(())
+        Ok(parsed_modules)
     }
 
     fn collect_files(&self) -> OcelotResult<Vec<FilePath>> {
@@ -295,30 +292,30 @@ impl EngineWorker {
     }
 
     fn entry_module(&self) -> OcelotResult<&ParsedModule> {
-        self.resolved_program
+        let resolved_program = self
+            .resolved_program
             .as_ref()
-            .context("internal error: program was not resolved")?
+            .context("internal error: program was not resolved")?;
+
+        resolved_program
             .modules
             .iter()
-            .find(|module| module.source_file.path == *self.command.entry_path())
+            .find(|module| module.source_file.path == resolved_program.entry_path)
             .context("internal error: entry module was not loaded")
     }
 
-    fn create_compilation_session(&self) -> CompilationSession {
-        CompilationSession::with_default_native_functions()
-    }
-
-    fn program_environment(&self) -> ProgramEnvironment {
-        self.resolved_program
+    fn symbol_table(&self) -> &SymbolTable {
+        &self
+            .resolved_program
             .as_ref()
             .expect("program should be resolved before execution")
-            .program_environment()
+            .symbol_table
     }
 
     fn run_module_entrypoint(
         &self,
         entry_module: &ParsedModule,
-        environment: &ProgramEnvironment,
+        environment: &SymbolTable,
     ) -> OcelotResult<()> {
         let entrypoint_name = environment.qualify_function_name(&entry_module.module_name, "main");
         let function_index = environment

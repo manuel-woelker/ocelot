@@ -19,11 +19,10 @@ use ocelot_base::source_excerpt::SourceExcerpt;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 use ocelot_semantic::compilation_context::CompilationContext;
-use ocelot_semantic::compilation_session::CompilationSession;
+use ocelot_semantic::compilation_inputs::CompilationInputs;
 use ocelot_semantic::function_kind::FunctionKind;
-use ocelot_semantic::module_environment::ModuleEnvironment;
+use ocelot_semantic::module_imports::ModuleImports;
 use ocelot_semantic::parsed_module::ParsedModule;
-use ocelot_semantic::program_environment::ProgramEnvironment;
 use ocelot_semantic::resolved_function::ResolvedFunction;
 use ocelot_semantic::resolved_program::ResolvedProgram;
 use ocelot_semantic::symbol_table::SymbolTable;
@@ -38,13 +37,13 @@ pub fn resolve(
     script: &mut CompilationUnit,
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
-    environment: &mut ProgramEnvironment,
-    compilation_session: &CompilationSession,
+    environment: &mut SymbolTable,
+    compilation_inputs: &CompilationInputs,
 ) -> OcelotResult<()> {
     let mut symbol_table = SymbolTable::new();
-    register_core_module(compilation_context, &mut symbol_table, compilation_session)?;
+    register_core_module(compilation_context, &mut symbol_table, compilation_inputs)?;
     let module_name = default_module_name(source_file);
-    let mut module_environment = ModuleEnvironment::new();
+    let mut module_imports = ModuleImports::new();
     symbol_table.add_module(module_name.clone());
     register_module_effects(script, source_file, compilation_context, &mut symbol_table)?;
     register_module_functions(
@@ -53,8 +52,8 @@ pub fn resolve(
         source_file,
         compilation_context,
         &mut symbol_table,
-        &mut module_environment,
-        compilation_session,
+        &mut module_imports,
+        compilation_inputs,
     )?;
     register_module_imports(
         script,
@@ -62,7 +61,7 @@ pub fn resolve(
         source_file,
         compilation_context,
         &mut symbol_table,
-        &mut module_environment,
+        &mut module_imports,
     )?;
     resolve_module_items(
         script,
@@ -70,25 +69,25 @@ pub fn resolve(
         source_file,
         compilation_context,
         &symbol_table,
-        &module_environment,
-        compilation_session,
+        &module_imports,
+        compilation_inputs,
     )?;
     let resolved_functions = resolve_user_defined_function_definitions(
         compilation_context,
         &symbol_table,
-        &HashMap::from([(source_file.path.clone(), module_environment)]),
-        compilation_session,
+        &HashMap::from([(source_file.path.clone(), module_imports)]),
+        compilation_inputs,
     )?;
-    compilation_context.symbol_table = symbol_table.clone();
-    *environment = ProgramEnvironment::from_symbol_table(&symbol_table);
+    *environment = symbol_table;
     environment.apply_resolved_functions(resolved_functions)?;
     finish_resolution(compilation_context)
 }
 
 /// Resolves a parsed multi-module program into one semantic result.
 pub fn resolve_program(
+    entry_path: FilePath,
     mut modules: Vec<ParsedModule>,
-    compilation_session: &CompilationSession,
+    compilation_inputs: &CompilationInputs,
 ) -> OcelotResult<ResolvedProgram> {
     let mut compilation_context = CompilationContext::default();
     let mut symbol_table = SymbolTable::new();
@@ -100,14 +99,14 @@ pub fn resolve_program(
         register_core_module(
             &mut compilation_context,
             &mut symbol_table,
-            compilation_session,
+            compilation_inputs,
         )?;
     }
     validate_loaded_modules(&modules, &mut compilation_context);
 
-    let mut module_environments: HashMap<FilePath, ModuleEnvironment> = modules
+    let mut module_imports_by_path: HashMap<FilePath, ModuleImports> = modules
         .iter()
-        .map(|module| (module.source_file.path.clone(), ModuleEnvironment::new()))
+        .map(|module| (module.source_file.path.clone(), ModuleImports::new()))
         .collect();
 
     for module in &modules {
@@ -130,10 +129,10 @@ pub fn resolve_program(
             &module.source_file,
             &mut compilation_context,
             &mut symbol_table,
-            module_environments
+            module_imports_by_path
                 .get_mut(&module.source_file.path)
-                .expect("module environment should exist for parsed module"),
-            compilation_session,
+                .expect("module imports should exist for parsed module"),
+            compilation_inputs,
         )?;
     }
 
@@ -144,9 +143,9 @@ pub fn resolve_program(
             &module.source_file,
             &mut compilation_context,
             &mut symbol_table,
-            module_environments
+            module_imports_by_path
                 .get_mut(&module.source_file.path)
-                .expect("module environment should exist for parsed module"),
+                .expect("module imports should exist for parsed module"),
         )?;
     }
 
@@ -157,27 +156,27 @@ pub fn resolve_program(
             &module.source_file,
             &mut compilation_context,
             &symbol_table,
-            module_environments
+            module_imports_by_path
                 .get(&module.source_file.path)
-                .expect("module environment should exist for parsed module"),
-            compilation_session,
+                .expect("module imports should exist for parsed module"),
+            compilation_inputs,
         )?;
     }
 
     let resolved_functions = resolve_user_defined_function_definitions(
         &mut compilation_context,
         &symbol_table,
-        &module_environments,
-        compilation_session,
+        &module_imports_by_path,
+        compilation_inputs,
     )?;
-    let mut program_environment = ProgramEnvironment::from_symbol_table(&symbol_table);
-    program_environment.apply_resolved_functions(resolved_functions)?;
-    compilation_context.symbol_table = SymbolTable::from_environment(&program_environment);
+    let mut symbol_table = symbol_table;
+    symbol_table.apply_resolved_functions(resolved_functions)?;
 
     Ok(ResolvedProgram::new(
+        entry_path,
         modules,
         compilation_context.source_diagnostics,
-        compilation_context.symbol_table,
+        symbol_table,
     ))
 }
 
@@ -185,7 +184,7 @@ pub fn resolve_program(
 pub fn register_core_module(
     compilation_context: &mut CompilationContext,
     declaration_index: &mut impl DeclarationIndex,
-    compilation_session: &CompilationSession,
+    compilation_inputs: &CompilationInputs,
 ) -> OcelotResult<()> {
     if declaration_index.has_module(CORE_MODULE_NAME) {
         return Ok(());
@@ -196,7 +195,7 @@ pub fn register_core_module(
         &source_file,
         &mut compilation_context.source_diagnostics,
     )?;
-    let mut module_environment = ModuleEnvironment::new();
+    let mut module_imports = ModuleImports::new();
 
     declaration_index.add_module(CORE_MODULE_NAME);
     register_module_effects(
@@ -211,8 +210,8 @@ pub fn register_core_module(
         &source_file,
         compilation_context,
         declaration_index,
-        &mut module_environment,
-        compilation_session,
+        &mut module_imports,
+        compilation_inputs,
     )?;
     Ok(())
 }
@@ -224,15 +223,15 @@ pub fn register_module_effects(
     compilation_context: &mut CompilationContext,
     declaration_index: &mut impl DeclarationIndex,
 ) -> OcelotResult<()> {
-    let compilation_session = CompilationSession::new();
-    let mut module_environment = ModuleEnvironment::new();
+    let compilation_inputs = CompilationInputs::new();
+    let mut module_imports = ModuleImports::new();
     DeclarationIndexer::new(
         source_file,
         "",
         compilation_context,
         declaration_index,
-        &mut module_environment,
-        &compilation_session,
+        &mut module_imports,
+        &compilation_inputs,
     )
     .register_effect_items(script);
     Ok(())
@@ -245,16 +244,16 @@ pub fn register_module_functions(
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
     declaration_index: &mut impl DeclarationIndex,
-    module_environment: &mut ModuleEnvironment,
-    compilation_session: &CompilationSession,
+    module_imports: &mut ModuleImports,
+    compilation_inputs: &CompilationInputs,
 ) -> OcelotResult<()> {
     DeclarationIndexer::new(
         source_file,
         module_name,
         compilation_context,
         declaration_index,
-        module_environment,
-        compilation_session,
+        module_imports,
+        compilation_inputs,
     )
     .register_function_items(script)?;
     Ok(())
@@ -267,16 +266,16 @@ pub fn register_module_imports(
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
     declaration_index: &mut impl DeclarationIndex,
-    module_environment: &mut ModuleEnvironment,
+    module_imports: &mut ModuleImports,
 ) -> OcelotResult<()> {
-    let compilation_session = CompilationSession::new();
+    let compilation_inputs = CompilationInputs::new();
     DeclarationIndexer::new(
         source_file,
         module_name,
         compilation_context,
         declaration_index,
-        module_environment,
-        &compilation_session,
+        module_imports,
+        &compilation_inputs,
     )
     .register_use_items(script);
     Ok(())
@@ -289,15 +288,15 @@ pub fn resolve_module_items(
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
     symbol_table: &SymbolTable,
-    module_environment: &ModuleEnvironment,
-    _compilation_session: &CompilationSession,
+    module_imports: &ModuleImports,
+    _compilation_inputs: &CompilationInputs,
 ) -> OcelotResult<()> {
     let mut resolver = Resolver::new(
         source_file,
         module_name,
         compilation_context,
         symbol_table,
-        module_environment,
+        module_imports,
         None,
     );
     for item in &mut script.items {
@@ -310,8 +309,8 @@ pub fn resolve_module_items(
 pub fn resolve_user_defined_function_definitions(
     compilation_context: &mut CompilationContext,
     symbol_table: &SymbolTable,
-    module_environments: &HashMap<FilePath, ModuleEnvironment>,
-    _compilation_session: &CompilationSession,
+    module_imports_by_path: &HashMap<FilePath, ModuleImports>,
+    _compilation_inputs: &CompilationInputs,
 ) -> OcelotResult<Vec<ResolvedFunction>> {
     let function_indices = symbol_table.user_defined_function_indices();
     let mut resolved_functions = Vec::with_capacity(function_indices.len());
@@ -336,9 +335,9 @@ pub fn resolve_user_defined_function_definitions(
                 "internal error: function index did not reference a user-defined function"
             );
         };
-        let module_environment = module_environments
+        let module_imports = module_imports_by_path
             .get(&source_file.path)
-            .expect("module environment should exist for resolved function source file");
+            .expect("module imports should exist for resolved function source file");
         let mut resolved_function = ResolvedFunction::new(
             function_index,
             (**function).clone(),
@@ -360,7 +359,7 @@ pub fn resolve_user_defined_function_definitions(
             module_name.as_str(),
             compilation_context,
             symbol_table,
-            module_environment,
+            module_imports,
             Some(&mut resolved_function),
         )
         .resolve_function_item(&mut function);

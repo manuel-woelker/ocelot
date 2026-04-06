@@ -1,4 +1,3 @@
-use crate::symbol_table::SymbolTable;
 use ocelot_base::source_diagnostic::SourceDiagnostic;
 use ocelot_base::source_diagnostics::SourceDiagnostics;
 
@@ -7,17 +6,12 @@ use ocelot_base::source_diagnostics::SourceDiagnostics;
 pub struct CompilationContext {
     /// Diagnostics produced during compilation.
     pub source_diagnostics: SourceDiagnostics,
-    /// Symbol table
-    pub symbol_table: SymbolTable,
 }
 
 impl CompilationContext {
     /// Creates a compilation context from the provided source diagnostics.
     pub fn new(source_diagnostics: SourceDiagnostics) -> Self {
-        Self {
-            source_diagnostics,
-            ..Default::default()
-        }
+        Self { source_diagnostics }
     }
 
     /// Appends one diagnostic to this compilation context.

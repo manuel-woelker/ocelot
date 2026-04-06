@@ -16,10 +16,10 @@ use ocelot_base::shared_string::SharedString;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 use ocelot_semantic::compilation_context::CompilationContext;
-use ocelot_semantic::compilation_session::CompilationSession;
+use ocelot_semantic::compilation_inputs::CompilationInputs;
 use ocelot_semantic::function_definition::FunctionDefinition;
 use ocelot_semantic::function_kind::FunctionKind;
-use ocelot_semantic::module_environment::ModuleEnvironment;
+use ocelot_semantic::module_imports::ModuleImports;
 use ocelot_semantic::native_function::native_type_label;
 use ocelot_semantic::symbol_table::SymbolTable;
 use std::collections::BTreeSet;
@@ -113,8 +113,8 @@ pub(crate) struct DeclarationIndexer<'a, D: DeclarationIndex> {
     module_name: &'a str,
     compilation_context: &'a mut CompilationContext,
     declaration_index: &'a mut D,
-    module_environment: &'a mut ModuleEnvironment,
-    compilation_session: &'a CompilationSession,
+    module_imports: &'a mut ModuleImports,
+    compilation_inputs: &'a CompilationInputs,
 }
 
 impl<'a, D: DeclarationIndex> DeclarationIndexer<'a, D> {
@@ -123,16 +123,16 @@ impl<'a, D: DeclarationIndex> DeclarationIndexer<'a, D> {
         module_name: &'a str,
         compilation_context: &'a mut CompilationContext,
         declaration_index: &'a mut D,
-        module_environment: &'a mut ModuleEnvironment,
-        compilation_session: &'a CompilationSession,
+        module_imports: &'a mut ModuleImports,
+        compilation_inputs: &'a CompilationInputs,
     ) -> Self {
         Self {
             source_file,
             module_name,
             compilation_context,
             declaration_index,
-            module_environment,
-            compilation_session,
+            module_imports,
+            compilation_inputs,
         }
     }
 
@@ -285,7 +285,7 @@ impl<'a, D: DeclarationIndex> DeclarationIndexer<'a, D> {
             }
 
             let Some(native_function) = self
-                .compilation_session
+                .compilation_inputs
                 .native_function_registry()
                 .resolve(qualified_name.as_str())
             else {
@@ -395,7 +395,7 @@ impl<'a, D: DeclarationIndex> DeclarationIndexer<'a, D> {
         }
 
         if self
-            .module_environment
+            .module_imports
             .resolve_imported_function(local_name.as_str())
             .is_some()
         {
@@ -407,7 +407,7 @@ impl<'a, D: DeclarationIndex> DeclarationIndexer<'a, D> {
             return;
         }
 
-        self.module_environment
+        self.module_imports
             .add_imported_function(local_name, function_index);
     }
 

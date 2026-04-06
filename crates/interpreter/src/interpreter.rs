@@ -22,13 +22,13 @@ use ocelot_base::span::Span;
 use ocelot_pal::pal::Pal;
 use ocelot_semantic::function_kind::FunctionKind;
 use ocelot_semantic::native_function::NativeFunctionContext;
-use ocelot_semantic::program_environment::ProgramEnvironment;
 use ocelot_semantic::runtime_value::RuntimeValue;
+use ocelot_semantic::symbol_table::SymbolTable;
 use std::collections::HashMap;
 
 /// Stateful AST-walking interpreter context.
 pub struct Interpreter<'a> {
-    environment: &'a ProgramEnvironment,
+    environment: &'a SymbolTable,
     local_bindings: HashMap<SharedString, RuntimeValue>,
     pal: &'a dyn Pal,
     source_file: &'a SourceFile,
@@ -39,7 +39,7 @@ impl<'a> Interpreter<'a> {
     pub fn new(
         pal: &'a dyn Pal,
         source_file: &'a SourceFile,
-        environment: &'a ProgramEnvironment,
+        environment: &'a SymbolTable,
     ) -> Self {
         Self::new_with_bindings(pal, source_file, environment, HashMap::new())
     }
@@ -48,7 +48,7 @@ impl<'a> Interpreter<'a> {
     pub fn new_with_bindings(
         pal: &'a dyn Pal,
         source_file: &'a SourceFile,
-        environment: &'a ProgramEnvironment,
+        environment: &'a SymbolTable,
         local_bindings: HashMap<SharedString, RuntimeValue>,
     ) -> Self {
         Self {

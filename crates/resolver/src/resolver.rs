@@ -17,7 +17,7 @@ use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 use ocelot_semantic::compilation_context::CompilationContext;
 use ocelot_semantic::function_kind::FunctionKind;
-use ocelot_semantic::module_environment::ModuleEnvironment;
+use ocelot_semantic::module_imports::ModuleImports;
 use ocelot_semantic::resolved_function::ResolvedFunction;
 use ocelot_semantic::symbol_table::SymbolTable;
 use std::collections::HashMap;
@@ -27,7 +27,7 @@ pub(crate) struct Resolver<'a> {
     module_name: &'a str,
     compilation_context: &'a mut CompilationContext,
     symbol_table: &'a SymbolTable,
-    module_environment: &'a ModuleEnvironment,
+    module_imports: &'a ModuleImports,
     resolved_function: Option<&'a mut ResolvedFunction>,
     local_value_types: HashMap<SharedString, TypeIndex>,
 }
@@ -38,7 +38,7 @@ impl<'a> Resolver<'a> {
         module_name: &'a str,
         compilation_context: &'a mut CompilationContext,
         symbol_table: &'a SymbolTable,
-        module_environment: &'a ModuleEnvironment,
+        module_imports: &'a ModuleImports,
         resolved_function: Option<&'a mut ResolvedFunction>,
     ) -> Self {
         Self {
@@ -46,7 +46,7 @@ impl<'a> Resolver<'a> {
             module_name,
             compilation_context,
             symbol_table,
-            module_environment,
+            module_imports,
             resolved_function,
             local_value_types: HashMap::new(),
         }
@@ -219,7 +219,7 @@ impl<'a> Resolver<'a> {
             }
         }
 
-        if let Some(function_index) = self.module_environment.resolve_imported_function(name) {
+        if let Some(function_index) = self.module_imports.resolve_imported_function(name) {
             return Some(function_index);
         }
 

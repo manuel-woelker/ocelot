@@ -2,14 +2,14 @@ use ocelot_ast::function_index::FunctionIndex;
 use ocelot_base::shared_string::SharedString;
 use std::collections::HashMap;
 
-/// File-local semantic state used while resolving one module.
+/// File-local imported-function bindings used while resolving one module.
 #[derive(Debug, Clone, Default)]
-pub struct ModuleEnvironment {
+pub struct ModuleImports {
     imported_function_symbols: HashMap<SharedString, FunctionIndex>,
 }
 
-impl ModuleEnvironment {
-    /// Creates an empty module environment.
+impl ModuleImports {
+    /// Creates an empty module import table.
     pub fn new() -> Self {
         Self::default()
     }

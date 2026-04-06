@@ -138,46 +138,46 @@ Those methods are currently adapter noise caused by the split between resolver o
 10. Remove any remaining semantic adapters that only exist because of the old split representations.
 11. Run targeted crate tests, then run `nao check`.
 
-# What concrete refactors should happen in the semantic crate?
+# What concrete refactors happened in the semantic crate?
 
-- [ ] Keep [`SymbolTable`](/data/projects/ocelot/crates/semantic/src/symbol_table.rs) as the canonical program-wide semantic representation and document that decision in the code.
-- [ ] Update [`ResolvedProgram`](/data/projects/ocelot/crates/semantic/src/resolved_program.rs) to store `entry_path` and the canonical symbol table directly.
-- [ ] Remove `ResolvedProgram::program_environment()` if it becomes a transitional conversion helper.
-- [ ] Delete [`ProgramEnvironment`](/data/projects/ocelot/crates/semantic/src/program_environment.rs) as a persistent peer model once its remaining APIs have moved.
-- [ ] Remove `CompilationContext.symbol_table` from [`CompilationContext`](/data/projects/ocelot/crates/semantic/src/compilation_context.rs) if diagnostics are its only lasting job.
-- [ ] Rename [`ModuleEnvironment`](/data/projects/ocelot/crates/semantic/src/module_environment.rs) to a name that communicates “module-local imported bindings”.
-- [ ] Rename [`CompilationSession`](/data/projects/ocelot/crates/semantic/src/compilation_session.rs) to a name that communicates “immutable compilation inputs”.
-- [ ] Update RustDoc comments so readers can tell which types are compiler inputs, scratch state, and final artifacts.
+- [x] Keep [`SymbolTable`](/data/projects/ocelot/crates/semantic/src/symbol_table.rs) as the canonical program-wide semantic representation and document that decision in the code.
+- [x] Update [`ResolvedProgram`](/data/projects/ocelot/crates/semantic/src/resolved_program.rs) to store `entry_path` and the canonical symbol table directly.
+- [x] Remove `ResolvedProgram::program_environment()` now that the transitional conversion helper is unnecessary.
+- [x] Delete [`ProgramEnvironment`](/data/projects/ocelot/crates/semantic/src/program_environment.rs) as a persistent peer model after moving its runtime-facing APIs onto [`SymbolTable`](/data/projects/ocelot/crates/semantic/src/symbol_table.rs).
+- [x] Remove `CompilationContext.symbol_table` from [`CompilationContext`](/data/projects/ocelot/crates/semantic/src/compilation_context.rs) so it is clearly diagnostics-only scratch state.
+- [x] Rename [`ModuleEnvironment`](/data/projects/ocelot/crates/semantic/src/module_environment.rs) to [`ModuleImports`](/data/projects/ocelot/crates/semantic/src/module_imports.rs) to reflect its actual role.
+- [x] Rename [`CompilationSession`](/data/projects/ocelot/crates/semantic/src/compilation_session.rs) to [`CompilationInputs`](/data/projects/ocelot/crates/semantic/src/compilation_inputs.rs) to reflect immutable compiler inputs.
+- [x] Update RustDoc comments so readers can tell which types are compiler inputs, scratch state, and final artifacts.
 
-# What concrete refactors should happen in the resolver crate?
+# What concrete refactors happened in the resolver crate?
 
-- [ ] Change resolver orchestration to build the canonical [`SymbolTable`](/data/projects/ocelot/crates/semantic/src/symbol_table.rs) directly instead of building one table and converting it into another.
-- [ ] Replace generic “context” and “environment” parameter names with names tied to their actual role after the type renames land.
-- [ ] Make the resolver use one clearly named diagnostics accumulator instead of a pseudo-context that appears broader than it is.
-- [ ] Keep module-local import state as resolver scratch data only; do not leak it into the final compiled program artifact.
-- [ ] Collapse any helper APIs that exist only to support both the old single-file and multi-file semantic representations.
-- [ ] Update resolver tests to assert the new canonical `ResolvedProgram` shape and remove assertions that depend on transitional conversion helpers.
+- [x] Change resolver orchestration to build the canonical [`SymbolTable`](/data/projects/ocelot/crates/semantic/src/symbol_table.rs) directly instead of building one table and converting it into another.
+- [x] Replace generic “context” and “environment” parameter names with names tied to their actual role after the type renames land.
+- [x] Make the resolver use one clearly named diagnostics accumulator instead of a pseudo-context that appears broader than it is.
+- [x] Keep module-local import state as resolver scratch data only; do not leak it into the final compiled program artifact.
+- [x] Collapse helper APIs so the single-file and multi-file flows both resolve directly into [`SymbolTable`](/data/projects/ocelot/crates/semantic/src/symbol_table.rs).
+- [x] Update resolver tests to assert the new canonical `ResolvedProgram` shape and remove assertions that depend on transitional conversion helpers.
 
-# What concrete refactors should happen in the engine and interpreter crates?
+# What concrete refactors happened in the engine and interpreter crates?
 
-- [ ] Replace worker-local semantic adapters in [`EngineWorker`](/data/projects/ocelot/crates/engine/src/engine_worker.rs) with direct use of `ResolvedProgram.entry_path`, `ResolvedProgram.modules`, and `ResolvedProgram.symbol_table`.
-- [ ] Move parsing results through the engine as local variables or a dedicated temporary artifact rather than persistent mutable worker fields where possible.
-- [ ] Extract execution helpers that take a resolved program and an entry selection rather than reading from worker state.
-- [ ] Keep parser diagnostics and resolver diagnostics available through one obvious access path for user-facing error rendering.
-- [ ] Update interpreter entry points to consume the canonical semantic program type directly.
-- [ ] Remove any now-redundant helper methods that only exist to convert between semantic representations.
+- [x] Replace worker-local semantic adapters in [`EngineWorker`](/data/projects/ocelot/crates/engine/src/engine_worker.rs) with direct use of `ResolvedProgram.entry_path`, `ResolvedProgram.modules`, and `ResolvedProgram.symbol_table`.
+- [x] Move parsing results through the engine as local variables rather than persistent mutable worker fields.
+- [x] Simplify execution helpers so they operate against the resolved program payload instead of rebuilding semantic state.
+- [x] Keep parser diagnostics and resolver diagnostics available through one obvious access path for user-facing error rendering.
+- [x] Update interpreter entry points to consume [`SymbolTable`](/data/projects/ocelot/crates/semantic/src/symbol_table.rs) directly.
+- [x] Remove helper methods that only existed to convert between semantic representations.
 
 # How should this work be verified?
 
 Verification should prove both behavioral correctness and architectural simplification.
 
-- [ ] Add semantic or resolver tests proving the chosen canonical program representation contains everything needed for execution without a secondary conversion step.
-- [ ] Add resolver tests covering multi-module imports, builtin registration, function resolution, and effect propagation through the simplified artifact.
-- [ ] Add engine tests covering script execution, module `main()` execution, targeted test execution, and all-tests execution through the new boundary.
-- [ ] Add tests that compilation failures still preserve diagnostics for parser and resolver stages.
-- [ ] Remove or rewrite tests that lock in the old duplicated table model.
-- [ ] Run `cargo test -p ocelot-semantic -p ocelot-resolver -p ocelot-engine -p ocelot-interpreter`.
-- [ ] Run `nao check`.
+- [x] Add semantic or resolver tests proving the chosen canonical program representation contains everything needed for execution without a secondary conversion step.
+- [x] Add resolver tests covering multi-module imports, builtin registration, function resolution, and effect propagation through the simplified artifact.
+- [x] Add engine tests covering script execution, module `main()` execution, targeted test execution, and all-tests execution through the new boundary.
+- [x] Add tests that compilation failures still preserve diagnostics for parser and resolver stages.
+- [x] Remove or rewrite tests that lock in the old duplicated table model.
+- [x] Run `cargo test -p ocelot-semantic -p ocelot-resolver -p ocelot-engine -p ocelot-interpreter`.
+- [x] Run `nao check`.
 
 # What risks, assumptions, and open questions should stay explicit?
 
@@ -188,3 +188,18 @@ Verification should prove both behavioral correctness and architectural simplifi
 - The engine simplification should avoid prematurely deleting [`EngineWorker`](/data/projects/ocelot/crates/engine/src/engine_worker.rs) if it still provides a useful seam for test execution orchestration. The real goal is removing hidden mutable pipeline state, not forcing everything into free functions.
 - If `CompilationSession` is renamed, the new name should be chosen carefully. `Inputs` is clearer than `Session`, but it may still be too broad if native functions remain the only payload.
 - This plan intentionally prioritizes understandability over micro-optimizations. If the canonical program model allows both resolution and execution without cloning whole tables, that is a bonus, but not the primary goal.
+
+# What landed from this plan?
+
+This refactor collapsed the duplicated semantic model and simplified the execution boundary around one canonical resolved-program artifact:
+
+- [`SymbolTable`](/data/projects/ocelot/crates/semantic/src/symbol_table.rs) is now the single program-wide semantic model used by both resolution and execution
+- [`ProgramEnvironment`](/data/projects/ocelot/crates/semantic/src/program_environment.rs) was removed after its runtime-facing APIs moved onto [`SymbolTable`](/data/projects/ocelot/crates/semantic/src/symbol_table.rs)
+- [`ResolvedProgram`](/data/projects/ocelot/crates/semantic/src/resolved_program.rs) now stores `entry_path`, resolved modules, source diagnostics, and the canonical symbol table directly
+- [`CompilationContext`](/data/projects/ocelot/crates/semantic/src/compilation_context.rs) is now diagnostics-only scratch state instead of pretending to own semantic state
+- [`CompilationSession`](/data/projects/ocelot/crates/semantic/src/compilation_session.rs) was renamed to [`CompilationInputs`](/data/projects/ocelot/crates/semantic/src/compilation_inputs.rs)
+- [`ModuleEnvironment`](/data/projects/ocelot/crates/semantic/src/module_environment.rs) was renamed to [`ModuleImports`](/data/projects/ocelot/crates/semantic/src/module_imports.rs)
+- the resolver now resolves directly into [`SymbolTable`](/data/projects/ocelot/crates/semantic/src/symbol_table.rs) without reconstructing a second program-wide semantic representation
+- [`EngineWorker`](/data/projects/ocelot/crates/engine/src/engine_worker.rs) now passes parsed modules as local data into resolution, stores the returned [`ResolvedProgram`](/data/projects/ocelot/crates/semantic/src/resolved_program.rs), and executes directly against its `entry_path` and `symbol_table`
+- the interpreter now consumes [`SymbolTable`](/data/projects/ocelot/crates/semantic/src/symbol_table.rs) directly
+- `cargo test -p ocelot-semantic -p ocelot-resolver -p ocelot-engine -p ocelot-interpreter` and `nao check` pass

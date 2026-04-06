@@ -3,13 +3,13 @@ use ocelot_ast::compilation_unit::CompilationUnit;
 use ocelot_base::result::OcelotResult;
 use ocelot_base::source_file::SourceFile;
 use ocelot_pal::pal::Pal;
-use ocelot_semantic::program_environment::ProgramEnvironment;
+use ocelot_semantic::symbol_table::SymbolTable;
 
 /// Executes a parsed script.
 pub fn interpret_script(
     script: &CompilationUnit,
     source_file: &SourceFile,
-    environment: &ProgramEnvironment,
+    environment: &SymbolTable,
     pal: &dyn Pal,
 ) -> OcelotResult<()> {
     Interpreter::new(pal, source_file, environment).interpret_script(script)
@@ -41,11 +41,11 @@ mod tests {
     use ocelot_pal::pal_mock::PalMock;
     use ocelot_resolver::resolution::resolve;
     use ocelot_semantic::compilation_context::CompilationContext;
-    use ocelot_semantic::compilation_session::CompilationSession;
-    use ocelot_semantic::program_environment::ProgramEnvironment;
+    use ocelot_semantic::compilation_inputs::CompilationInputs;
+    use ocelot_semantic::symbol_table::SymbolTable;
 
-    fn test_program_environment() -> ProgramEnvironment {
-        ProgramEnvironment::new()
+    fn test_program_environment() -> SymbolTable {
+        SymbolTable::new()
     }
 
     fn interpret_script(
@@ -54,7 +54,7 @@ mod tests {
         pal: &PalMock,
     ) -> OcelotResult<()> {
         let environment = test_program_environment();
-        let compilation_session = CompilationSession::with_default_native_functions();
+        let compilation_inputs = CompilationInputs::with_default_native_functions();
         let mut script = script.clone();
         let mut context = CompilationContext::default();
         let mut environment = environment;
@@ -63,7 +63,7 @@ mod tests {
             source_file,
             &mut context,
             &mut environment,
-            &compilation_session,
+            &compilation_inputs,
         )?;
         interpret_resolved_script(&script, source_file, &environment, pal)
     }

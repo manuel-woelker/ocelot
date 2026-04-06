@@ -3,17 +3,17 @@ use crate::native_function::default_native_function_registry;
 
 /// External compiler inputs for one compilation run.
 #[derive(Debug, Clone, Default)]
-pub struct CompilationSession {
+pub struct CompilationInputs {
     native_function_registry: NativeFunctionRegistry,
 }
 
-impl CompilationSession {
-    /// Creates one empty compilation session.
+impl CompilationInputs {
+    /// Creates one empty compilation input set.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Creates one compilation session with the default native function registry.
+    /// Creates one compilation input set with the default native function registry.
     pub fn with_default_native_functions() -> Self {
         Self {
             native_function_registry: default_native_function_registry(),
