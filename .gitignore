@@ -9,3 +9,4 @@ devenv.local.yaml
 .direnv
 /.cache
 /.codex
+/.cqs
