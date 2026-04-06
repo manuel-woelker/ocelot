@@ -37,21 +37,30 @@ pub fn resolve(
     script: &mut CompilationUnit,
     source_file: &SourceFile,
     compilation_context: &mut CompilationContext,
-    environment: &mut SymbolTable,
+    symbol_table: &mut SymbolTable,
     compilation_inputs: &CompilationInputs,
 ) -> OcelotResult<()> {
-    let mut symbol_table = SymbolTable::new();
-    register_core_module(compilation_context, &mut symbol_table, compilation_inputs)?;
+    let mut resolved_symbol_table = SymbolTable::new();
+    register_core_module(
+        compilation_context,
+        &mut resolved_symbol_table,
+        compilation_inputs,
+    )?;
     let module_name = default_module_name(source_file);
     let mut module_imports = ModuleImports::new();
-    symbol_table.add_module(module_name.clone());
-    register_module_effects(script, source_file, compilation_context, &mut symbol_table)?;
+    resolved_symbol_table.add_module(module_name.clone());
+    register_module_effects(
+        script,
+        source_file,
+        compilation_context,
+        &mut resolved_symbol_table,
+    )?;
     register_module_functions(
         script,
         &module_name,
         source_file,
         compilation_context,
-        &mut symbol_table,
+        &mut resolved_symbol_table,
         &mut module_imports,
         compilation_inputs,
     )?;
@@ -60,7 +69,7 @@ pub fn resolve(
         &module_name,
         source_file,
         compilation_context,
-        &mut symbol_table,
+        &mut resolved_symbol_table,
         &mut module_imports,
     )?;
     resolve_module_items(
@@ -68,18 +77,18 @@ pub fn resolve(
         &module_name,
         source_file,
         compilation_context,
-        &symbol_table,
+        &resolved_symbol_table,
         &module_imports,
         compilation_inputs,
     )?;
     let resolved_functions = resolve_user_defined_function_definitions(
         compilation_context,
-        &symbol_table,
+        &resolved_symbol_table,
         &HashMap::from([(source_file.path.clone(), module_imports)]),
         compilation_inputs,
     )?;
-    *environment = symbol_table;
-    environment.apply_resolved_functions(resolved_functions)?;
+    *symbol_table = resolved_symbol_table;
+    symbol_table.apply_resolved_functions(resolved_functions)?;
     finish_resolution(compilation_context)
 }
 
@@ -180,7 +189,7 @@ pub fn resolve_program(
     ))
 }
 
-/// Registers the compiler-provided `core` module into one program environment.
+/// Registers the compiler-provided `core` module into one symbol table.
 pub fn register_core_module(
     compilation_context: &mut CompilationContext,
     declaration_index: &mut impl DeclarationIndex,

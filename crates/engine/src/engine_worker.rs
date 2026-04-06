@@ -315,16 +315,16 @@ impl EngineWorker {
     fn run_module_entrypoint(
         &self,
         entry_module: &ParsedModule,
-        environment: &SymbolTable,
+        symbol_table: &SymbolTable,
     ) -> OcelotResult<()> {
-        let entrypoint_name = environment.qualify_function_name(&entry_module.module_name, "main");
-        let function_index = environment
+        let entrypoint_name = symbol_table.qualify_function_name(&entry_module.module_name, "main");
+        let function_index = symbol_table
             .resolve_function_exact(entrypoint_name.as_str())
             .context(format!(
                 "module `{}` does not define a `main()` entrypoint",
                 entry_module.module_name
             ))?;
-        let function_definition = environment.function_definition(function_index)?;
+        let function_definition = symbol_table.function_definition(function_index)?;
         let FunctionKind::UserDefined {
             function,
             source_file,
@@ -335,7 +335,7 @@ impl EngineWorker {
             );
         };
 
-        ocelot_interpreter::interpreter::Interpreter::new(&*self.pal, source_file, environment)
+        ocelot_interpreter::interpreter::Interpreter::new(&*self.pal, source_file, symbol_table)
             .interpret_statements(&function.body)
     }
 }

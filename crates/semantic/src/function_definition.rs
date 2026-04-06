@@ -11,7 +11,7 @@ use std::collections::BTreeSet;
 use crate::function_kind::FunctionKind;
 use crate::native_function::NativeFunction;
 
-/// Definition record for one function entry in the program environment.
+/// Definition record for one function entry in the symbol table.
 #[derive(Debug, Clone)]
 pub struct FunctionDefinition {
     pub name: SharedString,

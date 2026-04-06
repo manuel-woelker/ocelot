@@ -141,13 +141,13 @@ fn resolves_native_call_expressions() {
             .unwrap()
     };
     let mut context = CompilationContext::default();
-    let mut environment = SymbolTable::new();
+    let mut symbol_table = SymbolTable::new();
 
     resolve(
         &mut script,
         &source_file,
         &mut context,
-        &mut environment,
+        &mut symbol_table,
         &compilation_inputs,
     )
     .unwrap();
@@ -301,7 +301,7 @@ fn resolves_parameter_references_inside_function_bodies() {
         "examples/functions.ocelot",
         "fun greet(name: string) { println(name); } greet(\"hello\");",
     );
-    let mut environment = SymbolTable::new();
+    let mut symbol_table = SymbolTable::new();
     let compilation_inputs = compilation_inputs();
     let mut context = CompilationContext::default();
 
@@ -309,17 +309,17 @@ fn resolves_parameter_references_inside_function_bodies() {
         &mut script,
         &source_file,
         &mut context,
-        &mut environment,
+        &mut symbol_table,
         &compilation_inputs,
     )
     .unwrap();
 
-    let function_definition = environment
-        .function_definition(environment.resolve_function("functions::greet").unwrap())
+    let function_definition = symbol_table
+        .function_definition(symbol_table.resolve_function("functions::greet").unwrap())
         .unwrap();
     assert_eq!(
         function_definition.argument_types,
-        vec![environment.string_type_index()]
+        vec![symbol_table.string_type_index()]
     );
 
     let FunctionKind::UserDefined { function, .. } = &function_definition.kind else {
@@ -331,7 +331,7 @@ fn resolves_parameter_references_inside_function_bodies() {
     };
     assert_eq!(
         call_expression.arguments[0].ty,
-        environment.string_type_index()
+        symbol_table.string_type_index()
     );
 }
 
@@ -533,7 +533,7 @@ fn reports_wrong_user_defined_call_arity() {
         "examples/functions.ocelot",
         "fun greet(name: string) {} greet();",
     );
-    let mut environment = SymbolTable::new();
+    let mut symbol_table = SymbolTable::new();
     let compilation_inputs = compilation_inputs();
     let mut context = CompilationContext::default();
 
@@ -541,7 +541,7 @@ fn reports_wrong_user_defined_call_arity() {
         &mut script,
         &source_file,
         &mut context,
-        &mut environment,
+        &mut symbol_table,
         &compilation_inputs,
     )
     .unwrap_err();
@@ -587,7 +587,7 @@ fn reports_wrong_user_defined_call_argument_types() {
         "examples/functions.ocelot",
         "fun greet(excited: bool) {} greet(\"hello\");",
     );
-    let mut environment = SymbolTable::new();
+    let mut symbol_table = SymbolTable::new();
     let compilation_inputs = compilation_inputs();
     let mut context = CompilationContext::default();
 
@@ -595,7 +595,7 @@ fn reports_wrong_user_defined_call_argument_types() {
         &mut script,
         &source_file,
         &mut context,
-        &mut environment,
+        &mut symbol_table,
         &compilation_inputs,
     )
     .unwrap_err();
@@ -672,7 +672,7 @@ fn resolves_module_qualified_calls() {
         &symbol_table,
         module_importss
             .get_mut(&main_source_file.path)
-            .expect("module environment should exist"),
+            .expect("module imports should exist"),
         &compilation_inputs,
     )
     .unwrap();
@@ -683,8 +683,8 @@ fn resolves_module_qualified_calls() {
         &compilation_inputs,
     )
     .unwrap();
-    let mut environment = symbol_table.clone();
-    environment
+    let mut resolved_symbol_table = symbol_table.clone();
+    resolved_symbol_table
         .apply_resolved_functions(resolved_functions)
         .unwrap();
     finish_resolution(&context).unwrap();
@@ -698,7 +698,7 @@ fn resolves_module_qualified_calls() {
     };
     assert_eq!(
         call_expression.function_index().unwrap(),
-        environment.resolve_function("math::greet::hello").unwrap()
+        symbol_table.resolve_function("math::greet::hello").unwrap()
     );
 }
 
@@ -773,7 +773,7 @@ fn resolves_imported_function_calls() {
         &mut symbol_table,
         module_importss
             .get_mut(&main_source_file.path)
-            .expect("module environment should exist"),
+            .expect("module imports should exist"),
     )
     .unwrap();
     resolve_module_items(
@@ -784,7 +784,7 @@ fn resolves_imported_function_calls() {
         &symbol_table,
         module_importss
             .get_mut(&main_source_file.path)
-            .expect("module environment should exist"),
+            .expect("module imports should exist"),
         &compilation_inputs,
     )
     .unwrap();
@@ -795,8 +795,8 @@ fn resolves_imported_function_calls() {
         &compilation_inputs,
     )
     .unwrap();
-    let mut environment = symbol_table.clone();
-    environment
+    let mut resolved_symbol_table = symbol_table.clone();
+    resolved_symbol_table
         .apply_resolved_functions(resolved_functions)
         .unwrap();
     finish_resolution(&context).unwrap();
@@ -810,7 +810,7 @@ fn resolves_imported_function_calls() {
     };
     assert_eq!(
         call_expression.function_index().unwrap(),
-        environment.resolve_function("helper::greet").unwrap()
+        symbol_table.resolve_function("helper::greet").unwrap()
     );
 }
 
@@ -907,7 +907,7 @@ fn imported_names_are_available_inside_function_bodies() {
         &mut symbol_table,
         module_importss
             .get_mut(&main_source_file.path)
-            .expect("module environment should exist"),
+            .expect("module imports should exist"),
     )
     .unwrap();
     resolve_module_items(
@@ -918,7 +918,7 @@ fn imported_names_are_available_inside_function_bodies() {
         &symbol_table,
         module_importss
             .get_mut(&main_source_file.path)
-            .expect("module environment should exist"),
+            .expect("module imports should exist"),
         &compilation_inputs,
     )
     .unwrap();
@@ -929,14 +929,14 @@ fn imported_names_are_available_inside_function_bodies() {
         &compilation_inputs,
     )
     .unwrap();
-    let mut environment = symbol_table.clone();
-    environment
+    let mut resolved_symbol_table = symbol_table.clone();
+    resolved_symbol_table
         .apply_resolved_functions(resolved_functions)
         .unwrap();
     finish_resolution(&context).unwrap();
 
-    let run = environment
-        .function_definition(environment.resolve_function("main::run").unwrap())
+    let run = resolved_symbol_table
+        .function_definition(symbol_table.resolve_function("main::run").unwrap())
         .unwrap();
     let FunctionKind::UserDefined { function, .. } = &run.kind else {
         panic!("expected user-defined function");
@@ -947,7 +947,7 @@ fn imported_names_are_available_inside_function_bodies() {
     };
     assert_eq!(
         call_expression.function_index().unwrap(),
-        environment.resolve_function("helper::greet").unwrap()
+        symbol_table.resolve_function("helper::greet").unwrap()
     );
 }
 
@@ -1384,7 +1384,7 @@ fn propagates_explicit_can_effects_to_callers() {
         &symbol_table,
         module_importss
             .get_mut(&source_file.path)
-            .expect("module environment should exist"),
+            .expect("module imports should exist"),
         &compilation_inputs,
     )
     .unwrap();
@@ -1395,15 +1395,15 @@ fn propagates_explicit_can_effects_to_callers() {
         &compilation_inputs,
     )
     .unwrap();
-    let mut environment = symbol_table.clone();
-    environment
+    let mut resolved_symbol_table = symbol_table.clone();
+    resolved_symbol_table
         .apply_resolved_functions(resolved_functions)
         .unwrap();
     finish_resolution(&context).unwrap();
 
-    let exec_effect = environment.resolve_effect("exec").unwrap();
-    let parent = environment
-        .function_definition(environment.resolve_function("main::parent").unwrap())
+    let exec_effect = resolved_symbol_table.resolve_effect("exec").unwrap();
+    let parent = resolved_symbol_table
+        .function_definition(symbol_table.resolve_function("main::parent").unwrap())
         .unwrap();
 
     assert!(parent.inferred_effects.contains(&exec_effect));
@@ -1481,7 +1481,7 @@ fn reports_transitive_forbidden_effects() {
         &symbol_table,
         module_importss
             .get_mut(&source_file.path)
-            .expect("module environment should exist"),
+            .expect("module imports should exist"),
         &compilation_inputs,
     )
     .unwrap();
@@ -1492,8 +1492,8 @@ fn reports_transitive_forbidden_effects() {
         &compilation_inputs,
     )
     .unwrap();
-    let mut environment = symbol_table.clone();
-    environment
+    let mut resolved_symbol_table = symbol_table.clone();
+    resolved_symbol_table
         .apply_resolved_functions(resolved_functions)
         .unwrap();
 
@@ -1560,8 +1560,8 @@ fn reports_direct_builtin_effect_violations_at_the_call_site() {
         &compilation_inputs,
     )
     .unwrap();
-    let mut environment = symbol_table.clone();
-    environment
+    let mut resolved_symbol_table = symbol_table.clone();
+    resolved_symbol_table
         .apply_resolved_functions(resolved_functions)
         .unwrap();
 

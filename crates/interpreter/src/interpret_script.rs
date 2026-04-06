@@ -9,10 +9,10 @@ use ocelot_semantic::symbol_table::SymbolTable;
 pub fn interpret_script(
     script: &CompilationUnit,
     source_file: &SourceFile,
-    environment: &SymbolTable,
+    symbol_table: &SymbolTable,
     pal: &dyn Pal,
 ) -> OcelotResult<()> {
-    Interpreter::new(pal, source_file, environment).interpret_script(script)
+    Interpreter::new(pal, source_file, symbol_table).interpret_script(script)
 }
 
 #[cfg(test)]
@@ -44,7 +44,7 @@ mod tests {
     use ocelot_semantic::compilation_inputs::CompilationInputs;
     use ocelot_semantic::symbol_table::SymbolTable;
 
-    fn test_program_environment() -> SymbolTable {
+    fn test_symbol_table() -> SymbolTable {
         SymbolTable::new()
     }
 
@@ -53,19 +53,19 @@ mod tests {
         source_file: &SourceFile,
         pal: &PalMock,
     ) -> OcelotResult<()> {
-        let environment = test_program_environment();
+        let symbol_table = test_symbol_table();
         let compilation_inputs = CompilationInputs::with_default_native_functions();
         let mut script = script.clone();
         let mut context = CompilationContext::default();
-        let mut environment = environment;
+        let mut symbol_table = symbol_table;
         resolve(
             &mut script,
             source_file,
             &mut context,
-            &mut environment,
+            &mut symbol_table,
             &compilation_inputs,
         )?;
-        interpret_resolved_script(&script, source_file, &environment, pal)
+        interpret_resolved_script(&script, source_file, &symbol_table, pal)
     }
 
     fn call_expression(name: &str, arguments: Vec<Expression>, span: Span) -> Expression {

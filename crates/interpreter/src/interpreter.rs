@@ -28,7 +28,7 @@ use std::collections::HashMap;
 
 /// Stateful AST-walking interpreter context.
 pub struct Interpreter<'a> {
-    environment: &'a SymbolTable,
+    symbol_table: &'a SymbolTable,
     local_bindings: HashMap<SharedString, RuntimeValue>,
     pal: &'a dyn Pal,
     source_file: &'a SourceFile,
@@ -39,20 +39,20 @@ impl<'a> Interpreter<'a> {
     pub fn new(
         pal: &'a dyn Pal,
         source_file: &'a SourceFile,
-        environment: &'a SymbolTable,
+        symbol_table: &'a SymbolTable,
     ) -> Self {
-        Self::new_with_bindings(pal, source_file, environment, HashMap::new())
+        Self::new_with_bindings(pal, source_file, symbol_table, HashMap::new())
     }
 
     /// Creates an interpreter with explicit local bindings.
     pub fn new_with_bindings(
         pal: &'a dyn Pal,
         source_file: &'a SourceFile,
-        environment: &'a SymbolTable,
+        symbol_table: &'a SymbolTable,
         local_bindings: HashMap<SharedString, RuntimeValue>,
     ) -> Self {
         Self {
-            environment,
+            symbol_table,
             local_bindings,
             pal,
             source_file,
@@ -135,7 +135,7 @@ impl<'a> Interpreter<'a> {
         call_expression: &CallExpression,
     ) -> OcelotResult<RuntimeValue> {
         let function_index = call_expression.function_index()?;
-        let function = self.environment.function_definition(function_index)?;
+        let function = self.symbol_table.function_definition(function_index)?;
 
         match &function.kind {
             FunctionKind::NativeFunction { native_function } => {
@@ -179,7 +179,7 @@ impl<'a> Interpreter<'a> {
             );
         }
 
-        Interpreter::new_with_bindings(self.pal, source_file, self.environment, local_bindings)
+        Interpreter::new_with_bindings(self.pal, source_file, self.symbol_table, local_bindings)
             .interpret_statements(&function.body)?;
         Ok(RuntimeValue::unit())
     }
