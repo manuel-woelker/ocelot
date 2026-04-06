@@ -1,5 +1,11 @@
 # 😺 ocelot 😻
 
+
+[![Build status](https://github.com/manuel-woelker/ocelot/workflows/CI/badge.svg)](https://github.com/manuel-woelker/ocelot/actions)
+[![Crates.io](https://img.shields.io/crates/v/ocelot.svg)](https://crates.io/crates/ocelot)
+[![codecov](https://codecov.io/gh/manuel-woelker/ocelot/graph/badge.svg?token=43OXBF3LRN)](https://codecov.io/gh/manuel-woelker/ocelot)
+
+
 A fun, statically typed programming language experiment
 
 This is an experimental programming language project,
