@@ -75,10 +75,10 @@ jobs:
 
       - name: Tests
         if: ${{ matrix.build.name == 'default' }}
-        run: cargo llvm-cov nextest --workspace --all-targets --all-features --lcov --output-path lcov.info
+        run: cargo llvm-cov nextest --profile ci --workspace --all-targets --all-features --lcov --output-path lcov.info
 
-      - name: Codecov
-        if: ${{ matrix.build.name == 'default' }}
+      - name: Upload coverage to Codecov
+        if: ${{ !cancelled() && matrix.build.name == 'default' }}
         uses: codecov/codecov-action@v5
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
@@ -87,6 +87,12 @@ jobs:
           verbose: true
           fail_ci_if_error: true
 
+      - name: Upload test results to Codecov
+        if: ${{ !cancelled() && matrix.build.name == 'default' }}
+        uses: codecov/test-results-action@v1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
       - name: Musl tests
         if: ${{ matrix.build.run_musl_tests }}
-        run: cargo nextest run --target x86_64-unknown-linux-musl --workspace --all-targets --all-features
+        run: cargo nextest run --profile ci --target x86_64-unknown-linux-musl --workspace --all-targets --all-features
