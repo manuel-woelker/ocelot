@@ -89,9 +89,13 @@ jobs:
 
       - name: Upload test results to Codecov
         if: ${{ !cancelled() && matrix.build.name == 'default' }}
-        uses: codecov/test-results-action@v1
+        uses: codecov/codecov-action@v5
         with:
+          files: target/nextest/ci/junit.xml
+          report_type: test_results
           token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
+          verbose: true
 
       - name: Musl tests
         if: ${{ matrix.build.run_musl_tests }}
