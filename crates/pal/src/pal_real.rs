@@ -438,6 +438,9 @@ mod tests {
     use crate::process_event_sink::ProcessEventSink;
     use ocelot_base::result::OcelotResult;
     use ocelot_base::shared_string::SharedString;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{Duration, SystemTime};
 
     #[derive(Default)]
     struct RecordingSink {
@@ -448,6 +451,38 @@ mod tests {
         fn handle_event(&mut self, event: ProcessEvent) -> OcelotResult<()> {
             self.events.push(event);
             Ok(())
+        }
+    }
+
+    struct TestTempDir {
+        path: PathBuf,
+    }
+
+    impl TestTempDir {
+        fn new() -> Self {
+            static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+
+            let unique_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+            let path = std::env::temp_dir().join(format!(
+                "ocelot-pal-real-tests-{}-{unique_id}",
+                std::process::id()
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Self { path }
+        }
+
+        fn file_path(&self, relative: &str) -> ocelot_base::file_path::FilePath {
+            ocelot_base::file_path::FilePath::new(self.path.join(relative))
+        }
+
+        fn path_buf(&self, relative: &str) -> PathBuf {
+            self.path.join(relative)
+        }
+    }
+
+    impl Drop for TestTempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.path);
         }
     }
 
@@ -497,5 +532,75 @@ mod tests {
                 .iter()
                 .any(|event| matches!(event, ProcessEvent::Exited(_)))
         );
+    }
+
+    #[test]
+    fn append_file_creates_parent_directories_and_preserves_existing_contents() {
+        let pal = PalReal::new().unwrap();
+        let temp_dir = TestTempDir::new();
+        let file_path = temp_dir.file_path("nested/output.txt");
+
+        pal.append_file(&file_path, b"hello").unwrap();
+        pal.append_file(&file_path, b" world").unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(temp_dir.path_buf("nested/output.txt")).unwrap(),
+            "hello world"
+        );
+    }
+
+    #[test]
+    fn create_directory_reports_whether_the_directory_was_newly_created() {
+        let pal = PalReal::new().unwrap();
+        let temp_dir = TestTempDir::new();
+        let workspace = temp_dir.file_path("workspace");
+        let directory = temp_dir.file_path("workspace/cache");
+
+        pal.create_directory_all(&workspace).unwrap();
+        assert!(pal.create_directory(&directory).unwrap());
+        assert!(!pal.create_directory(&directory).unwrap());
+        assert!(temp_dir.path_buf("workspace/cache").is_dir());
+    }
+
+    #[test]
+    fn write_read_exists_and_rename_operate_on_absolute_paths() {
+        let pal = PalReal::new().unwrap();
+        let temp_dir = TestTempDir::new();
+        let source = temp_dir.file_path("workspace/source.txt");
+        let target = temp_dir.file_path("workspace/renamed.txt");
+
+        pal.create_directory_all(&temp_dir.file_path("workspace"))
+            .unwrap();
+        pal.write_file(&source, b"payload").unwrap();
+
+        assert!(pal.file_exists(&source).unwrap());
+        assert_eq!(
+            pal.read_file_to_string(&source).unwrap().as_str(),
+            "payload"
+        );
+
+        pal.rename(&source, &target).unwrap();
+
+        assert!(!pal.file_exists(&source).unwrap());
+        assert!(pal.file_exists(&target).unwrap());
+        assert_eq!(
+            pal.read_file_to_string(&target).unwrap().as_str(),
+            "payload"
+        );
+    }
+
+    #[test]
+    fn system_time_and_now_are_monotonic_enough_for_runtime_usage() {
+        let pal = PalReal::new().unwrap();
+
+        let first_timestamp = pal.now();
+        pal.sleep(Duration::from_millis(1));
+        let second_timestamp = pal.now();
+        let first_system_time = pal.system_time();
+        let second_system_time = pal.system_time();
+
+        assert!(second_timestamp >= first_timestamp);
+        assert!(second_system_time >= first_system_time);
+        assert!(second_system_time >= SystemTime::UNIX_EPOCH);
     }
 }

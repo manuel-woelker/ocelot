@@ -388,7 +388,27 @@ fn wildcard_matches(pattern: &str, text: &str) -> bool {
 mod tests {
     use super::PalMock;
     use crate::pal::Pal;
+    use crate::process_command::ProcessCommand;
+    use crate::process_event::ProcessEvent;
+    use crate::process_event_sink::ProcessEventSink;
+    use crate::process_result::ProcessResult;
     use ocelot_base::file_path::FilePath;
+    use ocelot_base::result::OcelotResult;
+    use ocelot_base::shared_string::SharedString;
+    use ocelot_base::timestamp::Timestamp;
+    use std::time::{Duration, SystemTime};
+
+    #[derive(Default)]
+    struct RecordingSink {
+        events: Vec<ProcessEvent>,
+    }
+
+    impl ProcessEventSink for RecordingSink {
+        fn handle_event(&mut self, event: ProcessEvent) -> OcelotResult<()> {
+            self.events.push(event);
+            Ok(())
+        }
+    }
 
     #[test]
     fn walk_directory_respects_extension_globs() {
@@ -452,5 +472,85 @@ mod tests {
             pal.get_effects()
                 .contains("RENAME FILE: examples/source.tmp -> examples/target.ocelot")
         );
+    }
+
+    #[test]
+    fn append_file_creates_and_extends_file_contents() {
+        let pal = PalMock::new();
+
+        pal.append_file(&FilePath::from("logs/output.txt"), b"hello")
+            .unwrap();
+        pal.append_file(&FilePath::from("logs/output.txt"), b" world")
+            .unwrap();
+
+        assert_eq!(
+            pal.read_file_string("logs/output.txt").as_deref(),
+            Some("hello world")
+        );
+    }
+
+    #[test]
+    fn create_directory_reports_when_a_directory_already_exists() {
+        let pal = PalMock::new();
+
+        assert!(
+            pal.create_directory(&FilePath::from("workspace/cache"))
+                .unwrap()
+        );
+        assert!(
+            !pal.create_directory(&FilePath::from("workspace/cache"))
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn sleep_advances_mock_system_time_and_logs_effect() {
+        let pal = PalMock::new();
+        let start = SystemTime::UNIX_EPOCH + Duration::from_secs(10);
+        pal.set_current_system_time(start);
+
+        pal.sleep(Duration::from_millis(250));
+
+        assert_eq!(
+            pal.system_time()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap(),
+            Duration::from_millis(10_250)
+        );
+        assert!(pal.get_effects().contains("SLEEP: 250ms"));
+    }
+
+    #[test]
+    fn run_process_replays_registered_events_and_returns_the_registered_result() {
+        let pal = PalMock::new();
+        let command = ProcessCommand {
+            executable: SharedString::from("echo"),
+            arguments: vec![SharedString::from("hello")],
+            working_directory: None,
+            environment: Vec::new(),
+        };
+        let expected_events = vec![ProcessEvent::Output(
+            crate::process_output_event::ProcessOutputEvent {
+                timestamp: Timestamp::new(5),
+                stream: crate::process_output_stream::ProcessOutputStream::Stdout,
+                bytes: b"hello\n".to_vec(),
+            },
+        )];
+        let expected_result = ProcessResult {
+            started_at: Timestamp::new(1),
+            finished_at: Timestamp::new(2),
+            exit_code: Some(0),
+        };
+        pal.set_process_execution(
+            command.clone(),
+            expected_events.clone(),
+            expected_result.clone(),
+        );
+        let mut sink = RecordingSink::default();
+
+        let actual_result = pal.run_process(&command, &mut sink).unwrap();
+
+        assert_eq!(actual_result, expected_result);
+        assert_eq!(sink.events, expected_events);
     }
 }
