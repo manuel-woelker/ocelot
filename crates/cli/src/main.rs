@@ -2,10 +2,13 @@ use ocelot_base::cli::format_cli_error;
 use ocelot_base::error::OcelotError;
 use ocelot_base::file_path::FilePath;
 use ocelot_base::result::OcelotResult;
+use ocelot_base::shared_string::SharedString;
 use ocelot_base::source_diagnostics::SourceDiagnostics;
 use ocelot_base::source_file::SourceFile;
+use ocelot_engine::discovered_test::DiscoveredTest;
 use ocelot_engine::engine::Engine;
 use ocelot_engine::failed_test_result::FailedTestResult;
+use ocelot_engine::test_filter::TestFilter;
 use ocelot_engine::test_run_summary::TestRunSummary;
 use ocelot_formatter::format_compilation_unit::format_compilation_unit;
 use ocelot_pal::pal::PalHandle;
@@ -18,7 +21,7 @@ use std::process::ExitCode;
 enum CliCommand {
     Fmt,
     Run { path: String },
-    Test { script_paths: Vec<String> },
+    Test { filter_expression: Option<String> },
 }
 
 fn main() -> ExitCode {
@@ -49,12 +52,22 @@ fn parse_command(args: Vec<OsString>) -> Option<CliCommand> {
     match first_arg.as_str() {
         "fmt" if args.next().is_none() => Some(CliCommand::Fmt),
         "fmt" => None,
-        "test" => Some(CliCommand::Test {
-            script_paths: args.collect(),
-        }),
+        "test" => parse_test_command(args.collect()),
         path => Some(CliCommand::Run {
             path: path.to_owned(),
         }),
+    }
+}
+
+fn parse_test_command(args: Vec<String>) -> Option<CliCommand> {
+    match args.as_slice() {
+        [] => Some(CliCommand::Test {
+            filter_expression: None,
+        }),
+        [filter_expression] => Some(CliCommand::Test {
+            filter_expression: Some(filter_expression.clone()),
+        }),
+        _ => None,
     }
 }
 
@@ -84,8 +97,8 @@ fn try_execute_command(pal: PalHandle, command: &CliCommand) -> OcelotResult<Exi
             engine.run_file(path.as_str())?;
             Ok(ExitCode::SUCCESS)
         }
-        CliCommand::Test { script_paths } => {
-            let summary = run_test_files(&engine, &pal, script_paths)?;
+        CliCommand::Test { filter_expression } => {
+            let summary = run_test_files(&engine, &pal, filter_expression.as_deref())?;
             report_test_summary(&summary);
             Ok(exit_code_for_test_summary(&summary))
         }
@@ -128,20 +141,38 @@ fn formatting_temporary_path(path: &FilePath) -> OcelotResult<FilePath> {
 fn run_test_files(
     engine: &Engine,
     pal: &PalHandle,
-    script_paths: &[String],
+    filter_expression: Option<&str>,
 ) -> OcelotResult<TestRunSummary> {
-    let script_paths = if script_paths.is_empty() {
-        discover_ocelot_files(pal)?
-    } else {
-        script_paths
-            .iter()
-            .map(|path| path.as_str().into())
-            .collect()
-    };
+    let script_paths = discover_ocelot_files(pal)?;
+    let test_filter = parse_test_filter(filter_expression);
 
     let mut summary = TestRunSummary::new();
     for script_path in script_paths {
-        merge_test_summary(&mut summary, run_test_file(engine, &script_path));
+        if test_filter.is_empty() || test_filter_matches_path(&test_filter, &script_path) {
+            merge_test_summary(&mut summary, run_test_file(engine, &script_path));
+            continue;
+        }
+
+        match discover_matching_test_names(engine, &script_path, &test_filter) {
+            Ok(test_names) if test_names.is_empty() => {}
+            Ok(test_names) => {
+                merge_test_summary(
+                    &mut summary,
+                    run_named_test_file(engine, &script_path, test_names),
+                );
+            }
+            Err(error) => merge_test_summary(
+                &mut summary,
+                file_failure_summary(&script_path, format_cli_error("test file failed", &error)),
+            ),
+        }
+    }
+
+    if filter_expression.is_some() && summary.passed.is_empty() && summary.failed.is_empty() {
+        return Err(OcelotError::message(format!(
+            "no tests matched filter expression `{}`",
+            filter_expression.unwrap_or_default()
+        )));
     }
 
     Ok(summary)
@@ -150,14 +181,71 @@ fn run_test_files(
 fn run_test_file(engine: &Engine, script_path: &FilePath) -> TestRunSummary {
     match engine.run_tests(script_path) {
         Ok(summary) => summary,
-        Err(error) => TestRunSummary {
-            passed: Vec::new(),
-            failed: vec![FailedTestResult::new(
-                script_path.as_str(),
-                format_cli_error("test file failed", &error),
-            )],
-        },
+        Err(error) => {
+            file_failure_summary(script_path, format_cli_error("test file failed", &error))
+        }
     }
+}
+
+fn run_named_test_file(
+    engine: &Engine,
+    script_path: &FilePath,
+    test_names: Vec<SharedString>,
+) -> TestRunSummary {
+    match engine.run_named_tests(script_path, test_names) {
+        Ok(summary) => summary,
+        Err(error) => {
+            file_failure_summary(script_path, format_cli_error("test file failed", &error))
+        }
+    }
+}
+
+fn file_failure_summary(script_path: &FilePath, message: String) -> TestRunSummary {
+    TestRunSummary {
+        passed: Vec::new(),
+        failed: vec![FailedTestResult::new(
+            script_path.clone(),
+            script_path.as_str(),
+            message,
+        )],
+    }
+}
+
+fn parse_test_filter(filter_expression: Option<&str>) -> TestFilter {
+    let parts = filter_expression
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(SharedString::from)
+        .collect();
+    TestFilter::new(parts)
+}
+
+fn test_filter_matches_path(test_filter: &TestFilter, script_path: &FilePath) -> bool {
+    test_filter
+        .parts()
+        .iter()
+        .any(|part| script_path.as_str().contains(part.as_str()))
+}
+
+fn discover_matching_test_names(
+    engine: &Engine,
+    script_path: &FilePath,
+    test_filter: &TestFilter,
+) -> OcelotResult<Vec<SharedString>> {
+    Ok(engine
+        .discover_tests(script_path)?
+        .into_iter()
+        .filter(|test| test_filter_matches_test(test_filter, test))
+        .map(|test| test.name)
+        .collect())
+}
+
+fn test_filter_matches_test(test_filter: &TestFilter, test: &DiscoveredTest) -> bool {
+    test_filter.parts().iter().any(|part| {
+        test.name.contains(part.as_str()) || test.file_path.as_str().contains(part.as_str())
+    })
 }
 
 fn discover_ocelot_files(pal: &PalHandle) -> OcelotResult<Vec<FilePath>> {
@@ -190,7 +278,7 @@ fn exit_code_for_test_summary(summary: &TestRunSummary) -> ExitCode {
 }
 
 fn print_usage() {
-    eprintln!("Usage:\n  ocelot fmt\n  ocelot <source-file>\n  ocelot test [source-file...]");
+    eprintln!("Usage:\n  ocelot fmt\n  ocelot <source-file>\n  ocelot test [filter-expression]");
 }
 
 fn report_test_summary(summary: &TestRunSummary) {
@@ -202,8 +290,8 @@ fn report_test_summary(summary: &TestRunSummary) {
 fn render_test_summary_lines(summary: &TestRunSummary) -> Vec<String> {
     let mut lines = Vec::new();
 
-    for test_name in &summary.passed {
-        lines.push(format!("PASS {test_name}"));
+    for passed_test in &summary.passed {
+        lines.push(format!("PASS {}", passed_test.name));
     }
 
     for failed_test in &summary.failed {
@@ -242,10 +330,13 @@ fn render_failed_test_detail_lines(failed_test: &FailedTestResult) -> Vec<String
 #[cfg(test)]
 mod tests {
     use super::{
-        CliCommand, parse_command, render_test_summary_lines, run_command, run_test_files,
+        CliCommand, discover_matching_test_names, parse_command, parse_test_filter,
+        render_test_summary_lines, run_command, run_test_files, test_filter_matches_path,
     };
+    use ocelot_base::shared_string::SharedString;
     use ocelot_engine::engine::Engine;
     use ocelot_engine::failed_test_result::FailedTestResult;
+    use ocelot_engine::passed_test_result::PassedTestResult;
     use ocelot_engine::test_run_summary::TestRunSummary;
     use ocelot_pal::pal::PalHandle;
     use ocelot_pal::pal_mock::PalMock;
@@ -282,28 +373,33 @@ mod tests {
     }
 
     #[test]
-    fn parses_test_command_with_multiple_paths() {
+    fn rejects_test_command_with_multiple_arguments() {
         assert_eq!(
             parse_command(vec![
                 OsString::from("test"),
-                OsString::from("examples/first.ocelot-script"),
-                OsString::from("examples/second.ocelot"),
+                OsString::from("smoke"),
+                OsString::from("extra"),
             ]),
+            None
+        );
+    }
+
+    #[test]
+    fn parses_test_command_without_filter_expression() {
+        assert_eq!(
+            parse_command(vec![OsString::from("test")]),
             Some(CliCommand::Test {
-                script_paths: vec![
-                    "examples/first.ocelot-script".into(),
-                    "examples/second.ocelot".into()
-                ],
+                filter_expression: None,
             })
         );
     }
 
     #[test]
-    fn parses_test_command_without_paths() {
+    fn parses_test_command_with_filter_expression() {
         assert_eq!(
-            parse_command(vec![OsString::from("test")]),
+            parse_command(vec![OsString::from("test"), OsString::from("smoke,parser")]),
             Some(CliCommand::Test {
-                script_paths: Vec::new(),
+                filter_expression: Some("smoke,parser".into()),
             })
         );
     }
@@ -333,7 +429,7 @@ mod tests {
             "examples/tests.ocelot",
             "test \"passes\" { println(\"ok\"); }",
         );
-        pal.set_args(["test", "examples/tests.ocelot"]);
+        pal.set_args(["test", "tests"]);
 
         assert_eq!(run_command(PalHandle::new(pal.clone())), ExitCode::SUCCESS);
     }
@@ -410,26 +506,39 @@ mod tests {
     }
 
     #[test]
-    fn runs_all_explicit_test_files() {
+    fn runs_only_tests_with_matching_names() {
         let pal = PalMock::new();
         pal.set_file(
             "examples/first.ocelot-script",
-            "test \"first\" { println(\"one\"); }",
+            "test \"smoke first\" { println(\"one\"); }",
         );
         pal.set_file(
             "examples/second.ocelot",
-            "test \"second\" { println(\"two\"); }",
+            "test \"other\" { println(\"two\"); }",
         );
-        pal.set_args([
-            "test",
-            "examples/first.ocelot-script",
-            "examples/second.ocelot",
-        ]);
+        pal.set_args(["test", "smoke"]);
 
         assert_eq!(run_command(PalHandle::new(pal.clone())), ExitCode::SUCCESS);
         let effects = pal.get_effects();
         assert!(effects.contains("READ FILE: examples/first.ocelot-script"));
         assert!(effects.contains("READ FILE: examples/second.ocelot"));
+        assert_eq!(pal.take_printed_output(), "one\n");
+    }
+
+    #[test]
+    fn runs_all_tests_in_files_with_matching_paths() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/smoke_suite.ocelot-script",
+            "test \"first\" { println(\"one\"); }\ntest \"second\" { println(\"two\"); }",
+        );
+        pal.set_file(
+            "examples/other.ocelot",
+            "test \"third\" { println(\"three\"); }",
+        );
+        pal.set_args(["test", "smoke_suite"]);
+
+        assert_eq!(run_command(PalHandle::new(pal.clone())), ExitCode::SUCCESS);
         assert_eq!(pal.take_printed_output(), "one\ntwo\n");
     }
 
@@ -444,19 +553,21 @@ mod tests {
         let pal = PalHandle::new(pal.clone());
         let engine = Engine::new(pal.clone());
 
-        let summary = run_test_files(
-            &engine,
-            &pal,
-            &[
-                "examples/good/good.ocelot-script".into(),
-                "examples/bad/bad.ocelot".into(),
-            ],
-        )
-        .unwrap();
+        let summary = run_test_files(&engine, &pal, None).unwrap();
 
-        assert_eq!(summary.passed.as_slice(), ["passes"]);
+        assert_eq!(
+            summary.passed.as_slice(),
+            [PassedTestResult::new(
+                "examples/good/good.ocelot-script",
+                "passes"
+            )]
+        );
         assert_eq!(summary.failed.len(), 1);
         assert_eq!(summary.failed[0].name, "examples/bad/bad.ocelot");
+        assert_eq!(
+            summary.failed[0].file_path.as_str(),
+            "examples/bad/bad.ocelot"
+        );
         assert!(
             summary.failed[0]
                 .message
@@ -481,8 +592,12 @@ mod tests {
     #[test]
     fn renders_pass_and_fail_lines_for_all_tests() {
         let summary = TestRunSummary {
-            passed: vec!["first".into(), "third".into()],
+            passed: vec![
+                PassedTestResult::new("examples/first.ocelot-script", "first"),
+                PassedTestResult::new("examples/third.ocelot", "third"),
+            ],
             failed: vec![FailedTestResult::new(
+                "examples/broken.ocelot-script",
                 "broken",
                 "test `broken` failed\nerror: assert_eq values differ\n\nexpected: \"a\"\nactual:   \"b\"",
             )],
@@ -502,6 +617,69 @@ mod tests {
                 String::from("  ────────────────────────────────────────"),
                 String::new(),
             ]
+        );
+    }
+
+    #[test]
+    fn parses_test_filter_parts_and_ignores_empty_entries() {
+        let expected: Vec<SharedString> = vec!["smoke".into(), "parser".into()];
+
+        assert_eq!(
+            parse_test_filter(Some(" smoke , , parser,, ")).parts(),
+            expected.as_slice()
+        );
+    }
+
+    #[test]
+    fn matches_filter_parts_against_file_paths() {
+        let filter = parse_test_filter(Some("smoke,parser"));
+
+        assert!(test_filter_matches_path(
+            &filter,
+            &"examples/smoke_suite.ocelot-script".into()
+        ));
+        assert!(!test_filter_matches_path(
+            &filter,
+            &"examples/release_suite.ocelot-script".into()
+        ));
+    }
+
+    #[test]
+    fn discovers_matching_test_names_only() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/tests.ocelot-script",
+            "test \"smoke first\" { println(\"one\"); }\ntest \"other\" { println(\"two\"); }",
+        );
+        let engine = Engine::new(PalHandle::new(pal));
+
+        assert_eq!(
+            discover_matching_test_names(
+                &engine,
+                &"examples/tests.ocelot-script".into(),
+                &parse_test_filter(Some("smoke"))
+            )
+            .unwrap(),
+            vec![SharedString::from("smoke first")]
+        );
+    }
+
+    #[test]
+    fn filtered_runs_fail_when_no_tests_match() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/tests.ocelot-script",
+            "test \"passes\" { println(\"ok\"); }",
+        );
+        let pal_handle = PalHandle::new(pal.clone());
+        let engine = Engine::new(pal_handle.clone());
+
+        let error = run_test_files(&engine, &pal_handle, Some("missing")).unwrap_err();
+
+        assert!(
+            error
+                .to_test_string()
+                .contains("no tests matched filter expression `missing`")
         );
     }
 }

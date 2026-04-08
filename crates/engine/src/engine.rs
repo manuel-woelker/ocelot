@@ -1,5 +1,6 @@
 use crate::builtin_module::BuiltinModule;
 use crate::core_module::default_core_module;
+use crate::discovered_test::DiscoveredTest;
 use crate::engine_command::EngineCommand;
 use crate::engine_worker::EngineWorker;
 use crate::test_run_summary::TestRunSummary;
@@ -8,7 +9,10 @@ use ocelot_base::file_path::FilePath;
 use ocelot_base::render_source_diagnostics::render_source_diagnostics;
 use ocelot_base::result::OcelotResult;
 use ocelot_base::shared_string::SharedString;
+use ocelot_base::source_diagnostics::SourceDiagnostics;
+use ocelot_base::source_file::SourceFile;
 use ocelot_pal::pal::PalHandle;
+use ocelot_parser::parse_compilation_unit::parse_compilation_unit;
 
 #[derive(Debug, Clone)]
 pub struct Engine {
@@ -57,6 +61,49 @@ impl Engine {
         Ok(worker.test_run_summary().clone())
     }
 
+    pub fn run_named_tests(
+        &self,
+        path: impl Into<FilePath>,
+        test_names: Vec<SharedString>,
+    ) -> OcelotResult<TestRunSummary> {
+        let path = path.into();
+        let command = EngineCommand::run_named_tests(path, test_names)?;
+        let mut worker = EngineWorker::new(&self.pal, command, self.builtin_modules.clone());
+        self.run_worker(&mut worker)?;
+        Ok(worker.test_run_summary().clone())
+    }
+
+    pub fn discover_tests(&self, path: impl Into<FilePath>) -> OcelotResult<Vec<DiscoveredTest>> {
+        let path = path.into();
+        let source = self.pal.read_file_to_string(&path)?;
+        let source_file = SourceFile::new(path.clone(), source);
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let compilation_unit = match parse_compilation_unit(&source_file, &mut source_diagnostics) {
+            Ok(compilation_unit) => compilation_unit,
+            Err(error) if source_diagnostics.diagnostics.is_empty() => return Err(error),
+            Err(error) => {
+                return Err(
+                    error.with_source(OcelotError::message(render_source_diagnostics(
+                        &source_diagnostics.diagnostics,
+                    ))),
+                );
+            }
+        };
+
+        Ok(compilation_unit
+            .items
+            .iter()
+            .filter_map(|item| match &item.kind {
+                ocelot_ast::item_kind::ItemKind::Test(test_item) => Some(DiscoveredTest::new(
+                    path.clone(),
+                    test_item.name.clone(),
+                    test_item.span.clone(),
+                )),
+                _ => None,
+            })
+            .collect())
+    }
+
     fn run_worker(&self, worker: &mut EngineWorker) -> OcelotResult<()> {
         worker
             .run_command()
@@ -82,6 +129,7 @@ fn attach_compilation_diagnostics(error: OcelotError, worker: &EngineWorker) -> 
 mod tests {
     use super::Engine;
     use crate::module_name_from_path::module_name_from_path;
+    use crate::passed_test_result::PassedTestResult;
     use expect_test::expect;
     use ocelot_base::compilation_stage::CompilationStage;
     use ocelot_base::error::ErrorKind;
@@ -451,6 +499,70 @@ mod tests {
                 .contains("unresolved identifier `missing_value`")
         );
         assert!(error.to_test_string().contains("examples/helper.ocelot"));
+    }
+
+    #[test]
+    fn discover_tests_returns_test_names_and_entry_file_path() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/tests.ocelot-script",
+            "test \"first\" { println(\"one\"); }\nfun helper() {}\ntest \"second\" { println(\"two\"); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal));
+
+        let tests = engine
+            .discover_tests("examples/tests.ocelot-script")
+            .unwrap();
+
+        assert_eq!(tests.len(), 2);
+        assert_eq!(
+            tests
+                .iter()
+                .map(|test| test.file_path.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "examples/tests.ocelot-script",
+                "examples/tests.ocelot-script"
+            ]
+        );
+        assert_eq!(
+            tests
+                .iter()
+                .map(|test| test.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["first", "second"]
+        );
+        assert!(
+            tests
+                .iter()
+                .all(|test| test.span.start() <= test.span.end())
+        );
+    }
+
+    #[test]
+    fn run_named_tests_executes_only_the_selected_tests() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/tests.ocelot-script",
+            "test \"first\" { println(\"one\"); }\ntest \"second\" { println(\"two\"); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal.clone()));
+
+        let summary = engine
+            .run_named_tests("examples/tests.ocelot-script", vec!["second".into()])
+            .unwrap();
+
+        assert_eq!(
+            summary.passed,
+            vec![PassedTestResult::new(
+                "examples/tests.ocelot-script",
+                "second"
+            )]
+        );
+        assert!(summary.failed.is_empty());
+        assert_eq!(pal.take_printed_output(), "two\n");
     }
 
     #[test]

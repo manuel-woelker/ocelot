@@ -113,23 +113,42 @@ Verification should include colocated tests for:
 - rendering summary output correctly when a filtered run includes both passing and failing tests
 - running `nao check`
 
-# What assumptions and open questions should stay explicit?
+# What assumptions and follow-up notes should stay explicit?
 
-- Assumption: each filter part should use substring matching, not exact matching. The request says tests should be compared to the parts of the filter, and substring matching is the smallest user-friendly interpretation.
-- Assumption: filter matching should be case-sensitive unless there is a broader CLI convention that says otherwise. Introducing case folding now would make the rules less obvious.
-- Assumption: an empty filter expression such as `ocelot test ""` should behave the same as "no tests matched" rather than silently running everything.
-- Open question: should the "no tests matched" error mention the original filter expression verbatim, for example `no tests matched filter expression 'foo,bar'`? That would be more useful than a generic error and is the recommended behavior.
-- Open question: should files that contain no matching tests be skipped silently even if they parse successfully? That is the recommended behavior because the filter is test-oriented, not file-oriented.
+- Implemented matching is substring-based and case-sensitive for both test names and source file paths.
+- An empty filter expression such as `ocelot test ""` now fails with the same no-match error as any other filter that selects nothing.
+- The no-match error includes the original filter expression verbatim, for example `no tests matched filter expression \`missing\``.
+- Files with no matching tests are skipped without execution.
+- If a file must still be inspected during a filtered run and test discovery fails for that file, the CLI reports that file failure instead of replacing it with the generic no-match error.
+
+# What landed from this plan?
+
+This slice landed the test-filter expression behavior end to end:
+
+- [`ocelot test`](/data/projects/ocelot/crates/cli/src/main.rs) now accepts one optional `[filter-expression]` argument instead of `[source-file...]`
+- filter expressions are parsed as comma-separated parts, with surrounding whitespace trimmed and empty parts ignored
+- filter parts match discovered tests by substring against either the test name or the defining file path
+- the CLI now discovers all eligible source files once, runs all tests from path-matching files, and otherwise discovers matching test names before executing only the selected tests
+- the engine now exposes [`discover_tests`](/data/projects/ocelot/crates/engine/src/engine.rs) and [`run_named_tests`](/data/projects/ocelot/crates/engine/src/engine.rs) so filtered execution does not need to run unrelated tests
+- discovered tests and successful test results now preserve source file paths, and failed test results now also carry file-path metadata
+- filtered runs now fail with a clear error when they produce no pass or fail results: `no tests matched filter expression ...`
+
+# What verification was completed?
+
+Verification completed with:
+
+- `cargo test -p ocelot-engine -p ocelot`
+- `nao check`
 
 # What concrete tasks should track this plan?
 
-- [ ] Replace `CliCommand::Test { script_paths }` with a shape that stores one optional filter expression.
-- [ ] Update `ocelot test` usage text so it documents `[filter-expression]` instead of `[source-file...]`.
-- [ ] Add a helper that parses comma-separated filter parts, trims whitespace, and ignores empty entries.
-- [ ] Extend engine test metadata so a discovered or reported test includes both its name and source file path.
-- [ ] Add an engine path for running only the tests from one file that match a provided filter.
-- [ ] Update CLI test execution to discover testable files once and apply the optional filter across discovered tests by name or filename.
-- [ ] Return a CLI failure when no tests match the filter expression.
-- [ ] Add CLI tests for parsing, matching, filtered execution, and the no-match error path.
-- [ ] Add engine tests for filtered test discovery and execution behavior.
-- [ ] Run `nao check`.
+- [x] Replace `CliCommand::Test { script_paths }` with a shape that stores one optional filter expression.
+- [x] Update `ocelot test` usage text so it documents `[filter-expression]` instead of `[source-file...]`.
+- [x] Add a helper that parses comma-separated filter parts, trims whitespace, and ignores empty entries.
+- [x] Extend engine test metadata so a discovered or reported test includes both its name and source file path.
+- [x] Add an engine path for running only the tests from one file that match a provided filter.
+- [x] Update CLI test execution to discover testable files once and apply the optional filter across discovered tests by name or filename.
+- [x] Return a CLI failure when no tests match the filter expression.
+- [x] Add CLI tests for parsing, matching, filtered execution, and the no-match error path.
+- [x] Add engine tests for filtered test discovery and execution behavior.
+- [x] Run `nao check`.

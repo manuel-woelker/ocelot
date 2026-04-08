@@ -2,6 +2,7 @@ use crate::builtin_module::BuiltinModule;
 use crate::engine_command::{EngineCommand, RunCommandKind};
 use crate::failed_test_result::FailedTestResult;
 use crate::module_name_from_path::module_name_from_path;
+use crate::passed_test_result::PassedTestResult;
 use crate::test_run_summary::TestRunSummary;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_base::assertion_error::render_assertion_error;
@@ -10,6 +11,7 @@ use ocelot_base::error::{ErrorKind, OcelotError};
 use ocelot_base::file_path::FilePath;
 use ocelot_base::render_source_diagnostics::render_source_diagnostics;
 use ocelot_base::result::{OcelotResult, OptionExt, ResultExt};
+use ocelot_base::shared_string::SharedString;
 use ocelot_base::source_diagnostics::SourceDiagnostics;
 use ocelot_base::source_file::SourceFile;
 use ocelot_pal::pal::PalHandle;
@@ -72,6 +74,10 @@ impl EngineWorker {
                 self.test_run_summary = self.run_all_tests()?;
                 Ok(())
             }
+            RunCommandKind::RunNamedTests { test_names, .. } => {
+                self.test_run_summary = self.run_named_tests(test_names)?;
+                Ok(())
+            }
         }
     }
 
@@ -129,6 +135,17 @@ impl EngineWorker {
     }
 
     fn run_all_tests(&self) -> OcelotResult<TestRunSummary> {
+        self.run_named_tests_for_entry_module(None)
+    }
+
+    fn run_named_tests(&self, test_names: &[SharedString]) -> OcelotResult<TestRunSummary> {
+        self.run_named_tests_for_entry_module(Some(test_names))
+    }
+
+    fn run_named_tests_for_entry_module(
+        &self,
+        test_names: Option<&[SharedString]>,
+    ) -> OcelotResult<TestRunSummary> {
         let entry_module = self.entry_module()?;
         let symbol_table = self.symbol_table();
         let interpreter = ocelot_interpreter::interpreter::Interpreter::new(
@@ -143,11 +160,23 @@ impl EngineWorker {
                 continue;
             };
 
+            if let Some(test_names) = test_names
+                && !test_names
+                    .iter()
+                    .any(|test_name| test_name == &test_item.name)
+            {
+                continue;
+            }
+
             match interpreter.interpret_statements(&test_item.body) {
-                Ok(()) => summary.passed.push(test_item.name.clone()),
+                Ok(()) => summary.passed.push(PassedTestResult::new(
+                    entry_module.source_file.path.clone(),
+                    test_item.name.clone(),
+                )),
                 Err(error) => match error.kind() {
                     ErrorKind::AssertionError(assertion_error) => {
                         summary.failed.push(FailedTestResult::new(
+                            entry_module.source_file.path.clone(),
                             test_item.name.clone(),
                             format!(
                                 "test `{}` failed\n{}",
@@ -158,6 +187,7 @@ impl EngineWorker {
                     }
                     ErrorKind::RuntimeError(diagnostic) => {
                         summary.failed.push(FailedTestResult::new(
+                            entry_module.source_file.path.clone(),
                             test_item.name.clone(),
                             format!(
                                 "test `{}` failed\n{}",
@@ -169,6 +199,7 @@ impl EngineWorker {
                         ))
                     }
                     _ => summary.failed.push(FailedTestResult::new(
+                        entry_module.source_file.path.clone(),
                         test_item.name.clone(),
                         OcelotError::message(format!("test `{}` failed", test_item.name))
                             .with_source(error)

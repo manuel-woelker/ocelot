@@ -1,10 +1,10 @@
 use crate::failed_test_result::FailedTestResult;
-use ocelot_base::shared_string::SharedString;
+use crate::passed_test_result::PassedTestResult;
 
 /// Summary of one `ocelot test` file execution.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestRunSummary {
-    pub passed: Vec<SharedString>,
+    pub passed: Vec<PassedTestResult>,
     pub failed: Vec<FailedTestResult>,
 }
 

@@ -33,11 +33,19 @@ impl EngineCommand {
         })
     }
 
+    pub fn run_named_tests(path: FilePath, test_names: Vec<SharedString>) -> OcelotResult<Self> {
+        Ok(Self {
+            base_path: parent_path(&path)?,
+            kind: RunCommandKind::RunNamedTests { path, test_names },
+        })
+    }
+
     pub fn entry_path(&self) -> &FilePath {
         match &self.kind {
             RunCommandKind::RunFile { path }
             | RunCommandKind::RunTest { path, .. }
-            | RunCommandKind::RunTests { path } => path,
+            | RunCommandKind::RunTests { path }
+            | RunCommandKind::RunNamedTests { path, .. } => path,
         }
     }
 }
@@ -53,6 +61,10 @@ pub enum RunCommandKind {
     },
     RunTests {
         path: FilePath,
+    },
+    RunNamedTests {
+        path: FilePath,
+        test_names: Vec<SharedString>,
     },
 }
 
