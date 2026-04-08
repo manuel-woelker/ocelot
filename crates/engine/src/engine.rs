@@ -78,17 +78,16 @@ impl Engine {
         let source = self.pal.read_file_to_string(&path)?;
         let source_file = SourceFile::new(path.clone(), source);
         let mut source_diagnostics = SourceDiagnostics::default();
-        let compilation_unit = match parse_compilation_unit(&source_file, &mut source_diagnostics) {
-            Ok(compilation_unit) => compilation_unit,
-            Err(error) if source_diagnostics.diagnostics.is_empty() => return Err(error),
-            Err(error) => {
-                return Err(
-                    error.with_source(OcelotError::message(render_source_diagnostics(
-                        &source_diagnostics.diagnostics,
-                    ))),
-                );
-            }
-        };
+        let compilation_unit =
+            match parse_compilation_unit(&source_file, &mut source_diagnostics) {
+                Ok(compilation_unit) => compilation_unit,
+                Err(error) if source_diagnostics.diagnostics.is_empty() => return Err(error),
+                Err(error) => {
+                    return Err(error.with_source(OcelotError::message(
+                        render_source_diagnostics(&source_diagnostics.diagnostics),
+                    )));
+                }
+            };
 
         Ok(compilation_unit
             .items
@@ -245,6 +244,25 @@ mod tests {
         engine.run_file("examples/main.ocelot-script").unwrap();
 
         assert_eq!(pal.take_printed_output(), "hello\n");
+    }
+
+    #[test]
+    fn run_file_executes_template_strings_end_to_end() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/main.ocelot-script",
+            "use helper::greet;\ngreet(\"Ada\");",
+        );
+        pal.set_file(
+            "examples/helper.ocelot",
+            "fun greet(name: string) { println(\"Hello ${name} ${not false}!\"); }",
+        );
+
+        let engine = Engine::new(PalHandle::new(pal.clone()));
+
+        engine.run_file("examples/main.ocelot-script").unwrap();
+
+        assert_eq!(pal.take_printed_output(), "Hello Ada true!\n");
     }
 
     #[test]

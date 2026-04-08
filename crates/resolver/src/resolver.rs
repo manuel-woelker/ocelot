@@ -10,6 +10,8 @@ use ocelot_ast::item_kind::ItemKind;
 use ocelot_ast::qualified_identifier::QualifiedIdentifier;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
+use ocelot_ast::template_string_expression::TemplateStringExpression;
+use ocelot_ast::template_string_part::TemplateStringPart;
 use ocelot_ast::test_item::TestItem;
 use ocelot_ast::type_index::TypeIndex;
 use ocelot_base::shared_string::SharedString;
@@ -101,6 +103,9 @@ impl<'a> Resolver<'a> {
             | ExpressionKind::Identifier(_)
             | ExpressionKind::QualifiedIdentifier(_)
             | ExpressionKind::StringLiteral(_) => {}
+            ExpressionKind::TemplateString(template_string) => {
+                self.resolve_template_string_expression(template_string);
+            }
             ExpressionKind::Not(not_expression) => {
                 self.resolve_expression(&mut not_expression.operand);
             }
@@ -166,6 +171,17 @@ impl<'a> Resolver<'a> {
         call_expression.resolve_to(function_index);
         self.record_effect_dependency(function_index, call_expression.callee.span.clone());
         self.validate_call_argument_types(function_name.as_str(), call_expression, function_index);
+    }
+
+    fn resolve_template_string_expression(
+        &mut self,
+        template_string: &mut TemplateStringExpression,
+    ) {
+        for part in &mut template_string.parts {
+            if let TemplateStringPart::Interpolation(expression) = part {
+                self.resolve_expression(expression);
+            }
+        }
     }
 
     fn resolve_qualified_call(
@@ -331,7 +347,9 @@ impl<'a> Resolver<'a> {
                     .copied()
                     .unwrap_or_else(TypeIndex::unresolved);
             }
-            ExpressionKind::StringLiteral(_) => expression.ty = string_type_index,
+            ExpressionKind::StringLiteral(_) | ExpressionKind::TemplateString(_) => {
+                expression.ty = string_type_index
+            }
             ExpressionKind::QualifiedIdentifier(_) | ExpressionKind::Call(_) => {
                 expression.ty = TypeIndex::unresolved();
             }

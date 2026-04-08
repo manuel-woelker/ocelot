@@ -4,6 +4,7 @@ use crate::identifier::Identifier;
 use crate::not_expression::NotExpression;
 use crate::qualified_identifier::QualifiedIdentifier;
 use crate::string_literal_expression::StringLiteralExpression;
+use crate::template_string_expression::TemplateStringExpression;
 
 /// Variants of expressions supported by the current AST scaffold.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,4 +15,5 @@ pub enum ExpressionKind {
     Not(NotExpression),
     QualifiedIdentifier(QualifiedIdentifier),
     StringLiteral(StringLiteralExpression),
+    TemplateString(TemplateStringExpression),
 }

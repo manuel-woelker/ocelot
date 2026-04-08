@@ -9,6 +9,8 @@ use ocelot_ast::not_expression::NotExpression;
 use ocelot_ast::qualified_identifier::QualifiedIdentifier;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
+use ocelot_ast::template_string_expression::TemplateStringExpression;
+use ocelot_ast::template_string_part::TemplateStringPart;
 use ocelot_base::diagnostic_level::DiagnosticLevel;
 use ocelot_base::error::OcelotError;
 use ocelot_base::line_bounds::LineBounds;
@@ -109,6 +111,9 @@ impl<'a> Interpreter<'a> {
             ExpressionKind::StringLiteral(string_literal) => {
                 Ok(RuntimeValue::string(string_literal.value.clone()))
             }
+            ExpressionKind::TemplateString(template_string) => {
+                self.evaluate_template_string_expression(template_string)
+            }
             ExpressionKind::QualifiedIdentifier(identifier) => {
                 self.unresolved_qualified_identifier_error(expression, identifier)
             }
@@ -162,6 +167,28 @@ impl<'a> Interpreter<'a> {
         let operand = self.evaluate_expression(&not_expression.operand)?;
         let operand = operand.expect_boolean("type error: `not` expects a bool operand")?;
         Ok(RuntimeValue::boolean(!operand))
+    }
+
+    fn evaluate_template_string_expression(
+        &self,
+        template_string: &TemplateStringExpression,
+    ) -> OcelotResult<RuntimeValue> {
+        let mut output = String::new();
+
+        for part in &template_string.parts {
+            match part {
+                TemplateStringPart::Interpolation(expression) => {
+                    output.push_str(
+                        self.evaluate_expression(expression)?
+                            .render_for_display()
+                            .as_str(),
+                    );
+                }
+                TemplateStringPart::Text(text) => output.push_str(text.as_str()),
+            }
+        }
+
+        Ok(RuntimeValue::string(output))
     }
 
     fn evaluate_user_defined_call(

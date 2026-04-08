@@ -237,14 +237,38 @@ Repository-level verification should include:
 - If future expressions introduce braces, the template-string lexer/parser boundary may need explicit nesting rules so `}` closes the right construct.
 - Keeping plain string literals as their own AST variant is slightly more code than collapsing everything into one node, but it buys simpler tests and less churn across the repo.
 
+# What landed from this plan?
+
+This change landed first-slice template strings across the whole language pipeline:
+
+- the AST now has dedicated `TemplateStringExpression` and `TemplateStringPart` types
+- the lexer preserves interpolation structure with `StringStart`, `StringText`, `InterpolationStart`, and `StringEnd` while leaving plain strings as `TokenType::String`
+- the parser now builds `TemplateStringExpression` nodes for interpolated strings and keeps plain test names restricted to non-interpolated string literals
+- the resolver now resolves embedded expressions and types template strings as `string`
+- the interpreter now evaluates template strings left to right and concatenates `render_for_display()` output
+- the formatter now preserves and normalizes template-string syntax
+- the spec now documents template strings and includes executable examples
+
+# What verification was completed?
+
+Verification completed with:
+
+- `cargo test -p ocelot-parser`
+- `cargo test -p ocelot-resolver`
+- `cargo test -p ocelot-interpreter`
+- `cargo test -p ocelot-formatter`
+- `cargo test -p ocelot-engine`
+- `cargo test -p ocelot-spec-validation`
+- `nao check`
+
 # What concrete tasks should track this plan?
 
-- [ ] Add AST support for template-string expressions and ordered template-string parts.
-- [ ] Extend lexer token kinds and lexing logic to preserve `${...}` structure inside quoted strings.
-- [ ] Update parser string parsing to build either `StringLiteralExpression` or `TemplateStringExpression` as appropriate.
-- [ ] Keep test-item names restricted to non-interpolated string literals and add coverage for that rule.
-- [ ] Update resolver logic and tests so template strings resolve as string-typed expressions.
-- [ ] Update interpreter evaluation so template strings evaluate embedded expressions at runtime and concatenate display-rendered results.
-- [ ] Update formatter support and tests for template-string syntax.
-- [ ] Add or update spec chapters, examples, and spec-validation coverage for template strings and any new stable diagnostics.
-- [ ] Run targeted crate tests and `nao check`.
+- [x] Add AST support for template-string expressions and ordered template-string parts.
+- [x] Extend lexer token kinds and lexing logic to preserve `${...}` structure inside quoted strings.
+- [x] Update parser string parsing to build either `StringLiteralExpression` or `TemplateStringExpression` as appropriate.
+- [x] Keep test-item names restricted to non-interpolated string literals and add coverage for that rule.
+- [x] Update resolver logic and tests so template strings resolve as string-typed expressions.
+- [x] Update interpreter evaluation so template strings evaluate embedded expressions at runtime and concatenate display-rendered results.
+- [x] Update formatter support and tests for template-string syntax.
+- [x] Add or update spec chapters, examples, and spec-validation coverage for template strings and any new stable diagnostics.
+- [x] Run targeted crate tests and `nao check`.

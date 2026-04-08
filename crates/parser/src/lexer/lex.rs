@@ -17,15 +17,20 @@ pub fn lex(source_file: &SourceFile, source_diagnostics: &mut SourceDiagnostics)
     let source = source_file.source();
     let bytes = source.as_bytes();
     let mut index = 0;
+    let mut mode = LexMode::Normal;
+    let mut template_resume_depth = 0usize;
 
     while index < bytes.len() {
-        let leading_trivia = match collect_trivia(source_file, &mut index) {
-            Ok(leading_trivia) => leading_trivia,
-            Err(diagnostic) => {
-                source_diagnostics.add_diagnostic(diagnostic);
-                index = bytes.len();
-                break;
-            }
+        let leading_trivia = match mode {
+            LexMode::Normal => match collect_trivia(source_file, &mut index) {
+                Ok(leading_trivia) => leading_trivia,
+                Err(diagnostic) => {
+                    source_diagnostics.add_diagnostic(diagnostic);
+                    index = bytes.len();
+                    break;
+                }
+            },
+            LexMode::TemplateString => Vec::new(),
         };
 
         if index >= bytes.len() {
@@ -38,150 +43,260 @@ pub fn lex(source_file: &SourceFile, source_diagnostics: &mut SourceDiagnostics)
             return tokens;
         }
 
-        match bytes[index] {
-            b'(' => {
-                tokens.push(Token::with_leading_trivia(
-                    TokenType::LeftParen,
-                    Trivia::new(leading_trivia, Vec::new()),
-                    index,
-                    index + 1,
-                ));
-                index += 1;
-            }
-            b',' => {
-                tokens.push(Token::with_leading_trivia(
-                    TokenType::Comma,
-                    Trivia::new(leading_trivia, Vec::new()),
-                    index,
-                    index + 1,
-                ));
-                index += 1;
-            }
-            b':' if index + 1 < bytes.len() && bytes[index + 1] == b':' => {
-                tokens.push(Token::with_leading_trivia(
-                    TokenType::DoubleColon,
-                    Trivia::new(leading_trivia, Vec::new()),
-                    index,
-                    index + 2,
-                ));
-                index += 2;
-            }
-            b':' => {
-                tokens.push(Token::with_leading_trivia(
-                    TokenType::Colon,
-                    Trivia::new(leading_trivia, Vec::new()),
-                    index,
-                    index + 1,
-                ));
-                index += 1;
-            }
-            b')' => {
-                tokens.push(Token::with_leading_trivia(
-                    TokenType::RightParen,
-                    Trivia::new(leading_trivia, Vec::new()),
-                    index,
-                    index + 1,
-                ));
-                index += 1;
-            }
-            b'{' => {
-                tokens.push(Token::with_leading_trivia(
-                    TokenType::LeftBrace,
-                    Trivia::new(leading_trivia, Vec::new()),
-                    index,
-                    index + 1,
-                ));
-                index += 1;
-            }
-            b'}' => {
-                tokens.push(Token::with_leading_trivia(
-                    TokenType::RightBrace,
-                    Trivia::new(leading_trivia, Vec::new()),
-                    index,
-                    index + 1,
-                ));
-                index += 1;
-            }
-            b';' => {
-                tokens.push(Token::with_leading_trivia(
-                    TokenType::Semicolon,
-                    Trivia::new(leading_trivia, Vec::new()),
-                    index,
-                    index + 1,
-                ));
-                index += 1;
-            }
-            b'"' => {
-                let start = index;
-                index += 1;
-
-                while index < bytes.len()
-                    && bytes[index] != b'"'
-                    && bytes[index] != b'\n'
-                    && bytes[index] != b'\r'
-                {
+        match mode {
+            LexMode::TemplateString => match lex_template_string_part(
+                source_file,
+                &mut index,
+                &mut mode,
+                &mut template_resume_depth,
+            ) {
+                Ok(Some(token)) => tokens.push(token),
+                Ok(None) => continue,
+                Err(diagnostic) => {
+                    source_diagnostics.add_diagnostic(diagnostic);
+                    index = bytes.len();
+                    break;
+                }
+            },
+            LexMode::Normal => match bytes[index] {
+                b'(' => {
+                    tokens.push(Token::with_leading_trivia(
+                        TokenType::LeftParen,
+                        Trivia::new(leading_trivia, Vec::new()),
+                        index,
+                        index + 1,
+                    ));
                     index += 1;
                 }
+                b',' => {
+                    tokens.push(Token::with_leading_trivia(
+                        TokenType::Comma,
+                        Trivia::new(leading_trivia, Vec::new()),
+                        index,
+                        index + 1,
+                    ));
+                    index += 1;
+                }
+                b':' if index + 1 < bytes.len() && bytes[index + 1] == b':' => {
+                    tokens.push(Token::with_leading_trivia(
+                        TokenType::DoubleColon,
+                        Trivia::new(leading_trivia, Vec::new()),
+                        index,
+                        index + 2,
+                    ));
+                    index += 2;
+                }
+                b':' => {
+                    tokens.push(Token::with_leading_trivia(
+                        TokenType::Colon,
+                        Trivia::new(leading_trivia, Vec::new()),
+                        index,
+                        index + 1,
+                    ));
+                    index += 1;
+                }
+                b')' => {
+                    tokens.push(Token::with_leading_trivia(
+                        TokenType::RightParen,
+                        Trivia::new(leading_trivia, Vec::new()),
+                        index,
+                        index + 1,
+                    ));
+                    index += 1;
+                }
+                b'{' => {
+                    tokens.push(Token::with_leading_trivia(
+                        TokenType::LeftBrace,
+                        Trivia::new(leading_trivia, Vec::new()),
+                        index,
+                        index + 1,
+                    ));
+                    index += 1;
+                }
+                b'}' => {
+                    tokens.push(Token::with_leading_trivia(
+                        TokenType::RightBrace,
+                        Trivia::new(leading_trivia, Vec::new()),
+                        index,
+                        index + 1,
+                    ));
+                    index += 1;
+                    if template_resume_depth > 0 {
+                        mode = LexMode::TemplateString;
+                        template_resume_depth -= 1;
+                    }
+                }
+                b';' => {
+                    tokens.push(Token::with_leading_trivia(
+                        TokenType::Semicolon,
+                        Trivia::new(leading_trivia, Vec::new()),
+                        index,
+                        index + 1,
+                    ));
+                    index += 1;
+                }
+                b'"' => match lex_string(source_file, &mut index, leading_trivia) {
+                    Ok(StringLexResult::PlainString(token)) => tokens.push(token),
+                    Ok(StringLexResult::TemplateStart(token)) => {
+                        tokens.push(token);
+                        mode = LexMode::TemplateString;
+                    }
+                    Err(diagnostic) => {
+                        source_diagnostics.add_diagnostic(diagnostic);
+                        break;
+                    }
+                },
+                byte if is_identifier_start(byte) => {
+                    let start = index;
+                    index += 1;
 
-                if index >= bytes.len() || bytes[index] == b'\n' || bytes[index] == b'\r' {
-                    source_diagnostics.add_diagnostic(unterminated_string_diagnostic(
-                        source_file,
+                    while index < bytes.len() && is_identifier_continue(bytes[index]) {
+                        index += 1;
+                    }
+
+                    let token_type = match &source[start..index] {
+                        "can" => TokenType::Can,
+                        "cannot" => TokenType::Cannot,
+                        "effect" => TokenType::Effect,
+                        "false" => TokenType::False,
+                        "fun" => TokenType::Fun,
+                        "native" => TokenType::Native,
+                        "not" => TokenType::Not,
+                        "test" => TokenType::Test,
+                        "true" => TokenType::True,
+                        "use" => TokenType::Use,
+                        _ => TokenType::Identifier,
+                    };
+                    tokens.push(Token::with_leading_trivia(
+                        token_type,
+                        Trivia::new(leading_trivia, Vec::new()),
                         start,
                         index,
                     ));
-                    break;
                 }
-
-                index += 1;
-                tokens.push(Token::with_leading_trivia(
-                    TokenType::String,
-                    Trivia::new(leading_trivia, Vec::new()),
-                    start,
-                    index,
-                ));
-            }
-            byte if is_identifier_start(byte) => {
-                let start = index;
-                index += 1;
-
-                while index < bytes.len() && is_identifier_continue(bytes[index]) {
+                _ => {
+                    tokens.push(Token::with_leading_trivia(
+                        TokenType::Unexpected,
+                        Trivia::new(leading_trivia, Vec::new()),
+                        index,
+                        index + 1,
+                    ));
                     index += 1;
                 }
-
-                let token_type = match &source[start..index] {
-                    "can" => TokenType::Can,
-                    "cannot" => TokenType::Cannot,
-                    "effect" => TokenType::Effect,
-                    "false" => TokenType::False,
-                    "fun" => TokenType::Fun,
-                    "native" => TokenType::Native,
-                    "not" => TokenType::Not,
-                    "test" => TokenType::Test,
-                    "true" => TokenType::True,
-                    "use" => TokenType::Use,
-                    _ => TokenType::Identifier,
-                };
-                tokens.push(Token::with_leading_trivia(
-                    token_type,
-                    Trivia::new(leading_trivia, Vec::new()),
-                    start,
-                    index,
-                ));
-            }
-            _ => {
-                tokens.push(Token::with_leading_trivia(
-                    TokenType::Unexpected,
-                    Trivia::new(leading_trivia, Vec::new()),
-                    index,
-                    index + 1,
-                ));
-                index += 1;
-            }
+            },
         }
     }
 
     tokens.push(Token::new(TokenType::EndOfFile, index, index));
     tokens
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LexMode {
+    Normal,
+    TemplateString,
+}
+
+enum StringLexResult {
+    PlainString(Token),
+    TemplateStart(Token),
+}
+
+fn lex_string(
+    source_file: &SourceFile,
+    index: &mut usize,
+    leading_trivia: Vec<TriviaPiece>,
+) -> Result<StringLexResult, SourceDiagnostic> {
+    let bytes = source_file.source().as_bytes();
+    let start = *index;
+    *index += 1;
+
+    while *index < bytes.len() {
+        match bytes[*index] {
+            b'"' => {
+                *index += 1;
+                return Ok(StringLexResult::PlainString(Token::with_leading_trivia(
+                    TokenType::String,
+                    Trivia::new(leading_trivia, Vec::new()),
+                    start,
+                    *index,
+                )));
+            }
+            b'\n' | b'\r' => {
+                return Err(unterminated_string_diagnostic(source_file, start, *index));
+            }
+            b'$' if *index + 1 < bytes.len() && bytes[*index + 1] == b'{' => {
+                *index = start + 1;
+                return Ok(StringLexResult::TemplateStart(Token::with_leading_trivia(
+                    TokenType::StringStart,
+                    Trivia::new(leading_trivia, Vec::new()),
+                    start,
+                    start + 1,
+                )));
+            }
+            _ => *index += 1,
+        }
+    }
+
+    Err(unterminated_string_diagnostic(source_file, start, *index))
+}
+
+fn lex_template_string_part(
+    source_file: &SourceFile,
+    index: &mut usize,
+    mode: &mut LexMode,
+    template_resume_depth: &mut usize,
+) -> Result<Option<Token>, SourceDiagnostic> {
+    let bytes = source_file.source().as_bytes();
+    let segment_start = *index;
+
+    while *index < bytes.len() {
+        match bytes[*index] {
+            b'"' => {
+                if segment_start < *index {
+                    return Ok(Some(Token::new(
+                        TokenType::StringText,
+                        segment_start,
+                        *index,
+                    )));
+                }
+
+                let token = Token::new(TokenType::StringEnd, *index, *index + 1);
+                *index += 1;
+                *mode = LexMode::Normal;
+                return Ok(Some(token));
+            }
+            b'\n' | b'\r' => {
+                return Err(unterminated_string_diagnostic(
+                    source_file,
+                    segment_start.saturating_sub(1),
+                    *index,
+                ));
+            }
+            b'$' if *index + 1 < bytes.len() && bytes[*index + 1] == b'{' => {
+                if segment_start < *index {
+                    return Ok(Some(Token::new(
+                        TokenType::StringText,
+                        segment_start,
+                        *index,
+                    )));
+                }
+
+                let token = Token::new(TokenType::InterpolationStart, *index, *index + 2);
+                *index += 2;
+                *mode = LexMode::Normal;
+                *template_resume_depth += 1;
+                return Ok(Some(token));
+            }
+            _ => *index += 1,
+        }
+    }
+
+    Err(unterminated_string_diagnostic(
+        source_file,
+        segment_start.saturating_sub(1),
+        *index,
+    ))
 }
 
 fn collect_trivia(
@@ -821,6 +936,75 @@ mod tests {
                 TokenType::Comma,
                 TokenType::String,
                 TokenType::RightParen,
+                TokenType::Semicolon,
+                TokenType::EndOfFile,
+            ]
+        );
+        assert!(!source_diagnostics.has_errors());
+    }
+
+    #[test]
+    fn lexes_template_strings_with_text_and_interpolation_tokens() {
+        let source_file =
+            SourceFile::new("examples/template.ocelot", "println(\"Hello ${name}!\");");
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let tokens = lex(&source_file, &mut source_diagnostics);
+        let token_types: Vec<_> = tokens
+            .iter()
+            .map(|token| token.token_type.clone())
+            .collect();
+
+        assert_eq!(
+            token_types,
+            vec![
+                TokenType::Identifier,
+                TokenType::LeftParen,
+                TokenType::StringStart,
+                TokenType::StringText,
+                TokenType::InterpolationStart,
+                TokenType::Identifier,
+                TokenType::RightBrace,
+                TokenType::StringText,
+                TokenType::StringEnd,
+                TokenType::RightParen,
+                TokenType::Semicolon,
+                TokenType::EndOfFile,
+            ]
+        );
+        assert_eq!(
+            &source_file.source()[tokens[3].span.start()..tokens[3].span.end()],
+            "Hello "
+        );
+        assert_eq!(
+            &source_file.source()[tokens[7].span.start()..tokens[7].span.end()],
+            "!"
+        );
+        assert!(!source_diagnostics.has_errors());
+    }
+
+    #[test]
+    fn lexes_multiple_template_interpolations_in_one_string() {
+        let source_file = SourceFile::new("examples/template.ocelot", "\"${greet()} ${name}\";");
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let token_types: Vec<_> = lex(&source_file, &mut source_diagnostics)
+            .into_iter()
+            .map(|token| token.token_type)
+            .collect();
+
+        assert_eq!(
+            token_types,
+            vec![
+                TokenType::StringStart,
+                TokenType::InterpolationStart,
+                TokenType::Identifier,
+                TokenType::LeftParen,
+                TokenType::RightParen,
+                TokenType::RightBrace,
+                TokenType::StringText,
+                TokenType::InterpolationStart,
+                TokenType::Identifier,
+                TokenType::RightBrace,
+                TokenType::StringEnd,
                 TokenType::Semicolon,
                 TokenType::EndOfFile,
             ]

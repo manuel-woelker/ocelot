@@ -22,6 +22,8 @@ pub mod qualified_identifier;
 pub mod statement;
 pub mod statement_kind;
 pub mod string_literal_expression;
+pub mod template_string_expression;
+pub mod template_string_part;
 pub mod test_item;
 pub mod trivia;
 pub mod trivia_piece;

@@ -429,6 +429,7 @@ dependencies = [
  "ocelot-ast",
  "ocelot-base",
  "ocelot-pal",
+ "ocelot-parser",
  "ocelot-resolver",
  "ocelot-semantic",
 ]

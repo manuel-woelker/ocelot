@@ -16,6 +16,8 @@ use ocelot_ast::qualified_identifier::QualifiedIdentifier;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
 use ocelot_ast::string_literal_expression::StringLiteralExpression;
+use ocelot_ast::template_string_expression::TemplateStringExpression;
+use ocelot_ast::template_string_part::TemplateStringPart;
 use ocelot_ast::test_item::TestItem;
 use ocelot_ast::trivia_piece::TriviaPiece;
 use ocelot_ast::use_item::UseItem;
@@ -243,6 +245,20 @@ fn write_expression(output: &mut String, expression: &Expression) {
             output.push_str(value);
             output.push('"');
         }
+        ExpressionKind::TemplateString(TemplateStringExpression { parts }) => {
+            output.push('"');
+            for part in parts {
+                match part {
+                    TemplateStringPart::Interpolation(expression) => {
+                        output.push_str("${");
+                        write_expression(output, expression);
+                        output.push('}');
+                    }
+                    TemplateStringPart::Text(text) => output.push_str(text.as_str()),
+                }
+            }
+            output.push('"');
+        }
     }
 }
 
@@ -343,5 +359,17 @@ mod tests {
         let twice = format_compilation_unit(&parse(&once));
 
         assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn formats_template_strings() {
+        let input = "fun greet(name: string) {\nprintln(\"Hello ${ name } ${not false}\");\n}";
+
+        let formatted = format_compilation_unit(&parse(input));
+
+        assert_eq!(
+            formatted,
+            "fun greet(name: string) {\n    println(\"Hello ${name} ${not false}\");\n}"
+        );
     }
 }

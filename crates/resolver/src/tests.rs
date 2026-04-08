@@ -23,6 +23,7 @@ use ocelot_ast::qualified_identifier::QualifiedIdentifier;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
 use ocelot_ast::string_literal_expression::StringLiteralExpression;
+use ocelot_ast::template_string_part::TemplateStringPart;
 use ocelot_ast::test_item::TestItem;
 use ocelot_ast::type_index::TypeIndex;
 use ocelot_ast::use_item::UseItem;
@@ -161,6 +162,54 @@ fn resolves_native_call_expressions() {
     };
     assert_eq!(call_expression.function_index().unwrap(), println_index);
     assert_eq!(expression.ty, TypeIndex::unresolved());
+}
+
+#[test]
+fn resolves_template_strings_as_string_typed_expressions() {
+    let source_file = SourceFile::new(
+        "examples/template.ocelot",
+        "println(\"Hello ${not false}!\");",
+    );
+    let mut source_diagnostics = Default::default();
+    let mut script = ocelot_parser::parse_compilation_unit::parse_compilation_unit(
+        &source_file,
+        &mut source_diagnostics,
+    )
+    .unwrap();
+    let mut context = CompilationContext::default();
+    let mut symbol_table = SymbolTable::new();
+
+    resolve(
+        &mut script,
+        &source_file,
+        &mut context,
+        &mut symbol_table,
+        &compilation_inputs(),
+    )
+    .unwrap();
+
+    let ItemKind::Statement(statement) = &script.items[0].kind else {
+        panic!("expected statement item");
+    };
+    let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+    let ExpressionKind::Call(call_expression) = &expression.kind else {
+        panic!("expected call expression");
+    };
+    let ExpressionKind::TemplateString(template_string) = &call_expression.arguments[0].kind else {
+        panic!("expected template string argument");
+    };
+
+    assert_eq!(
+        call_expression.arguments[0].ty,
+        symbol_table.string_type_index()
+    );
+    assert!(matches!(
+        template_string.parts[1],
+        TemplateStringPart::Interpolation(Expression {
+            ty,
+            ..
+        }) if ty == symbol_table.boolean_type_index()
+    ));
 }
 
 #[test]

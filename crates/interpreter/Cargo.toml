@@ -13,4 +13,5 @@ ocelot-pal = { path = "../pal", version = "0.1.2" }
 ocelot-semantic = { path = "../semantic", version = "0.1.2" }
 
 [dev-dependencies]
+ocelot-parser = { path = "../parser", version = "0.1.2" }
 ocelot-resolver = { path = "../resolver", version = "0.1.2" }

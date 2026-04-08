@@ -19,6 +19,8 @@ use ocelot_ast::qualified_identifier::QualifiedIdentifier;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
 use ocelot_ast::string_literal_expression::StringLiteralExpression;
+use ocelot_ast::template_string_expression::TemplateStringExpression;
+use ocelot_ast::template_string_part::TemplateStringPart;
 use ocelot_ast::test_item::TestItem;
 use ocelot_ast::trivia::Trivia;
 use ocelot_ast::trivia_piece::TriviaPiece;
@@ -277,6 +279,13 @@ impl<'a> Parser<'a> {
 
     fn parse_test_item(&mut self) -> OcelotResult<Item> {
         let test_token = self.expect(TokenType::Test, "expected `test` item")?;
+        if self.at(TokenType::StringStart) {
+            return self.emit_fatal_diagnostic(
+                "test names must be plain string literals",
+                self.current().span.clone(),
+                "interpolation is not allowed here",
+            );
+        }
         let name_token = self.expect(TokenType::String, "expected test name string")?;
         let name_literal = self.source_text(&name_token.span);
         let name = SharedString::from(&name_literal[1..name_literal.len() - 1]);
@@ -425,6 +434,7 @@ impl<'a> Parser<'a> {
                     token.span,
                 ))
             }
+            TokenType::StringStart => self.parse_template_string_expression(),
             TokenType::True => {
                 self.position += 1;
                 Ok(Expression::new(
@@ -496,6 +506,50 @@ impl<'a> Parser<'a> {
             ExpressionKind::Call(CallExpression::new(callee, arguments)),
             span,
         ))
+    }
+
+    fn parse_template_string_expression(&mut self) -> OcelotResult<Expression> {
+        let string_start = self.expect(TokenType::StringStart, "expected `\"` to start string")?;
+        let mut parts = Vec::new();
+
+        loop {
+            self.reject_comments_before_current_token()?;
+
+            if self.at(TokenType::StringText) {
+                let token = self.expect(TokenType::StringText, "expected string text")?;
+                parts.push(TemplateStringPart::Text(
+                    self.source_text(&token.span).into(),
+                ));
+                continue;
+            }
+
+            if self.at(TokenType::InterpolationStart) {
+                self.expect(
+                    TokenType::InterpolationStart,
+                    "expected `${` to start interpolation",
+                )?;
+
+                if self.at(TokenType::RightBrace) {
+                    return self.emit_fatal_diagnostic(
+                        "expected expression inside template interpolation",
+                        self.current().span.clone(),
+                        "expression expected here",
+                    );
+                }
+
+                let expression = self.parse_expression()?;
+                self.expect(TokenType::RightBrace, "expected `}` after interpolation")?;
+                parts.push(TemplateStringPart::Interpolation(expression));
+                continue;
+            }
+
+            let string_end = self.expect(TokenType::StringEnd, "expected `\"` after string")?;
+            let span = Span::new(string_start.span.start(), string_end.span.end());
+            return Ok(Expression::new(
+                ExpressionKind::TemplateString(TemplateStringExpression::new(parts)),
+                span,
+            ));
+        }
     }
 
     fn parse_grouped_import_names(&mut self) -> OcelotResult<(Vec<Identifier>, Span)> {

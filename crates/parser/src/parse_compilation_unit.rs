@@ -36,8 +36,10 @@ mod tests {
     use ocelot_ast::item_kind::ItemKind;
     use ocelot_ast::not_expression::NotExpression;
     use ocelot_ast::statement_kind::StatementKind;
+    use ocelot_ast::template_string_part::TemplateStringPart;
     use ocelot_ast::trivia_piece::TriviaPiece;
     use ocelot_ast::type_index::TypeIndex;
+    use ocelot_base::compilation_stage::CompilationStage;
     use ocelot_base::diagnostic_level::DiagnosticLevel;
     use ocelot_base::source_diagnostics::SourceDiagnostics;
     use ocelot_base::source_file::SourceFile;
@@ -252,6 +254,121 @@ mod tests {
             },
             other => panic!("expected statement item, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_template_strings_with_text_and_interpolation_parts() {
+        let source_file = SourceFile::new("examples/template.ocelot", "\"Hello ${name}!\";");
+        let mut source_diagnostics = SourceDiagnostics::default();
+
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
+
+        let ItemKind::Statement(statement) = &script.items[0].kind else {
+            panic!("expected statement item");
+        };
+        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+
+        let ExpressionKind::TemplateString(template_string) = &expression.kind else {
+            panic!(
+                "expected template string expression, got {:?}",
+                expression.kind
+            );
+        };
+
+        assert_eq!(template_string.parts.len(), 3);
+        assert_eq!(
+            template_string.parts[0],
+            TemplateStringPart::Text("Hello ".into())
+        );
+        assert_eq!(
+            template_string.parts[2],
+            TemplateStringPart::Text("!".into())
+        );
+
+        let TemplateStringPart::Interpolation(interpolation) = &template_string.parts[1] else {
+            panic!("expected interpolation part");
+        };
+        assert!(matches!(
+            interpolation.kind,
+            ExpressionKind::Identifier(ref identifier) if identifier.name == "name"
+        ));
+        assert!(!source_diagnostics.has_errors());
+    }
+
+    #[test]
+    fn parses_template_strings_with_arbitrary_embedded_expressions() {
+        let source_file = SourceFile::new(
+            "examples/template.ocelot",
+            "\"${not false} ${helper(name)}\";",
+        );
+        let mut source_diagnostics = SourceDiagnostics::default();
+
+        let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
+
+        let ItemKind::Statement(statement) = &script.items[0].kind else {
+            panic!("expected statement item");
+        };
+        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+        let ExpressionKind::TemplateString(template_string) = &expression.kind else {
+            panic!("expected template string expression");
+        };
+
+        assert_eq!(template_string.parts.len(), 3);
+        assert!(matches!(
+            template_string.parts[0],
+            TemplateStringPart::Interpolation(Expression {
+                kind: ExpressionKind::Not(_),
+                ..
+            })
+        ));
+        assert_eq!(
+            template_string.parts[1],
+            TemplateStringPart::Text(" ".into())
+        );
+        assert!(matches!(
+            template_string.parts[2],
+            TemplateStringPart::Interpolation(Expression {
+                kind: ExpressionKind::Call(_),
+                ..
+            })
+        ));
+        assert!(!source_diagnostics.has_errors());
+    }
+
+    #[test]
+    fn rejects_interpolated_test_names() {
+        let source_file = SourceFile::new("examples/tests.ocelot", "test \"${name}\" {}");
+        let mut source_diagnostics = SourceDiagnostics::default();
+
+        let error = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap_err();
+
+        assert!(matches!(
+            error.kind(),
+            ocelot_base::error::ErrorKind::CompilationError(CompilationStage::Parser)
+        ));
+        assert!(
+            error
+                .to_test_string()
+                .contains("test names must be plain string literals")
+        );
+    }
+
+    #[test]
+    fn reports_missing_template_interpolation_expressions() {
+        let source_file = SourceFile::new("examples/template.ocelot", "\"hello ${}\";");
+        let mut source_diagnostics = SourceDiagnostics::default();
+
+        let error = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap_err();
+
+        assert!(matches!(
+            error.kind(),
+            ocelot_base::error::ErrorKind::CompilationError(CompilationStage::Parser)
+        ));
+        assert!(
+            error
+                .to_test_string()
+                .contains("expected expression inside template interpolation")
+        );
     }
 
     #[test]

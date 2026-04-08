@@ -33,9 +33,12 @@ mod tests {
     use ocelot_ast::statement::Statement;
     use ocelot_ast::statement_kind::StatementKind;
     use ocelot_ast::string_literal_expression::StringLiteralExpression;
+    use ocelot_ast::template_string_expression::TemplateStringExpression;
+    use ocelot_ast::template_string_part::TemplateStringPart;
     use ocelot_ast::test_item::TestItem;
     use ocelot_base::error::ErrorKind;
     use ocelot_base::result::OcelotResult;
+    use ocelot_base::source_diagnostics::SourceDiagnostics;
     use ocelot_base::source_file::SourceFile;
     use ocelot_base::span::Span;
     use ocelot_pal::pal_mock::PalMock;
@@ -66,6 +69,18 @@ mod tests {
             &compilation_inputs,
         )?;
         interpret_resolved_script(&script, source_file, &symbol_table, pal)
+    }
+
+    fn parse_script(source: &str) -> (CompilationUnit, SourceFile) {
+        let source_file = SourceFile::new("examples/template.ocelot", source);
+        let mut source_diagnostics = SourceDiagnostics::default();
+        let script = ocelot_parser::parse_compilation_unit::parse_compilation_unit(
+            &source_file,
+            &mut source_diagnostics,
+        )
+        .unwrap();
+        assert!(!source_diagnostics.has_errors());
+        (script, source_file)
     }
 
     fn call_expression(name: &str, arguments: Vec<Expression>, span: Span) -> Expression {
@@ -134,6 +149,83 @@ mod tests {
         interpret_script(&script, &source_file, &pal).unwrap();
 
         assert_eq!(pal.take_printed_output(), "hello\n");
+    }
+
+    #[test]
+    fn interprets_template_strings_by_concatenating_text_and_display_values() {
+        let script = CompilationUnit::new(
+            vec![
+                Item::new(
+                    ItemKind::Function(FunctionItem::new(
+                        Identifier::new("greet", Span::new(4, 9)),
+                        vec![parameter("name", "string", Span::new(10, 22))],
+                        None,
+                        None,
+                        vec![Statement::new(
+                            StatementKind::Expression(ExpressionStatement::new(call_expression(
+                                "println",
+                                vec![Expression::new(
+                                    ExpressionKind::TemplateString(TemplateStringExpression::new(
+                                        vec![
+                                            TemplateStringPart::Text("Hello ".into()),
+                                            TemplateStringPart::Interpolation(Expression::new(
+                                                ExpressionKind::Identifier(Identifier::new(
+                                                    "name",
+                                                    Span::new(35, 39),
+                                                )),
+                                                Span::new(35, 39),
+                                            )),
+                                            TemplateStringPart::Text("!".into()),
+                                        ],
+                                    )),
+                                    Span::new(28, 42),
+                                )],
+                                Span::new(20, 43),
+                            ))),
+                            Span::new(20, 44),
+                        )],
+                        Span::new(0, 46),
+                    )),
+                    Span::new(0, 46),
+                ),
+                Item::new(
+                    ItemKind::Statement(Statement::new(
+                        StatementKind::Expression(ExpressionStatement::new(call_expression(
+                            "greet",
+                            vec![Expression::new(
+                                ExpressionKind::StringLiteral(StringLiteralExpression::new("Ada")),
+                                Span::new(53, 58),
+                            )],
+                            Span::new(47, 59),
+                        ))),
+                        Span::new(47, 60),
+                    )),
+                    Span::new(47, 60),
+                ),
+            ],
+            Span::new(0, 60),
+        );
+        let pal = PalMock::new();
+        let source_file = SourceFile::new(
+            "examples/template.ocelot",
+            "fun greet(name: string) { println(\"Hello ${name}!\"); } greet(\"Ada\");",
+        );
+
+        interpret_script(&script, &source_file, &pal).unwrap();
+
+        assert_eq!(pal.take_printed_output(), "Hello Ada!\n");
+    }
+
+    #[test]
+    fn interprets_template_strings_with_multiple_interpolations_from_source() {
+        let (script, source_file) = parse_script(
+            "fun greet(name: string) { println(\"${name} ${not false}\"); } greet(\"Ada\");",
+        );
+        let pal = PalMock::new();
+
+        interpret_script(&script, &source_file, &pal).unwrap();
+
+        assert_eq!(pal.take_printed_output(), "Ada true\n");
     }
 
     #[test]
