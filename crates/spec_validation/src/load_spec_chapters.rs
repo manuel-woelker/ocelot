@@ -2,6 +2,8 @@ use crate::expected_outcome::ExpectedOutcome;
 use crate::loaded_spec_chapter::LoadedSpecChapter;
 use crate::normalize_validation_text::normalize_validation_text;
 use crate::spec_example::SpecExample;
+use crate::spec_example_embedded_step::SpecExampleEmbeddedStep;
+use crate::spec_example_embedded_step_kind::SpecExampleEmbeddedStepKind;
 use crate::spec_example_file::SpecExampleFile;
 use crate::validation_failure::ValidationFailure;
 use crate::validation_failure_kind::ValidationFailureKind;
@@ -52,10 +54,11 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
 
     let mut current_example: Option<(String, usize)> = None;
     let mut source_files: Vec<SpecExampleFile> = Vec::new();
-    let mut saw_source_block = false;
+    let mut embedded_steps: Vec<SpecExampleEmbeddedStep> = Vec::new();
+    let mut saw_ocelot_block = false;
     let mut expected_outcome: Option<ExpectedOutcome> = None;
     let mut waiting_for_expectation = None;
-    let mut pending_source_label: Option<String> = None;
+    let mut pending_ocelot_block_label: Option<PendingOcelotBlockLabel> = None;
     let mut line_index = 0usize;
 
     while line_index < lines.len() {
@@ -69,13 +72,14 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
                 &mut malformed_failures,
                 &mut current_example,
                 &mut source_files,
-                &mut saw_source_block,
+                &mut embedded_steps,
+                &mut saw_ocelot_block,
                 &mut expected_outcome,
             );
             current_example = Some((rest.trim().to_owned(), line_index + 1));
             waiting_for_expectation = None;
-            pending_source_label = None;
-            saw_source_block = false;
+            pending_ocelot_block_label = None;
+            saw_ocelot_block = false;
             line_index += 1;
             continue;
         }
@@ -97,7 +101,7 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
                         .as_ref()
                         .map(|(_, line_number)| *line_number)
                         .unwrap_or_default(),
-                    "example must contain exactly one `### Output` or `### Error` section",
+                    "example must contain exactly one `### Output`, `### Eval result`, or `### Error` section",
                 ));
             } else {
                 waiting_for_expectation = Some(expectation_kind);
@@ -107,13 +111,30 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
         }
 
         if let Some(file_name) = parse_source_file_label(trimmed) {
-            pending_source_label = Some(file_name.to_owned());
+            pending_ocelot_block_label =
+                Some(PendingOcelotBlockLabel::SourceFile(file_name.to_owned()));
+            line_index += 1;
+            continue;
+        }
+
+        if trimmed == "execute:" {
+            pending_ocelot_block_label = Some(PendingOcelotBlockLabel::EmbeddedStep(
+                SpecExampleEmbeddedStepKind::Execute,
+            ));
+            line_index += 1;
+            continue;
+        }
+
+        if trimmed == "eval:" {
+            pending_ocelot_block_label = Some(PendingOcelotBlockLabel::EmbeddedStep(
+                SpecExampleEmbeddedStepKind::Eval,
+            ));
             line_index += 1;
             continue;
         }
 
         if trimmed == "```ocelot" {
-            saw_source_block = true;
+            saw_ocelot_block = true;
             let Some(block_end) = find_closing_fence(&lines, line_index + 1) else {
                 malformed_failures.push(new_malformed_failure(
                     path,
@@ -130,7 +151,7 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
                 break;
             };
 
-            let Some(file_name) = pending_source_label.take() else {
+            let Some(label) = pending_ocelot_block_label.take() else {
                 malformed_failures.push(new_malformed_failure(
                     path,
                     current_example
@@ -141,16 +162,21 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
                         .as_ref()
                         .map(|(_, line_number)| *line_number)
                         .unwrap_or_default(),
-                    "`ocelot` blocks must have a preceding `path/to/file.ocelot:` or `path/to/file.ocelot-script:` label",
+                    "`ocelot` blocks must have a preceding `path/to/file.ocelot:` label, `execute:`, or `eval:` marker",
                 ));
                 line_index = block_end + 1;
                 continue;
             };
 
-            source_files.push(SpecExampleFile::new(
-                file_name,
-                lines[line_index + 1..block_end].join("\n"),
-            ));
+            let block_source = lines[line_index + 1..block_end].join("\n");
+            match label {
+                PendingOcelotBlockLabel::SourceFile(file_name) => {
+                    source_files.push(SpecExampleFile::new(file_name, block_source));
+                }
+                PendingOcelotBlockLabel::EmbeddedStep(kind) => {
+                    embedded_steps.push(SpecExampleEmbeddedStep::new(kind, block_source));
+                }
+            }
             waiting_for_expectation = None;
             line_index = block_end + 1;
             continue;
@@ -184,7 +210,7 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
                         .as_ref()
                         .map(|(_, line_number)| *line_number)
                         .unwrap_or_default(),
-                    "`text` block must appear under `### Output` or `### Error`",
+                    "`text` block must appear under `### Output`, `### Eval result`, or `### Error`",
                 ));
                 line_index = block_end + 1;
                 continue;
@@ -209,6 +235,7 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
                 ));
                 expected_outcome = Some(match expectation_kind {
                     ExpectationKind::Output => ExpectedOutcome::Output(text),
+                    ExpectationKind::EvalResult => ExpectedOutcome::EvalResult(text),
                     ExpectationKind::Error => ExpectedOutcome::Error(text),
                 });
             }
@@ -225,7 +252,8 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
         &mut malformed_failures,
         &mut current_example,
         &mut source_files,
-        &mut saw_source_block,
+        &mut embedded_steps,
+        &mut saw_ocelot_block,
         &mut expected_outcome,
     );
 
@@ -236,13 +264,15 @@ fn parse_spec_chapter(path: &FilePath, markdown: &str) -> LoadedSpecChapter {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn finalize_example(
     path: &FilePath,
     examples: &mut Vec<SpecExample>,
     malformed_failures: &mut Vec<ValidationFailure>,
     current_example: &mut Option<(String, usize)>,
     source_files: &mut Vec<SpecExampleFile>,
-    saw_source_block: &mut bool,
+    embedded_steps: &mut Vec<SpecExampleEmbeddedStep>,
+    saw_ocelot_block: &mut bool,
     expected_outcome: &mut Option<ExpectedOutcome>,
 ) {
     let Some((name, example_line_number)) = current_example.take() else {
@@ -251,11 +281,12 @@ fn finalize_example(
 
     match (
         std::mem::take(source_files),
-        *saw_source_block,
+        std::mem::take(embedded_steps),
+        *saw_ocelot_block,
         expected_outcome.take(),
     ) {
-        (example_source_files, false, Some(_expected_outcome))
-            if example_source_files.is_empty() =>
+        (example_source_files, example_embedded_steps, false, Some(_expected_outcome))
+            if example_source_files.is_empty() && example_embedded_steps.is_empty() =>
         {
             malformed_failures.push(new_malformed_failure(
                 path,
@@ -264,7 +295,7 @@ fn finalize_example(
                 "example is missing its fenced `ocelot` block",
             ))
         }
-        (example_source_files, _, Some(expected_outcome)) => {
+        (example_source_files, example_embedded_steps, _, Some(expected_outcome)) => {
             let mut seen_paths = HashSet::new();
             let duplicate_path = example_source_files.iter().find_map(|source_file| {
                 (!seen_paths.insert(source_file.path.clone())).then(|| source_file.path.clone())
@@ -280,63 +311,106 @@ fn finalize_example(
                 return;
             }
 
-            let has_script_entry = example_source_files
-                .iter()
-                .any(|source_file| source_file.path.as_str() == "main.ocelot-script");
-            let has_module_entry = example_source_files
-                .iter()
-                .any(|source_file| source_file.path.as_str() == "main.ocelot");
+            if example_embedded_steps.is_empty() {
+                let has_script_entry = example_source_files
+                    .iter()
+                    .any(|source_file| source_file.path.as_str() == "main.ocelot-script");
+                let has_module_entry = example_source_files
+                    .iter()
+                    .any(|source_file| source_file.path.as_str() == "main.ocelot");
 
-            if has_script_entry && has_module_entry {
-                malformed_failures.push(new_malformed_failure(
-                    path,
-                    &name,
-                    example_line_number,
-                    "example must not declare both `main.ocelot` and `main.ocelot-script`",
-                ));
-                return;
-            }
+                if has_script_entry && has_module_entry {
+                    malformed_failures.push(new_malformed_failure(
+                        path,
+                        &name,
+                        example_line_number,
+                        "example must not declare both `main.ocelot` and `main.ocelot-script`",
+                    ));
+                    return;
+                }
 
-            if !has_script_entry && !has_module_entry {
-                malformed_failures.push(new_malformed_failure(
-                    path,
-                    &name,
-                    example_line_number,
-                    "example must declare `main.ocelot` or `main.ocelot-script`",
-                ));
-                return;
+                if !has_script_entry && !has_module_entry {
+                    malformed_failures.push(new_malformed_failure(
+                        path,
+                        &name,
+                        example_line_number,
+                        "example must declare `main.ocelot` or `main.ocelot-script`",
+                    ));
+                    return;
+                }
+
+                if matches!(expected_outcome, ExpectedOutcome::EvalResult(_)) {
+                    malformed_failures.push(new_malformed_failure(
+                        path,
+                        &name,
+                        example_line_number,
+                        "file-execution examples must use `### Output` or `### Error`, not `### Eval result`",
+                    ));
+                    return;
+                }
+            } else {
+                if !example_embedded_steps
+                    .iter()
+                    .any(|step| step.kind == SpecExampleEmbeddedStepKind::Eval)
+                {
+                    malformed_failures.push(new_malformed_failure(
+                        path,
+                        &name,
+                        example_line_number,
+                        "embedded eval examples must include at least one `eval:` block",
+                    ));
+                    return;
+                }
+
+                if matches!(expected_outcome, ExpectedOutcome::Output(_)) {
+                    malformed_failures.push(new_malformed_failure(
+                        path,
+                        &name,
+                        example_line_number,
+                        "embedded eval examples must use `### Eval result` or `### Error`, not `### Output`",
+                    ));
+                    return;
+                }
             }
 
             examples.push(SpecExample {
                 chapter_path: path.clone(),
                 name: SharedString::from(name),
                 source_files: example_source_files,
+                embedded_steps: example_embedded_steps,
                 expected_outcome,
                 line_number: example_line_number,
             });
         }
-        (_, _, None) => malformed_failures.push(new_malformed_failure(
+        (_, _, _, None) => malformed_failures.push(new_malformed_failure(
             path,
             &name,
             example_line_number,
-            "example is missing its `### Output` or `### Error` `text` block",
+            "example is missing its `### Output`, `### Eval result`, or `### Error` `text` block",
         )),
     }
-    *saw_source_block = false;
+    *saw_ocelot_block = false;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExpectationKind {
     Output,
+    EvalResult,
     Error,
 }
 
 fn parse_expectation_heading(trimmed_line: &str) -> Option<ExpectationKind> {
     match trimmed_line {
         "### Output" => Some(ExpectationKind::Output),
+        "### Eval result" => Some(ExpectationKind::EvalResult),
         "### Error" => Some(ExpectationKind::Error),
         _ => None,
     }
+}
+
+enum PendingOcelotBlockLabel {
+    SourceFile(String),
+    EmbeddedStep(SpecExampleEmbeddedStepKind),
 }
 
 fn parse_source_file_label(trimmed_line: &str) -> Option<&str> {
@@ -478,6 +552,53 @@ hello
     }
 
     #[test]
+    fn loads_embedded_eval_examples() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "docs/spec/28.03 Runtime behavior - Embedded eval.md",
+            r#"
+## Example: embedded eval
+
+helper.ocelot:
+
+```ocelot
+fun greet() {
+    println("hello");
+}
+```
+
+execute:
+
+```ocelot
+fun local() {
+    helper::greet();
+}
+```
+
+eval:
+
+```ocelot
+local()
+```
+
+### Eval result
+
+```text
+()
+```
+"#,
+        );
+
+        let chapters = load_spec_chapters(&pal, &FilePath::from("docs/spec")).unwrap();
+
+        assert_eq!(chapters[0].examples[0].embedded_steps.len(), 2);
+        assert_eq!(
+            chapters[0].examples[0].expected_outcome,
+            ExpectedOutcome::EvalResult("()".into())
+        );
+    }
+
+    #[test]
     fn reports_examples_without_filename_labels_as_malformed() {
         let pal = PalMock::new();
         pal.set_file(
@@ -499,7 +620,7 @@ hello
 
         let chapters = load_spec_chapters(&pal, &FilePath::from("docs/spec")).unwrap();
 
-        expect!["`ocelot` blocks must have a preceding `path/to/file.ocelot:` or `path/to/file.ocelot-script:` label"]
+        expect!["`ocelot` blocks must have a preceding `path/to/file.ocelot:` label, `execute:`, or `eval:` marker"]
             .assert_eq(chapters[0].malformed_failures[0].message.as_str());
     }
 

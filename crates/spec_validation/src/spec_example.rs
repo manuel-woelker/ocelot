@@ -1,4 +1,5 @@
 use crate::expected_outcome::ExpectedOutcome;
+use crate::spec_example_embedded_step::SpecExampleEmbeddedStep;
 use crate::spec_example_file::SpecExampleFile;
 use ocelot_base::file_path::FilePath;
 use ocelot_base::shared_string::SharedString;
@@ -12,6 +13,8 @@ pub struct SpecExample {
     pub name: SharedString,
     /// The named source files declared by this example.
     pub source_files: Vec<SpecExampleFile>,
+    /// The embedded-engine steps declared by this example.
+    pub embedded_steps: Vec<SpecExampleEmbeddedStep>,
     /// The expected normalized result from the fenced `text` block.
     pub expected_outcome: ExpectedOutcome,
     /// The one-based line number of the example heading in the chapter.

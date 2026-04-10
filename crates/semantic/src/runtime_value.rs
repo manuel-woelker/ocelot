@@ -94,6 +94,11 @@ impl RuntimeValue {
             Self::Unit => SharedString::from("()"),
         }
     }
+
+    /// Returns a stable user-facing rendering for eval-result comparison.
+    pub fn render_for_eval_result(&self) -> SharedString {
+        self.render_for_assertion()
+    }
 }
 
 #[cfg(test)]
@@ -184,6 +189,15 @@ mod tests {
         let value = RuntimeValue::boolean(false);
 
         assert_eq!(value.render_for_assertion(), "false");
+    }
+
+    #[test]
+    fn render_for_eval_result_matches_assertion_rendering() {
+        assert_eq!(
+            RuntimeValue::string("hello").render_for_eval_result(),
+            "\"hello\""
+        );
+        assert_eq!(RuntimeValue::boolean(true).render_for_eval_result(), "true");
     }
 
     #[test]

@@ -16,7 +16,7 @@ This work should introduce one self-contained `EmbeddedEngine` that owns those d
 
 # How should the language spec describe embedded eval behavior?
 
-This feature needs explicit spec coverage rather than hiding inside engine RustDoc or tests.
+This feature needed explicit spec coverage rather than hiding inside engine RustDoc or tests.
 Embedded eval is not ordinary script execution, and pretending otherwise would blur the runtime model.
 
 Recommended documentation work:
@@ -237,22 +237,22 @@ It should not invent a second runtime environment separate from the existing int
 
 # How should this work be verified?
 
-Verification should prove both API usefulness and pipeline reuse.
+Verification proved both API usefulness and pipeline reuse.
 
-- [ ] Add engine tests proving `EmbeddedEngine` retains earlier definitions across multiple calls, such as defining `fun greet() {}` in one call and evaluating `greet()` or a dependent expression later.
-- [ ] Add engine tests proving `EmbeddedEngine` can import or call project modules loaded from its configured `base_path`.
-- [ ] Add engine tests proving failed `execute()` or `eval()` calls do not corrupt the last known good embedded session state.
-- [ ] Add engine tests for `EmbeddedEngine::eval()` returning booleans, strings, and template-string results as [`RuntimeValue`](/data/projects/ocelot/crates/semantic/src/runtime_value.rs).
-- [ ] Add engine tests showing embedded eval can call builtin functions and functions from registered builtin modules.
-- [ ] Add engine tests covering parser diagnostics for malformed expressions.
-- [ ] Add engine tests covering resolver diagnostics for unresolved identifiers or invalid calls.
-- [ ] Add interpreter tests for the new public single-expression evaluation entry point.
-- [ ] Add tests proving embedded evaluation does not require real on-disk source files.
-- [ ] Add spec-validation tests for embedded eval example parsing, malformed eval examples, successful eval-result comparison, and eval-error comparison.
-- [ ] Add spec chapters with executable eval examples that run through the spec-validation harness.
-- [ ] Run `cargo test -p ocelot-engine -p ocelot-interpreter -p ocelot-spec-validation`.
-- [ ] Run `cargo run -p ocelot-spec-validation`.
-- [ ] Run `nao check`.
+- [x] Add engine tests proving `EmbeddedEngine` retains earlier definitions across multiple calls, such as defining `fun greet() {}` in one call and evaluating `greet()` or a dependent expression later.
+- [x] Add engine tests proving `EmbeddedEngine` can import or call project modules loaded from its configured `base_path`.
+- [x] Add engine tests proving failed `execute()` or `eval()` calls do not corrupt the last known good embedded session state.
+- [x] Add engine tests for `EmbeddedEngine::eval()` returning booleans, strings, and template-string results as [`RuntimeValue`](/data/projects/ocelot/crates/semantic/src/runtime_value.rs).
+- [x] Add engine tests showing embedded eval can call builtin functions and functions from registered builtin modules.
+- [x] Add engine tests covering parser diagnostics for malformed expressions.
+- [x] Add engine tests covering resolver diagnostics for unresolved identifiers or invalid calls.
+- [x] Add interpreter tests for the new public single-expression evaluation entry point.
+- [x] Add tests proving embedded evaluation does not require real on-disk source files.
+- [x] Add spec-validation tests for embedded eval example parsing, malformed eval examples, successful eval-result comparison, and eval-error comparison.
+- [x] Add spec chapters with executable eval examples that run through the spec-validation harness.
+- [x] Run `cargo test -p ocelot-engine -p ocelot-interpreter -p ocelot-spec-validation`.
+- [x] Run `cargo run -p ocelot-spec-validation`.
+- [x] Run `nao check`.
 
 # What assumptions, risks, and open questions should stay explicit?
 
@@ -271,19 +271,31 @@ Verification should prove both API usefulness and pipeline reuse.
 
 # What concrete tasks should track this plan?
 
-- [ ] Create `EmbeddedEngine` as a self-contained embedding API in the engine crate.
-- [ ] Make `EmbeddedEngine` accept and retain a `base_path` for loading project modules.
-- [ ] Add persistent embedded-session state that survives multiple `execute()` and `eval()` calls.
-- [ ] Extract shared engine compilation helpers so embedded and file-based execution reuse one parse/resolve path.
-- [ ] Add a public interpreter API for evaluating one resolved expression into [`RuntimeValue`](/data/projects/ocelot/crates/semantic/src/runtime_value.rs).
-- [ ] Implement persistent snippet execution and transactional recompilation of accumulated embedded source.
-- [ ] Implement `EmbeddedEngine::eval()` against the persistent session using synthetic source instead of a separate expression-only pipeline.
-- [ ] Define stable spec-facing rendering for successful eval results.
-- [ ] Extend the spec-validation crate with an embedded-eval execution mode and `### Eval result` expectations.
-- [ ] Add spec chapters documenting embedded eval session behavior and eval-result behavior.
-- [ ] Keep builtin module registration and default native-function behavior aligned with `Engine`.
-- [ ] Add colocated engine and interpreter coverage for success and failure cases.
-- [ ] Add spec-validation coverage and executable spec examples for eval.
-- [ ] Run `cargo test -p ocelot-engine -p ocelot-interpreter -p ocelot-spec-validation`.
-- [ ] Run `cargo run -p ocelot-spec-validation`.
-- [ ] Run `nao check`.
+- [x] Create `EmbeddedEngine` as a self-contained embedding API in the engine crate.
+- [x] Make `EmbeddedEngine` accept and retain a `base_path` for loading project modules.
+- [x] Add persistent embedded-session state that survives multiple `execute()` and `eval()` calls.
+- [x] Extract shared engine compilation helpers so embedded and file-based execution reuse one parse/resolve path.
+- [x] Add a public interpreter API for evaluating one resolved expression into [`RuntimeValue`](/data/projects/ocelot/crates/semantic/src/runtime_value.rs).
+- [x] Implement persistent snippet execution and transactional recompilation of accumulated embedded source.
+- [x] Implement `EmbeddedEngine::eval()` against the persistent session using synthetic source instead of a separate expression-only pipeline.
+- [x] Define stable spec-facing rendering for successful eval results.
+- [x] Extend the spec-validation crate with an embedded-eval execution mode and `### Eval result` expectations.
+- [x] Add spec chapters documenting embedded eval session behavior and eval-result behavior.
+- [x] Keep builtin module registration and default native-function behavior aligned with `Engine`.
+- [x] Add colocated engine and interpreter coverage for success and failure cases.
+- [x] Add spec-validation coverage and executable spec examples for eval.
+- [x] Run `cargo test -p ocelot-engine -p ocelot-interpreter -p ocelot-spec-validation`.
+- [x] Run `cargo run -p ocelot-spec-validation`.
+- [x] Run `nao check`.
+
+# What landed from this plan?
+
+This work added a persistent embedding API and the matching spec-validation surface:
+
+- [`EmbeddedEngine`](/data/projects/ocelot/crates/engine/src/embedded_engine.rs) now provides persistent `execute()` and `eval()` calls rooted at a configured `base_path`
+- engine compilation logic was extracted into [`compile_program()`](/data/projects/ocelot/crates/engine/src/compile_program.rs) so file execution and embedded evaluation share one parse/resolve path
+- [`Interpreter::evaluate_expression()`](/data/projects/ocelot/crates/interpreter/src/interpreter.rs) is now public for the resolved-expression eval path
+- [`RuntimeValue`](/data/projects/ocelot/crates/semantic/src/runtime_value.rs) now exposes stable eval-result rendering
+- the spec-validation crate now supports embedded `execute:` and `eval:` steps plus `### Eval result` expectations
+- [`docs/spec/28.03 Runtime behavior - Embedded eval.md`](/data/projects/ocelot/docs/spec/28.03%20Runtime%20behavior%20-%20Embedded%20eval.md) and [`docs/spec/28.04 Runtime behavior - Eval results.md`](/data/projects/ocelot/docs/spec/28.04%20Runtime%20behavior%20-%20Eval%20results.md) document the feature
+- `cargo test -p ocelot-engine -p ocelot-interpreter -p ocelot-spec-validation`, `cargo run -p ocelot-spec-validation`, and `nao check` pass

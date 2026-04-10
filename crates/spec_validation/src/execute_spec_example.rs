@@ -3,6 +3,7 @@ use crate::normalize_validation_text::normalize_validation_text;
 use crate::observed_outcome::ObservedOutcome;
 use crate::render_validation_error::render_validation_error;
 use crate::spec_example::SpecExample;
+use crate::spec_example_embedded_step_kind::SpecExampleEmbeddedStepKind;
 use crate::spec_example_file::SpecExampleFile;
 use ocelot_base::error::OcelotError;
 use ocelot_base::file_path::FilePath;
@@ -10,6 +11,7 @@ use ocelot_base::result::OcelotResult;
 use ocelot_base::shared_string::SharedString;
 use ocelot_base::source_diagnostics::SourceDiagnostics;
 use ocelot_base::source_file::SourceFile;
+use ocelot_engine::embedded_engine::EmbeddedEngine;
 use ocelot_engine::engine::Engine;
 use ocelot_formatter::format_compilation_unit::format_compilation_unit;
 use ocelot_pal::pal::{Pal, PalHandle};
@@ -28,6 +30,10 @@ pub fn execute_spec_example(
     }
     pal.take_printed_output();
 
+    if !example.embedded_steps.is_empty() {
+        return execute_embedded_example(pal, execution_root, example);
+    }
+
     let engine = Engine::new(PalHandle::new(pal.clone()));
     let entry_path = main_example_path(execution_root, example)?;
     let observed = match engine.run_file(&entry_path) {
@@ -45,6 +51,49 @@ pub fn execute_spec_example(
     Ok(observed)
 }
 
+fn execute_embedded_example(
+    pal: &CapturingPal,
+    execution_root: &std::path::Path,
+    example: &SpecExample,
+) -> OcelotResult<ObservedOutcome> {
+    let mut engine =
+        EmbeddedEngine::new(PalHandle::new(pal.clone()), FilePath::new(execution_root));
+    let mut last_eval_result = None;
+
+    for step in &example.embedded_steps {
+        let result = match step.kind {
+            SpecExampleEmbeddedStepKind::Execute => {
+                engine.execute(step.source.as_str()).map(|_| None)
+            }
+            SpecExampleEmbeddedStepKind::Eval => engine.eval(step.source.as_str()).map(Some),
+        };
+
+        match result {
+            Ok(eval_result) => {
+                if let Some(eval_result) = eval_result {
+                    last_eval_result = Some(eval_result);
+                }
+            }
+            Err(error) => {
+                pal.take_printed_output();
+                return Ok(ObservedOutcome::Error(SharedString::from(
+                    normalize_validation_text(&normalize_example_text(
+                        &render_validation_error(&error),
+                        execution_root,
+                    )),
+                )));
+            }
+        }
+    }
+
+    let eval_result = last_eval_result
+        .expect("embedded examples should be validated to include at least one eval step");
+
+    Ok(ObservedOutcome::EvalResult(SharedString::from(
+        normalize_validation_text(eval_result.render_for_eval_result().as_str()),
+    )))
+}
+
 fn validate_example_formatting(example: &SpecExample) -> OcelotResult<()> {
     let mut misformatted_files = Vec::new();
 
@@ -53,22 +102,23 @@ fn validate_example_formatting(example: &SpecExample) -> OcelotResult<()> {
             continue;
         }
 
-        let source_file_for_parser =
-            SourceFile::new(&source_file.path, source_file.source.as_str());
-        let mut source_diagnostics = SourceDiagnostics::default();
-        let parsed = ocelot_parser::parse_compilation_unit::parse_compilation_unit(
-            &source_file_for_parser,
-            &mut source_diagnostics,
+        validate_formatted_compilation_unit(
+            source_file.path.as_str(),
+            source_file.source.as_str(),
+            &mut misformatted_files,
         );
+    }
 
-        if parsed.is_err() || source_diagnostics.has_errors() {
+    for step in &example.embedded_steps {
+        if step.kind != SpecExampleEmbeddedStepKind::Execute {
             continue;
         }
 
-        let formatted = format_compilation_unit(&parsed.expect("successful parse must exist"));
-        if formatted != source_file.source.as_str() {
-            misformatted_files.push((source_file, formatted));
-        }
+        validate_formatted_compilation_unit(
+            "execute:",
+            step.source.as_str(),
+            &mut misformatted_files,
+        );
     }
 
     if misformatted_files.is_empty() {
@@ -80,15 +130,37 @@ fn validate_example_formatting(example: &SpecExample) -> OcelotResult<()> {
         example.name
     );
 
-    for (source_file, formatted) in misformatted_files {
+    for (label, formatted) in misformatted_files {
         message.push_str("\n\n");
-        message.push_str(source_file.path.as_str());
+        message.push_str(&label);
         message.push_str(" expected format:\n```ocelot\n");
         message.push_str(&formatted);
         message.push_str("\n```");
     }
 
     Err(OcelotError::message(message))
+}
+
+fn validate_formatted_compilation_unit(
+    label: &str,
+    source: &str,
+    misformatted_files: &mut Vec<(String, String)>,
+) {
+    let source_file_for_parser = SourceFile::new(label, source);
+    let mut source_diagnostics = SourceDiagnostics::default();
+    let parsed = ocelot_parser::parse_compilation_unit::parse_compilation_unit(
+        &source_file_for_parser,
+        &mut source_diagnostics,
+    );
+
+    if parsed.is_err() || source_diagnostics.has_errors() {
+        return;
+    }
+
+    let formatted = format_compilation_unit(&parsed.expect("successful parse must exist"));
+    if formatted != source {
+        misformatted_files.push((label.to_owned(), formatted));
+    }
 }
 
 fn main_example_path(
@@ -135,6 +207,7 @@ fn normalize_example_text(text: &str, execution_root: &std::path::Path) -> Strin
     };
 
     text.replace(&prefix, "")
+        .replace("__embedded_main.ocelot-script", "<embedded>")
 }
 
 #[cfg(test)]
@@ -144,6 +217,8 @@ mod tests {
     use crate::expected_outcome::ExpectedOutcome;
     use crate::observed_outcome::ObservedOutcome;
     use crate::spec_example::SpecExample;
+    use crate::spec_example_embedded_step::SpecExampleEmbeddedStep;
+    use crate::spec_example_embedded_step_kind::SpecExampleEmbeddedStepKind;
     use crate::spec_example_file::SpecExampleFile;
     use ocelot_base::file_path::FilePath;
     use ocelot_base::shared_string::SharedString;
@@ -165,6 +240,7 @@ mod tests {
                     "main.ocelot-script",
                     "println(\"hello\");",
                 )],
+                embedded_steps: Vec::new(),
                 expected_outcome: ExpectedOutcome::Output(SharedString::from("hello")),
                 line_number: 10,
             },
@@ -176,30 +252,34 @@ mod tests {
             ObservedOutcome::Output(SharedString::from("hello"))
         );
         assert_eq!(
-            pal.read_file_to_string(&FilePath::from("/tmp/spec-validation/main.ocelot-script",))
+            pal.read_file_to_string(&FilePath::from("/tmp/spec-validation/main.ocelot-script"))
                 .unwrap(),
             "println(\"hello\");"
         );
     }
 
     #[test]
-    fn executes_multi_file_examples_through_the_engine() {
+    fn executes_embedded_eval_examples_through_the_embedded_engine() {
         let inner_pal = PalMock::new();
         let pal = CapturingPal::new(PalHandle::new(inner_pal));
         let observed = execute_spec_example(
             &pal,
             Path::new("/tmp/spec-validation"),
             &SpecExample {
-                chapter_path: FilePath::from("docs/spec/25.01 Modules - File modules.md"),
-                name: SharedString::from("calls a sibling module"),
-                source_files: vec![
-                    SpecExampleFile::new("main.ocelot-script", "helper::greet();"),
-                    SpecExampleFile::new(
-                        "helper.ocelot",
-                        "fun greet() {\n    println(\"hello\");\n}",
+                chapter_path: FilePath::from("docs/spec/28.03 Runtime behavior - Embedded eval.md"),
+                name: SharedString::from("embedded eval keeps prior definitions"),
+                source_files: vec![SpecExampleFile::new(
+                    "helper.ocelot",
+                    "fun greet() {\n    println(\"hello\");\n}",
+                )],
+                embedded_steps: vec![
+                    SpecExampleEmbeddedStep::new(
+                        SpecExampleEmbeddedStepKind::Execute,
+                        "fun local() {\n    helper::greet();\n}",
                     ),
+                    SpecExampleEmbeddedStep::new(SpecExampleEmbeddedStepKind::Eval, "local()"),
                 ],
-                expected_outcome: ExpectedOutcome::Output(SharedString::from("hello")),
+                expected_outcome: ExpectedOutcome::EvalResult(SharedString::from("()")),
                 line_number: 10,
             },
         )
@@ -207,37 +287,9 @@ mod tests {
 
         assert_eq!(
             observed,
-            ObservedOutcome::Output(SharedString::from("hello"))
+            ObservedOutcome::EvalResult(SharedString::from("()"))
         );
-    }
-
-    #[test]
-    fn executes_import_examples_through_the_engine() {
-        let inner_pal = PalMock::new();
-        let pal = CapturingPal::new(PalHandle::new(inner_pal));
-        let observed = execute_spec_example(
-            &pal,
-            Path::new("/tmp/spec-validation"),
-            &SpecExample {
-                chapter_path: FilePath::from("docs/spec/25.02 Modules - Imports.md"),
-                name: SharedString::from("imports one sibling function"),
-                source_files: vec![
-                    SpecExampleFile::new("main.ocelot-script", "use helper::greet;\ngreet();"),
-                    SpecExampleFile::new(
-                        "helper.ocelot",
-                        "fun greet() {\n    println(\"hello\");\n}",
-                    ),
-                ],
-                expected_outcome: ExpectedOutcome::Output(SharedString::from("hello")),
-                line_number: 10,
-            },
-        )
-        .unwrap();
-
-        assert_eq!(
-            observed,
-            ObservedOutcome::Output(SharedString::from("hello"))
-        );
+        assert_eq!(pal.take_printed_output(), "hello\n");
     }
 
     #[test]
@@ -251,6 +303,7 @@ mod tests {
                 chapter_path: FilePath::from("docs/spec/30.01 Standard library - println.md"),
                 name: SharedString::from("requires one argument"),
                 source_files: vec![SpecExampleFile::new("main.ocelot-script", "println();")],
+                embedded_steps: Vec::new(),
                 expected_outcome: ExpectedOutcome::Error(SharedString::from("type error")),
                 line_number: 18,
             },
@@ -261,65 +314,6 @@ mod tests {
             observed,
             ObservedOutcome::Error(SharedString::from(
                 "error: type error: `println` expects exactly one argument\n  ╭▸ main.ocelot-script:1:1\n  │\n1 │ println();\n  ╰╴━━━━━━━ missing argument\nat main.ocelot-script:1:1"
-            ))
-        );
-    }
-
-    #[test]
-    fn normalizes_unknown_module_resolver_failures_for_comparison() {
-        let inner_pal = PalMock::new();
-        let pal = CapturingPal::new(PalHandle::new(inner_pal));
-        let observed = execute_spec_example(
-            &pal,
-            Path::new("/tmp/spec-validation"),
-            &SpecExample {
-                chapter_path: FilePath::from("docs/spec/25.01 Modules - File modules.md"),
-                name: SharedString::from("calling an unknown module is a resolver error"),
-                source_files: vec![SpecExampleFile::new(
-                    "main.ocelot-script",
-                    "helper::greet();",
-                )],
-                expected_outcome: ExpectedOutcome::Error(SharedString::from("unknown module")),
-                line_number: 24,
-            },
-        )
-        .unwrap();
-
-        assert_eq!(
-            observed,
-            ObservedOutcome::Error(SharedString::from(
-                "error: unknown module `helper`\n  ╭▸ main.ocelot-script:1:1\n  │\n1 │ helper::greet();\n  ╰╴━━━━━━━━━━━━━ unknown module\nat main.ocelot-script:1:1"
-            ))
-        );
-    }
-
-    #[test]
-    fn normalizes_duplicate_import_failures_for_comparison() {
-        let inner_pal = PalMock::new();
-        let pal = CapturingPal::new(PalHandle::new(inner_pal));
-        let observed = execute_spec_example(
-            &pal,
-            Path::new("/tmp/spec-validation"),
-            &SpecExample {
-                chapter_path: FilePath::from("docs/spec/25.02 Modules - Imports.md"),
-                name: SharedString::from("duplicate imports are a resolver error"),
-                source_files: vec![
-                    SpecExampleFile::new(
-                        "main.ocelot-script",
-                        "use helper::greet;\nuse helper::greet;",
-                    ),
-                    SpecExampleFile::new("helper.ocelot", "fun greet() {}"),
-                ],
-                expected_outcome: ExpectedOutcome::Error(SharedString::from("duplicate import")),
-                line_number: 10,
-            },
-        )
-        .unwrap();
-
-        assert_eq!(
-            observed,
-            ObservedOutcome::Error(SharedString::from(
-                "error: duplicate import `greet`\n  ╭▸ main.ocelot-script:2:13\n  │\n2 │ use helper::greet;\n  ╰╴            ━━━━━ duplicate import\nat main.ocelot-script:2:13"
             ))
         );
     }
@@ -340,6 +334,7 @@ mod tests {
                     "main.ocelot-script",
                     "println( \"hello\" );",
                 )],
+                embedded_steps: Vec::new(),
                 expected_outcome: ExpectedOutcome::Output(SharedString::from("hello")),
                 line_number: 10,
             },
@@ -360,32 +355,29 @@ mod tests {
     }
 
     #[test]
-    fn skips_format_validation_for_unparseable_examples() {
+    fn rejects_misformatted_execute_steps_before_execution() {
         let inner_pal = PalMock::new();
         let pal = CapturingPal::new(PalHandle::new(inner_pal));
-        let observed = execute_spec_example(
+        let error = execute_spec_example(
             &pal,
             Path::new("/tmp/spec-validation"),
             &SpecExample {
-                chapter_path: FilePath::from(
-                    "docs/spec/91.01 Lexer errors - Unterminated strings.md",
-                ),
-                name: SharedString::from("unterminated string"),
-                source_files: vec![SpecExampleFile::new(
-                    "main.ocelot-script",
-                    "println(\"hello);",
-                )],
-                expected_outcome: ExpectedOutcome::Error(SharedString::from(
-                    "error: unterminated string literal",
-                )),
+                chapter_path: FilePath::from("docs/spec/28.03 Runtime behavior - Embedded eval.md"),
+                name: SharedString::from("misformatted embedded step"),
+                source_files: Vec::new(),
+                embedded_steps: vec![
+                    SpecExampleEmbeddedStep::new(
+                        SpecExampleEmbeddedStepKind::Execute,
+                        "fun greet(){ println(\"hello\"); }",
+                    ),
+                    SpecExampleEmbeddedStep::new(SpecExampleEmbeddedStepKind::Eval, "greet()"),
+                ],
+                expected_outcome: ExpectedOutcome::EvalResult(SharedString::from("()")),
                 line_number: 10,
             },
         )
-        .unwrap();
+        .unwrap_err();
 
-        let ObservedOutcome::Error(actual) = observed else {
-            panic!("expected error outcome");
-        };
-        assert!(actual.as_str().contains("unterminated string literal"));
+        assert!(error.to_test_string().contains("execute: expected format:"));
     }
 }

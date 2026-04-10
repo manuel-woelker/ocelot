@@ -1,21 +1,17 @@
 use crate::builtin_module::BuiltinModule;
+use crate::compile_program::compile_program;
 use crate::engine_command::{EngineCommand, RunCommandKind};
 use crate::failed_test_result::FailedTestResult;
-use crate::module_name_from_path::module_name_from_path;
 use crate::passed_test_result::PassedTestResult;
 use crate::test_run_summary::TestRunSummary;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_base::assertion_error::render_assertion_error;
-use ocelot_base::compilation_stage::CompilationStage;
 use ocelot_base::error::{ErrorKind, OcelotError};
-use ocelot_base::file_path::FilePath;
 use ocelot_base::render_source_diagnostics::render_source_diagnostics;
 use ocelot_base::result::{OcelotResult, OptionExt, ResultExt};
 use ocelot_base::shared_string::SharedString;
 use ocelot_base::source_diagnostics::SourceDiagnostics;
-use ocelot_base::source_file::SourceFile;
 use ocelot_pal::pal::PalHandle;
-use ocelot_semantic::compilation_inputs::CompilationInputs;
 use ocelot_semantic::function_kind::FunctionKind;
 use ocelot_semantic::parsed_module::ParsedModule;
 use ocelot_semantic::resolved_program::ResolvedProgram;
@@ -24,7 +20,7 @@ use ocelot_semantic::symbol_table::SymbolTable;
 
 pub struct EngineWorker {
     pal: PalHandle,
-    parser_source_diagnostics: SourceDiagnostics,
+    source_diagnostics: SourceDiagnostics,
     command: EngineCommand,
     builtin_modules: Vec<BuiltinModule>,
     resolved_program: Option<ResolvedProgram>,
@@ -39,7 +35,7 @@ impl EngineWorker {
     ) -> Self {
         Self {
             pal: pal_handle.into(),
-            parser_source_diagnostics: SourceDiagnostics::default(),
+            source_diagnostics: SourceDiagnostics::default(),
             command,
             builtin_modules,
             resolved_program: None,
@@ -48,18 +44,21 @@ impl EngineWorker {
     }
 
     pub fn run_command(&mut self) -> OcelotResult<()> {
-        let parsed_modules = self.parse_modules()?;
-        self.early_abort(CompilationStage::Parser)?;
-        self.resolve_modules(parsed_modules)?;
-        self.early_abort(CompilationStage::Resolver)?;
+        self.resolved_program = None;
+        let resolved_program = compile_program(
+            &*self.pal,
+            &self.command.base_path,
+            self.command.entry_path(),
+            &self.builtin_modules,
+            &[],
+            &mut self.source_diagnostics,
+        )?;
+        self.resolved_program = Some(resolved_program);
         self.execute()
     }
 
     pub fn source_diagnostics(&self) -> &SourceDiagnostics {
-        self.resolved_program
-            .as_ref()
-            .map(|program| &program.source_diagnostics)
-            .unwrap_or(&self.parser_source_diagnostics)
+        &self.source_diagnostics
     }
 
     pub fn test_run_summary(&self) -> &TestRunSummary {
@@ -212,116 +211,6 @@ impl EngineWorker {
         Ok(summary)
     }
 
-    fn resolve_modules(&mut self, parsed_modules: Vec<ParsedModule>) -> OcelotResult<()> {
-        let compilation_inputs = CompilationInputs::with_default_native_functions();
-        let resolved_program = ocelot_resolver::resolution::resolve_program(
-            self.command.entry_path().clone(),
-            parsed_modules,
-            &compilation_inputs,
-        )?;
-        let has_errors = resolved_program.source_diagnostics.has_errors();
-        self.resolved_program = Some(resolved_program);
-
-        if has_errors {
-            return Err(OcelotError::compilation_error(CompilationStage::Resolver));
-        }
-
-        Ok(())
-    }
-
-    fn early_abort(&self, stage: CompilationStage) -> OcelotResult<()> {
-        if self.parser_source_diagnostics.has_errors() {
-            return Err(OcelotError::compilation_error(stage));
-        }
-        Ok(())
-    }
-
-    fn parse_modules(&mut self) -> OcelotResult<Vec<ParsedModule>> {
-        self.resolved_program = None;
-        let mut parsed_modules = Vec::new();
-
-        for file in self.collect_files()? {
-            if let Some(module) = self.parse_module(&file)? {
-                parsed_modules.push(module);
-            }
-        }
-
-        let builtin_modules = self.builtin_modules.clone();
-        for builtin_module in builtin_modules {
-            if let Some(module) = self.parse_builtin_module(builtin_module)? {
-                parsed_modules.push(module);
-            }
-        }
-        Ok(parsed_modules)
-    }
-
-    fn collect_files(&self) -> OcelotResult<Vec<FilePath>> {
-        let mut file_paths = self
-            .pal
-            .walk_directory(&self.command.base_path, &[String::from("*.ocelot")])?
-            .collect::<OcelotResult<Vec<_>>>()?;
-        let entry_path = self.command.entry_path();
-        if !file_paths.contains(entry_path) {
-            file_paths.push(entry_path.clone());
-        }
-        file_paths.sort();
-        Ok(file_paths)
-    }
-
-    fn parse_module(&mut self, path: &FilePath) -> OcelotResult<Option<ParsedModule>> {
-        let source_file = self.read_source_file(path.clone())?;
-        let base_path = self.command.base_path.clone();
-        let path = path.clone();
-        self.parse_source_file(source_file, |source_file, compilation_unit| {
-            let source_kind = SourceFileKind::from_path(&path)?;
-            Ok(ParsedModule::new(
-                module_name_from_path(&base_path, &path)?,
-                source_kind,
-                source_file,
-                compilation_unit,
-            ))
-        })
-    }
-
-    fn parse_builtin_module(
-        &mut self,
-        builtin_module: BuiltinModule,
-    ) -> OcelotResult<Option<ParsedModule>> {
-        let source_file = SourceFile::new(builtin_module.source_file_path(), builtin_module.source);
-        self.parse_source_file(source_file, |source_file, compilation_unit| {
-            Ok(ParsedModule::new(
-                builtin_module.module_name,
-                SourceFileKind::Module,
-                source_file,
-                compilation_unit,
-            ))
-        })
-    }
-
-    fn parse_source_file(
-        &mut self,
-        source_file: SourceFile,
-        build_module: impl FnOnce(
-            SourceFile,
-            ocelot_ast::compilation_unit::CompilationUnit,
-        ) -> OcelotResult<ParsedModule>,
-    ) -> OcelotResult<Option<ParsedModule>> {
-        let compilation_unit = match ocelot_parser::parse_compilation_unit::parse_compilation_unit(
-            &source_file,
-            &mut self.parser_source_diagnostics,
-        ) {
-            Ok(compilation_unit) => compilation_unit,
-            Err(error) if is_parser_compilation_error(&error) => return Ok(None),
-            Err(error) => return Err(error),
-        };
-        Ok(Some(build_module(source_file, compilation_unit)?))
-    }
-
-    fn read_source_file(&self, path: FilePath) -> OcelotResult<SourceFile> {
-        let source = self.pal.read_file_to_string(&path)?;
-        Ok(SourceFile::new(path, source))
-    }
-
     fn entry_module(&self) -> OcelotResult<&ParsedModule> {
         let resolved_program = self
             .resolved_program
@@ -369,13 +258,6 @@ impl EngineWorker {
         ocelot_interpreter::interpreter::Interpreter::new(&*self.pal, source_file, symbol_table)
             .interpret_statements(&function.body)
     }
-}
-
-fn is_parser_compilation_error(error: &OcelotError) -> bool {
-    matches!(
-        error.kind(),
-        ErrorKind::CompilationError(CompilationStage::Parser)
-    )
 }
 
 #[cfg(test)]

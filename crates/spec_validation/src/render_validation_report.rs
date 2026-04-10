@@ -18,12 +18,16 @@ pub fn render_validation_report(report: &ValidationReport) -> String {
         let kind = match failure.kind {
             ValidationFailureKind::MalformedExample => "malformed example",
             ValidationFailureKind::OutputMismatch => "output mismatch",
+            ValidationFailureKind::EvalResultMismatch => "eval result mismatch",
             ValidationFailureKind::ErrorMismatch => "error mismatch",
             ValidationFailureKind::ExpectedErrorButSucceeded => {
                 "expected error but execution succeeded"
             }
             ValidationFailureKind::ExpectedOutputButFailed => {
                 "expected output but execution failed"
+            }
+            ValidationFailureKind::ExpectedEvalResultButFailed => {
+                "expected eval result but execution failed"
             }
         };
         let _ = writeln!(

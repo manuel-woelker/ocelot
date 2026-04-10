@@ -99,7 +99,8 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    fn evaluate_expression(&self, expression: &Expression) -> OcelotResult<RuntimeValue> {
+    /// Evaluates one resolved expression and returns its runtime value.
+    pub fn evaluate_expression(&self, expression: &Expression) -> OcelotResult<RuntimeValue> {
         match &expression.kind {
             ExpressionKind::BooleanLiteral(BooleanLiteralExpression { value }) => {
                 Ok(RuntimeValue::boolean(*value))
@@ -253,5 +254,59 @@ impl<'a> Interpreter<'a> {
                     annotation,
                 )),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Interpreter;
+    use ocelot_ast::boolean_literal_expression::BooleanLiteralExpression;
+    use ocelot_ast::expression::Expression;
+    use ocelot_ast::expression_kind::ExpressionKind;
+    use ocelot_ast::identifier::Identifier;
+    use ocelot_base::shared_string::SharedString;
+    use ocelot_base::source_file::SourceFile;
+    use ocelot_base::span::Span;
+    use ocelot_pal::pal_mock::PalMock;
+    use ocelot_semantic::runtime_value::RuntimeValue;
+    use ocelot_semantic::symbol_table::SymbolTable;
+    use std::collections::HashMap;
+
+    #[test]
+    fn evaluate_expression_returns_runtime_values() {
+        let pal = PalMock::new();
+        let source_file = SourceFile::new("examples/main.ocelot-script", "true;");
+        let symbol_table = SymbolTable::new();
+        let expression = Expression::new(
+            ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(true)),
+            Span::new(0, 4),
+        );
+
+        let result = Interpreter::new(&pal, &source_file, &symbol_table)
+            .evaluate_expression(&expression)
+            .unwrap();
+
+        assert_eq!(result, RuntimeValue::boolean(true));
+    }
+
+    #[test]
+    fn evaluate_expression_reads_local_bindings() {
+        let pal = PalMock::new();
+        let source_file = SourceFile::new("examples/main.ocelot-script", "name;");
+        let symbol_table = SymbolTable::new();
+        let expression = Expression::new(
+            ExpressionKind::Identifier(Identifier::new("name", Span::new(0, 4))),
+            Span::new(0, 4),
+        );
+        let interpreter = Interpreter::new_with_bindings(
+            &pal,
+            &source_file,
+            &symbol_table,
+            HashMap::from([(SharedString::from("name"), RuntimeValue::string("Ada"))]),
+        );
+
+        let result = interpreter.evaluate_expression(&expression).unwrap();
+
+        assert_eq!(result, RuntimeValue::string("Ada"));
     }
 }

@@ -39,7 +39,10 @@ Each example should use a visible heading, one or more named `ocelot` fenced blo
 Use:
 
 - a visible filename label such as `main.ocelot-script:` or `helper.ocelot:` immediately before each `ocelot` block
+- `execute:` immediately before an `ocelot` block when the example should apply one persistent embedded-engine snippet
+- `eval:` immediately before an `ocelot` block when the example should evaluate one expression through the embedded engine
 - `### Output` for examples that should execute successfully
+- `### Eval result` for embedded-eval examples that should return one runtime value successfully
 - `### Error` for examples that should fail with a stable error message
 
 Example:
@@ -62,6 +65,9 @@ hello
 
 This keeps the spec readable for humans and makes it realistic to extract examples with a future Markdown-driven conformance harness.
 
+Embedded-eval examples follow the same `## Example:` structure, but they use `execute:` and `eval:` markers instead of a required `main.ocelot-script:` file block.
+Those examples may still include filename-labeled `ocelot` blocks when helper modules should be loaded from the embedded engine's `base_path`.
+
 # What chapters exist today?
 
 The first numbered spec chapters are:
@@ -79,6 +85,8 @@ The first numbered spec chapters are:
 - [27.01 Effects - Nominal effect declarations](./27.01%20Effects%20-%20Nominal%20effect%20declarations.md)
 - [28.01 Runtime behavior - Scripts](./28.01%20Runtime%20behavior%20-%20Scripts.md)
 - [28.02 Runtime behavior - Test items](./28.02%20Runtime%20behavior%20-%20Test%20items.md)
+- [28.03 Runtime behavior - Embedded eval](./28.03%20Runtime%20behavior%20-%20Embedded%20eval.md)
+- [28.04 Runtime behavior - Eval results](./28.04%20Runtime%20behavior%20-%20Eval%20results.md)
 - [30.01 Standard library - println](./30.01%20Standard%20library%20-%20println.md)
 - [30.02 Standard library - assert](./30.02%20Standard%20library%20-%20assert.md)
 - [91.01 Lexer errors - Unterminated strings](./91.01%20Lexer%20errors%20-%20Unterminated%20strings.md)

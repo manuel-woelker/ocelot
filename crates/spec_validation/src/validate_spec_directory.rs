@@ -35,6 +35,11 @@ pub fn validate_spec_directory(
                 {
                     passed_example_count += 1;
                 }
+                (ExpectedOutcome::EvalResult(expected), ObservedOutcome::EvalResult(actual))
+                    if actual.as_str() == expected.as_str() =>
+                {
+                    passed_example_count += 1;
+                }
                 (ExpectedOutcome::Error(expected), ObservedOutcome::Error(actual))
                     if actual.as_str() == expected.as_str() =>
                 {
@@ -46,6 +51,17 @@ pub fn validate_spec_directory(
                         example_name: example.name.clone(),
                         kind: ValidationFailureKind::OutputMismatch,
                         message: SharedString::from("output mismatch"),
+                        expected_output: Some(expected.clone()),
+                        actual_output: Some(actual),
+                        line_number: example.line_number,
+                    });
+                }
+                (ExpectedOutcome::EvalResult(expected), ObservedOutcome::EvalResult(actual)) => {
+                    failures.push(ValidationFailure {
+                        chapter_path: example.chapter_path.clone(),
+                        example_name: example.name.clone(),
+                        kind: ValidationFailureKind::EvalResultMismatch,
+                        message: SharedString::from("eval result mismatch"),
                         expected_output: Some(expected.clone()),
                         actual_output: Some(actual),
                         line_number: example.line_number,
@@ -73,12 +89,48 @@ pub fn validate_spec_directory(
                         line_number: example.line_number,
                     });
                 }
+                (ExpectedOutcome::Error(expected), ObservedOutcome::EvalResult(actual)) => {
+                    failures.push(ValidationFailure {
+                        chapter_path: example.chapter_path.clone(),
+                        example_name: example.name.clone(),
+                        kind: ValidationFailureKind::ExpectedErrorButSucceeded,
+                        message: SharedString::from("example succeeded but an error was expected"),
+                        expected_output: Some(expected.clone()),
+                        actual_output: Some(actual),
+                        line_number: example.line_number,
+                    });
+                }
                 (ExpectedOutcome::Output(expected), ObservedOutcome::Error(actual)) => {
                     failures.push(ValidationFailure {
                         chapter_path: example.chapter_path.clone(),
                         example_name: example.name.clone(),
                         kind: ValidationFailureKind::ExpectedOutputButFailed,
                         message: SharedString::from("example failed but output was expected"),
+                        expected_output: Some(expected.clone()),
+                        actual_output: Some(actual),
+                        line_number: example.line_number,
+                    });
+                }
+                (ExpectedOutcome::EvalResult(expected), ObservedOutcome::Error(actual)) => {
+                    failures.push(ValidationFailure {
+                        chapter_path: example.chapter_path.clone(),
+                        example_name: example.name.clone(),
+                        kind: ValidationFailureKind::ExpectedEvalResultButFailed,
+                        message: SharedString::from(
+                            "example failed but an eval result was expected",
+                        ),
+                        expected_output: Some(expected.clone()),
+                        actual_output: Some(actual),
+                        line_number: example.line_number,
+                    });
+                }
+                (ExpectedOutcome::Output(expected), ObservedOutcome::EvalResult(actual))
+                | (ExpectedOutcome::EvalResult(expected), ObservedOutcome::Output(actual)) => {
+                    failures.push(ValidationFailure {
+                        chapter_path: example.chapter_path.clone(),
+                        example_name: example.name.clone(),
+                        kind: ValidationFailureKind::OutputMismatch,
+                        message: SharedString::from("example used the wrong success result kind"),
                         expected_output: Some(expected.clone()),
                         actual_output: Some(actual),
                         line_number: example.line_number,
@@ -185,7 +237,7 @@ println("oops");
         );
         assert_eq!(
             report.failures[0].message.as_str(),
-            "example is missing its `### Output` or `### Error` `text` block"
+            "example is missing its `### Output`, `### Eval result`, or `### Error` `text` block"
         );
     }
 
