@@ -105,16 +105,16 @@ Standard input plus a prompt is enough for a basic first cut.
 
 # How should this work be verified?
 
-Verification should prove both the CLI surface and the embedded runtime behavior.
+Verification proved both the CLI surface and the embedded runtime behavior.
 
-- [ ] Add CLI tests proving `parse_command()` recognizes `repl` and optional base-path arguments.
-- [ ] Add CLI tests proving the REPL retains definitions across multiple input lines.
-- [ ] Add CLI tests proving expression inputs print eval results using stable rendering.
-- [ ] Add CLI tests proving declaration or statement inputs update session state without crashing the loop.
-- [ ] Add CLI tests proving parse, resolver, and runtime failures are pretty-printed and the REPL continues reading later lines.
-- [ ] Add CLI tests proving EOF or the chosen exit command ends the REPL cleanly.
-- [ ] Run `cargo test -p ocelot -p ocelot-engine`.
-- [ ] Run `nao check`.
+- [x] Add CLI tests proving `parse_command()` recognizes `repl` and optional base-path arguments.
+- [x] Add CLI tests proving the REPL retains definitions across multiple input lines.
+- [x] Add CLI tests proving expression inputs print eval results using stable rendering.
+- [x] Add CLI tests proving declaration or statement inputs update session state without crashing the loop.
+- [x] Add CLI tests proving parse, resolver, and runtime failures are pretty-printed and the REPL continues reading later lines.
+- [x] Add CLI tests proving EOF or the chosen exit command ends the REPL cleanly.
+- [x] Run `cargo test -p ocelot -p ocelot-engine`.
+- [x] Run `nao check`.
 
 # What assumptions, risks, and open questions should stay explicit?
 
@@ -127,12 +127,24 @@ Verification should prove both the CLI surface and the embedded runtime behavior
 
 # What concrete tasks should track this plan?
 
-- [ ] Add an active plan for the REPL CLI command.
-- [ ] Add a `repl` CLI command and document it in usage output.
-- [ ] Create a basic interactive loop that owns one persistent `EmbeddedEngine`.
-- [ ] Support a base path for REPL module loading.
-- [ ] Implement the chosen line interpretation strategy for eval versus execute.
-- [ ] Pretty-print errors using the existing diagnostics rendering infrastructure without terminating the REPL session.
-- [ ] Add colocated CLI tests for parsing, persistence, output, errors, and exit behavior.
-- [ ] Run `cargo test -p ocelot -p ocelot-engine`.
-- [ ] Run `nao check`.
+- [x] Add an active plan for the REPL CLI command.
+- [x] Add a `repl` CLI command and document it in usage output.
+- [x] Create a basic interactive loop that owns one persistent `EmbeddedEngine`.
+- [x] Support a base path for REPL module loading.
+- [x] Implement the chosen line interpretation strategy for eval versus execute.
+- [x] Pretty-print errors using the existing diagnostics rendering infrastructure without terminating the REPL session.
+- [x] Add colocated CLI tests for parsing, persistence, output, errors, and exit behavior.
+- [x] Run `cargo test -p ocelot -p ocelot-engine`.
+- [x] Run `nao check`.
+
+# What landed from this plan?
+
+This work added a basic interactive REPL to the CLI:
+
+- [`crates/cli/src/main.rs`](/data/projects/ocelot/crates/cli/src/main.rs) now supports `ocelot repl [base-path]`
+- the REPL owns one persistent [`EmbeddedEngine`](/data/projects/ocelot/crates/engine/src/embedded_engine.rs) session rooted at the selected base path
+- each line is handled by trying `eval()` first and falling back to `execute()` on parser or resolver compilation failures
+- successful eval inputs print stable rendered results, while execute-only inputs stay quiet
+- pretty-printed errors reuse the existing CLI diagnostic rendering path and do not terminate the session
+- colocated CLI tests cover parsing, session persistence, eval output, execute fallback, error continuation, and clean exit on EOF or `.exit`
+- `cargo test -p ocelot -p ocelot-engine` and `nao check` pass

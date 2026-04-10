@@ -2,10 +2,12 @@ use ocelot_base::cli::format_cli_error;
 use ocelot_base::error::OcelotError;
 use ocelot_base::file_path::FilePath;
 use ocelot_base::result::OcelotResult;
+use ocelot_base::result::ResultExt;
 use ocelot_base::shared_string::SharedString;
 use ocelot_base::source_diagnostics::SourceDiagnostics;
 use ocelot_base::source_file::SourceFile;
 use ocelot_engine::discovered_test::DiscoveredTest;
+use ocelot_engine::embedded_engine::EmbeddedEngine;
 use ocelot_engine::engine::Engine;
 use ocelot_engine::failed_test_result::FailedTestResult;
 use ocelot_engine::test_filter::TestFilter;
@@ -15,11 +17,13 @@ use ocelot_pal::pal::PalHandle;
 use ocelot_pal::pal_real::PalReal;
 use ocelot_parser::parse_compilation_unit::parse_compilation_unit;
 use std::ffi::OsString;
+use std::io::{self, BufRead, Write};
 use std::process::ExitCode;
 
 #[derive(Debug, PartialEq, Eq)]
 enum CliCommand {
     Fmt,
+    Repl { base_path: Option<String> },
     Run { path: String },
     Test { filter_expression: Option<String> },
 }
@@ -52,6 +56,7 @@ fn parse_command(args: Vec<OsString>) -> Option<CliCommand> {
     match first_arg.as_str() {
         "fmt" if args.next().is_none() => Some(CliCommand::Fmt),
         "fmt" => None,
+        "repl" => parse_repl_command(args.collect()),
         "test" => parse_test_command(args.collect()),
         path => Some(CliCommand::Run {
             path: path.to_owned(),
@@ -66,6 +71,16 @@ fn parse_test_command(args: Vec<String>) -> Option<CliCommand> {
         }),
         [filter_expression] => Some(CliCommand::Test {
             filter_expression: Some(filter_expression.clone()),
+        }),
+        _ => None,
+    }
+}
+
+fn parse_repl_command(args: Vec<String>) -> Option<CliCommand> {
+    match args.as_slice() {
+        [] => Some(CliCommand::Repl { base_path: None }),
+        [base_path] => Some(CliCommand::Repl {
+            base_path: Some(base_path.clone()),
         }),
         _ => None,
     }
@@ -93,6 +108,10 @@ fn try_execute_command(pal: PalHandle, command: &CliCommand) -> OcelotResult<Exi
             format_current_directory(&pal)?;
             Ok(ExitCode::SUCCESS)
         }
+        CliCommand::Repl { base_path } => {
+            run_repl(pal.clone(), base_path.as_deref())?;
+            Ok(ExitCode::SUCCESS)
+        }
         CliCommand::Run { path } => {
             engine.run_file(path.as_str())?;
             Ok(ExitCode::SUCCESS)
@@ -103,6 +122,79 @@ fn try_execute_command(pal: PalHandle, command: &CliCommand) -> OcelotResult<Exi
             Ok(exit_code_for_test_summary(&summary))
         }
     }
+}
+
+fn run_repl(pal: PalHandle, base_path: Option<&str>) -> OcelotResult<()> {
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    let mut input = stdin.lock();
+    let mut output = stdout.lock();
+    run_repl_session(&pal, base_path.unwrap_or_default(), &mut input, &mut output)
+}
+
+fn run_repl_session(
+    pal: &PalHandle,
+    base_path: &str,
+    input: &mut impl BufRead,
+    output: &mut impl Write,
+) -> OcelotResult<()> {
+    let mut engine = EmbeddedEngine::new(pal.clone(), base_path);
+    let mut line = String::new();
+
+    loop {
+        write!(output, "> ").context("unable to write repl prompt")?;
+        output.flush().context("unable to flush repl prompt")?;
+
+        line.clear();
+        if input
+            .read_line(&mut line)
+            .context("unable to read repl input")?
+            == 0
+        {
+            break;
+        }
+
+        let line = line.trim_end_matches(['\n', '\r']);
+        if line.trim().is_empty() {
+            continue;
+        }
+        if matches!(line, ".exit" | ":quit") {
+            break;
+        }
+
+        match run_repl_line(&mut engine, line) {
+            Ok(Some(value)) => {
+                writeln!(output, "{value}").context("unable to write repl result")?;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                write!(output, "{}", format_cli_error("repl input failed", &error))
+                    .context("unable to write repl error")?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn run_repl_line(engine: &mut EmbeddedEngine, line: &str) -> OcelotResult<Option<SharedString>> {
+    match engine.eval(line) {
+        Ok(value) => Ok(Some(value.render_for_eval_result())),
+        Err(error) if should_fallback_to_execute(&error) => match engine.execute(line) {
+            Ok(()) => Ok(None),
+            Err(execute_error) => Err(execute_error),
+        },
+        Err(error) => Err(error),
+    }
+}
+
+fn should_fallback_to_execute(error: &OcelotError) -> bool {
+    matches!(
+        error.kind(),
+        ocelot_base::error::ErrorKind::CompilationError(
+            ocelot_base::compilation_stage::CompilationStage::Parser
+        )
+    )
 }
 
 fn format_current_directory(pal: &PalHandle) -> OcelotResult<()> {
@@ -278,7 +370,9 @@ fn exit_code_for_test_summary(summary: &TestRunSummary) -> ExitCode {
 }
 
 fn print_usage() {
-    eprintln!("Usage:\n  ocelot fmt\n  ocelot <source-file>\n  ocelot test [filter-expression]");
+    eprintln!(
+        "Usage:\n  ocelot fmt\n  ocelot repl [base-path]\n  ocelot <source-file>\n  ocelot test [filter-expression]"
+    );
 }
 
 fn report_test_summary(summary: &TestRunSummary) {
@@ -331,7 +425,8 @@ fn render_failed_test_detail_lines(failed_test: &FailedTestResult) -> Vec<String
 mod tests {
     use super::{
         CliCommand, discover_matching_test_names, parse_command, parse_test_filter,
-        render_test_summary_lines, run_command, run_test_files, test_filter_matches_path,
+        render_test_summary_lines, run_command, run_repl_session, run_test_files,
+        test_filter_matches_path,
     };
     use ocelot_base::shared_string::SharedString;
     use ocelot_engine::engine::Engine;
@@ -401,6 +496,36 @@ mod tests {
             Some(CliCommand::Test {
                 filter_expression: Some("smoke,parser".into()),
             })
+        );
+    }
+
+    #[test]
+    fn parses_repl_command_without_base_path() {
+        assert_eq!(
+            parse_command(vec![OsString::from("repl")]),
+            Some(CliCommand::Repl { base_path: None })
+        );
+    }
+
+    #[test]
+    fn parses_repl_command_with_base_path() {
+        assert_eq!(
+            parse_command(vec![OsString::from("repl"), OsString::from("examples")]),
+            Some(CliCommand::Repl {
+                base_path: Some("examples".into()),
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_repl_command_with_multiple_arguments() {
+        assert_eq!(
+            parse_command(vec![
+                OsString::from("repl"),
+                OsString::from("examples"),
+                OsString::from("extra")
+            ]),
+            None
         );
     }
 
@@ -681,5 +806,79 @@ mod tests {
                 .to_test_string()
                 .contains("no tests matched filter expression `missing`")
         );
+    }
+
+    #[test]
+    fn repl_retains_definitions_across_multiple_lines() {
+        let pal = PalMock::new();
+        let mut input = std::io::Cursor::new("fun greet() { println(\"hi\"); }\ngreet()\n.exit\n");
+        let mut output = Vec::new();
+
+        run_repl_session(&PalHandle::new(pal.clone()), "", &mut input, &mut output).unwrap();
+
+        assert_eq!(String::from_utf8(output).unwrap(), "> > ()\n> ");
+        assert_eq!(pal.take_printed_output(), "hi\n");
+    }
+
+    #[test]
+    fn repl_prints_expression_results() {
+        let pal = PalMock::new();
+        let mut input = std::io::Cursor::new("not false\n.exit\n");
+        let mut output = Vec::new();
+
+        run_repl_session(&PalHandle::new(pal), "", &mut input, &mut output).unwrap();
+
+        assert_eq!(String::from_utf8(output).unwrap(), "> true\n> ");
+    }
+
+    #[test]
+    fn repl_uses_execute_fallback_for_statement_inputs() {
+        let pal = PalMock::new();
+        let mut input = std::io::Cursor::new("println(\"hello\");\n.exit\n");
+        let mut output = Vec::new();
+
+        run_repl_session(&PalHandle::new(pal.clone()), "", &mut input, &mut output).unwrap();
+
+        assert_eq!(String::from_utf8(output).unwrap(), "> > ");
+        assert_eq!(pal.take_printed_output(), "hello\n");
+    }
+
+    #[test]
+    fn repl_pretty_prints_errors_and_continues() {
+        let pal = PalMock::new();
+        let mut input = std::io::Cursor::new("missing_value\nnot false\n.exit\n");
+        let mut output = Vec::new();
+
+        run_repl_session(&PalHandle::new(pal), "", &mut input, &mut output).unwrap();
+
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("unresolved identifier `missing_value`"));
+        assert!(output.ends_with("> true\n> "));
+    }
+
+    #[test]
+    fn repl_ignores_the_reserved_builtin_core_source_when_rooted_at_repo_root() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "crates/engine/resources/builtin/core.ocelot",
+            "effect write_stdout;\n\neffect panic;\n",
+        );
+        let mut input = std::io::Cursor::new("true\n.exit\n");
+        let mut output = Vec::new();
+
+        run_repl_session(&PalHandle::new(pal), "", &mut input, &mut output).unwrap();
+
+        assert_eq!(String::from_utf8(output).unwrap(), "> true\n> ");
+    }
+
+    #[test]
+    fn repl_stops_cleanly_on_eof() {
+        let pal = PalMock::new();
+        let mut input = std::io::Cursor::new("not false\n");
+        let mut output = Vec::new();
+
+        run_repl_session(&PalHandle::new(pal), "", &mut input, &mut output).unwrap();
+
+        assert_eq!(String::from_utf8(output).unwrap(), "> true\n> ");
     }
 }

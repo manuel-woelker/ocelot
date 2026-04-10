@@ -12,6 +12,8 @@ use ocelot_semantic::parsed_module::ParsedModule;
 use ocelot_semantic::resolved_program::ResolvedProgram;
 use ocelot_semantic::source_file_kind::SourceFileKind;
 
+const RESERVED_BUILTIN_SOURCE_DIRECTORY: &str = "crates/engine/resources/builtin";
+
 /// Compiles one program from disk-backed and synthetic source files.
 pub fn compile_program(
     pal: &dyn Pal,
@@ -71,6 +73,7 @@ fn parse_disk_modules(
     let mut file_paths = pal
         .walk_directory(base_path, &[String::from("*.ocelot")])?
         .collect::<OcelotResult<Vec<_>>>()?;
+    file_paths.retain(|path| !is_reserved_builtin_source_path(path));
     let synthetic_paths = synthetic_source_files
         .iter()
         .map(|source_file| &source_file.path)
@@ -149,4 +152,28 @@ fn is_parser_compilation_error(error: &OcelotError) -> bool {
         error.kind(),
         ocelot_base::error::ErrorKind::CompilationError(CompilationStage::Parser)
     )
+}
+
+fn is_reserved_builtin_source_path(path: &FilePath) -> bool {
+    path.as_path()
+        .starts_with(FilePath::from(RESERVED_BUILTIN_SOURCE_DIRECTORY).as_path())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_reserved_builtin_source_path;
+    use ocelot_base::file_path::FilePath;
+
+    #[test]
+    fn recognizes_the_reserved_builtin_source_directory() {
+        assert!(is_reserved_builtin_source_path(&FilePath::from(
+            "crates/engine/resources/builtin/core.ocelot"
+        )));
+        assert!(!is_reserved_builtin_source_path(&FilePath::from(
+            "crates/engine/resources/core.ocelot"
+        )));
+        assert!(!is_reserved_builtin_source_path(&FilePath::from(
+            "examples/core.ocelot"
+        )));
+    }
 }

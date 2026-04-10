@@ -29,8 +29,8 @@ use ocelot_semantic::symbol_table::SymbolTable;
 use std::collections::HashMap;
 
 const CORE_MODULE_NAME: &str = "core";
-const CORE_MODULE_PATH: &str = "crates/engine/resources/core.ocelot";
-const CORE_MODULE_SOURCE: &str = include_str!("../../engine/resources/core.ocelot");
+const CORE_MODULE_PATH: &str = "crates/engine/resources/builtin/core.ocelot";
+const CORE_MODULE_SOURCE: &str = include_str!("../../engine/resources/builtin/core.ocelot");
 
 /// Resolves one compilation unit as though it were the only loaded module.
 pub fn resolve(
