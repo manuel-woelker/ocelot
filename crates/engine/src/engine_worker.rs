@@ -6,11 +6,18 @@ use crate::passed_test_result::PassedTestResult;
 use crate::test_run_summary::TestRunSummary;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_base::assertion_error::render_assertion_error;
+use ocelot_base::compilation_stage::CompilationStage;
+use ocelot_base::diagnostic_level::DiagnosticLevel;
 use ocelot_base::error::{ErrorKind, OcelotError};
+use ocelot_base::line_bounds::LineBounds;
 use ocelot_base::render_source_diagnostics::render_source_diagnostics;
 use ocelot_base::result::{OcelotResult, OptionExt, ResultExt};
 use ocelot_base::shared_string::SharedString;
+use ocelot_base::source_annotation::SourceAnnotation;
+use ocelot_base::source_diagnostic::SourceDiagnostic;
 use ocelot_base::source_diagnostics::SourceDiagnostics;
+use ocelot_base::source_excerpt::SourceExcerpt;
+use ocelot_base::span::Span;
 use ocelot_pal::pal::PalHandle;
 use ocelot_semantic::function_kind::FunctionKind;
 use ocelot_semantic::parsed_module::ParsedModule;
@@ -54,6 +61,7 @@ impl EngineWorker {
             &mut self.source_diagnostics,
         )?;
         self.resolved_program = Some(resolved_program);
+        self.validate_entrypoint()?;
         self.execute()
     }
 
@@ -63,6 +71,56 @@ impl EngineWorker {
 
     pub fn test_run_summary(&self) -> &TestRunSummary {
         &self.test_run_summary
+    }
+
+    /// Validates the signature only when a module is being executed directly.
+    fn validate_entrypoint(&mut self) -> OcelotResult<()> {
+        if !matches!(self.command.kind, RunCommandKind::RunFile { .. }) {
+            return Ok(());
+        }
+        let entry_module = self.entry_module()?;
+        if entry_module.kind != SourceFileKind::Module {
+            return Ok(());
+        }
+        let symbols = self.symbol_table();
+        let name = symbols.qualify_function_name(&entry_module.module_name, "main");
+        let Some(index) = symbols.resolve_function_exact(&name) else {
+            return Ok(());
+        };
+        let FunctionKind::UserDefined {
+            function,
+            source_file,
+        } = &symbols.function_definition(index)?.kind
+        else {
+            return Ok(());
+        };
+        if function.parameters.is_empty() {
+            return Ok(());
+        }
+
+        let span = &function.identifier.span;
+        let bounds = LineBounds::new(source_file.source(), span.start());
+        let diagnostic = SourceDiagnostic::new(
+            DiagnosticLevel::Error,
+            &source_file.path,
+            format!("module entrypoint `{name}` must have no parameters"),
+        )
+        .with_excerpt(
+            SourceExcerpt::new(
+                &source_file.path,
+                bounds.line_number,
+                &source_file.source()[bounds.line_start..bounds.line_end],
+            )
+            .with_annotation(SourceAnnotation::new(
+                Span::new(
+                    span.start() - bounds.line_start,
+                    span.end() - bounds.line_start,
+                ),
+                "remove parameters from this entrypoint",
+            )),
+        );
+        self.source_diagnostics.diagnostics.push(diagnostic);
+        Err(OcelotError::compilation_error(CompilationStage::Resolver))
     }
 
     fn execute(&mut self) -> OcelotResult<()> {
@@ -269,6 +327,39 @@ mod tests {
     use ocelot_base::error::ErrorKind;
     use ocelot_pal::pal::PalHandle;
     use ocelot_pal::pal_mock::PalMock;
+
+    #[test]
+    fn entrypoint_diagnostics_point_to_multiline_declarations_and_do_not_block_tests() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/main.ocelot",
+            "// entrypoint\nfun main(\n    name: string,\n    enabled: bool\n) {}\ntest \"smoke\" {}",
+        );
+        let mut worker = EngineWorker::new(
+            PalHandle::new(pal.clone()),
+            EngineCommand::run_file("examples/main.ocelot".into()).unwrap(),
+            Vec::new(),
+        );
+        assert!(matches!(
+            worker.run_command().unwrap_err().kind(),
+            ErrorKind::CompilationError(CompilationStage::Resolver)
+        ));
+        let rendered = ocelot_base::render_source_diagnostics::render_source_diagnostics(
+            &worker.source_diagnostics().diagnostics,
+        );
+        assert!(rendered.contains("examples/main.ocelot:2:5"));
+        assert!(rendered.contains("fun main("));
+        assert!(rendered.contains("remove parameters from this entrypoint"));
+
+        let mut worker = EngineWorker::new(
+            PalHandle::new(pal),
+            EngineCommand::run_tests("examples/main.ocelot".into()).unwrap(),
+            Vec::new(),
+        );
+        worker.run_command().unwrap();
+        assert_eq!(worker.test_run_summary().passed.len(), 1);
+        assert!(worker.source_diagnostics().diagnostics.is_empty());
+    }
 
     #[test]
     fn run_command_collects_parser_diagnostics_in_compilation_context() {

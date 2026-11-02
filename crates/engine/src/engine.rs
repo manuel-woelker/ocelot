@@ -174,6 +174,41 @@ mod tests {
     }
 
     #[test]
+    fn module_entrypoint_rejects_parameters_before_side_effects() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/main.ocelot",
+            "fun main(name: string) { println(\"must not run\"); println(name); }",
+        );
+        let error = Engine::new(PalHandle::new(pal.clone()))
+            .run_file("examples/main.ocelot")
+            .unwrap_err();
+        assert!(matches!(
+            error.kind(),
+            ErrorKind::CompilationError(CompilationStage::Resolver)
+        ));
+        let rendered = ocelot_base::cli::format_cli_error("execution failed", &error);
+        assert!(rendered.contains("must have no parameters"));
+        assert!(rendered.contains("examples/main.ocelot:1:5"));
+        assert!(rendered.contains("remove parameters from this entrypoint"));
+        assert!(!rendered.contains("engine_worker.rs"));
+        assert_eq!(pal.take_printed_output(), "");
+    }
+
+    #[test]
+    fn ordinary_calls_to_parameterized_main_are_valid() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/main.ocelot-script",
+            "fun main(name: string) { println(name); } main(\"hello\");",
+        );
+        Engine::new(PalHandle::new(pal.clone()))
+            .run_file("examples/main.ocelot-script")
+            .unwrap();
+        assert_eq!(pal.take_printed_output(), "hello\n");
+    }
+
+    #[test]
     fn derives_nested_module_names_from_paths() {
         assert_eq!(
             module_name_from_path(
