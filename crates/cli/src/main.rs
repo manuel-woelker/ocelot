@@ -832,6 +832,16 @@ mod tests {
     }
 
     #[test]
+    fn repl_executes_multiple_statements_once_without_silently_dropping_them() {
+        let pal = PalMock::new();
+        let mut input = std::io::Cursor::new("true; println(\"once\");\n.exit\n");
+        let mut output = Vec::new();
+        run_repl_session(&PalHandle::new(pal.clone()), "", &mut input, &mut output).unwrap();
+        assert_eq!(String::from_utf8(output).unwrap(), "> > ");
+        assert_eq!(pal.take_printed_output(), "once\n");
+    }
+
+    #[test]
     fn repl_uses_execute_fallback_for_statement_inputs() {
         let pal = PalMock::new();
         let mut input = std::io::Cursor::new("println(\"hello\");\n.exit\n");

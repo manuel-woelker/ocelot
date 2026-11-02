@@ -83,6 +83,32 @@ impl EmbeddedEngine {
     /// Evaluates one expression against the persistent embedded session.
     pub fn eval(&mut self, expression_source: &str) -> OcelotResult<RuntimeValue> {
         let eval_statement = format!("{expression_source};");
+        self.source_diagnostics = SourceDiagnostics::default();
+        let input_file = self.synthetic_source_file(eval_statement.as_str());
+        let input = ocelot_parser::parse_compilation_unit::parse_compilation_unit(
+            &input_file,
+            &mut self.source_diagnostics,
+        )?;
+        if input.items.len() != 1
+            || !matches!(
+                input.items[0].kind,
+                ocelot_ast::item_kind::ItemKind::Statement(_)
+            )
+        {
+            self.source_diagnostics.diagnostics.push(
+                ocelot_base::source_diagnostic::SourceDiagnostic::new(
+                    ocelot_base::diagnostic_level::DiagnosticLevel::Error,
+                    &input_file.path,
+                    "eval expects exactly one expression",
+                ),
+            );
+            return Err(attach_compilation_diagnostics(
+                OcelotError::compilation_error(
+                    ocelot_base::compilation_stage::CompilationStage::Parser,
+                ),
+                &self.source_diagnostics,
+            ));
+        }
         let (candidate_source, new_item_offset) = self.candidate_source(eval_statement.as_str());
         let synthetic_source_file = self.synthetic_source_file(candidate_source);
         let resolved_program = self.compile_with_source(synthetic_source_file)?;
@@ -165,6 +191,33 @@ mod tests {
     use ocelot_pal::pal::PalHandle;
     use ocelot_pal::pal_mock::PalMock;
     use ocelot_semantic::runtime_value::RuntimeValue;
+
+    #[test]
+    fn eval_rejects_non_expression_inputs_without_side_effects_or_state_changes() {
+        let pal = PalMock::new();
+        let mut engine = EmbeddedEngine::new(PalHandle::new(pal.clone()), "examples");
+        engine.execute("fun retained() {}").unwrap();
+        for input in [
+            "true; println(\"skipped\")",
+            "println(\"first\"); println(\"second\")",
+            "fun leaked() {} true",
+            "use core::println; true",
+            "",
+        ] {
+            let error = engine.eval(input).unwrap_err();
+            assert!(
+                matches!(error.kind(), ErrorKind::CompilationError(_)),
+                "{input}"
+            );
+            assert_eq!(pal.take_printed_output(), "", "{input}");
+            assert_eq!(engine.eval("retained()").unwrap(), RuntimeValue::unit());
+        }
+        assert!(engine.eval("leaked()").is_err());
+        assert_eq!(
+            engine.eval("not false").unwrap(),
+            RuntimeValue::boolean(true)
+        );
+    }
 
     #[test]
     fn eval_returns_runtime_values_without_disk_backed_embedded_files() {
