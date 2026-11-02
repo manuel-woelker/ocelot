@@ -1,54 +1,56 @@
-# What lives in `docs/spec`?
+# Where should I start?
 
-`docs/spec` is the canonical home for the `ocelot` language specification.
-Each numbered chapter describes one focused part of the language and includes short examples.
+This directory specifies the implemented Ocelot language through rules and executable
+examples. Start with file execution, then functions and expressions. Use the table
+below as the reference index; unimplemented features belong in plans rather than
+in the language rules.
 
-# How are spec chapters numbered?
+| Topic | Rules owned by this chapter |
+| --- | --- |
+| [Comments](./01.01%20Lexical%20structure%20-%20Comments.md) | Placement, nesting, and unterminated comments |
+| [Strings](./01.02%20Lexical%20structure%20-%20Strings.md) | Literal delimiters and unterminated strings |
+| [Function calls](./02.01%20Expressions%20-%20Function%20calls.md) | Argument counts, types, and unit results |
+| [Prefix negation](./02.02%20Expressions%20-%20Prefix%20negation.md) | Boolean negation and precedence |
+| [Template strings](./02.03%20Expressions%20-%20Template%20strings.md) | Interpolation and evaluation order |
+| [Booleans](./10.01%20Types%20-%20Booleans.md) | Boolean literals |
+| [Any](./10.02%20Types%20-%20Any.md) | Native signature escape hatch |
+| [Tests](./15.01%20Declarations%20-%20Test%20items.md) | Declarations and behavior during normal execution |
+| [Function definitions](./15.02%20Declarations%20-%20Function%20definitions.md) | Syntax, parameters, and declaration scope |
+| [File modules](./25.01%20Modules%20-%20File%20modules.md) | Module discovery, paths, and exported functions |
+| [Imports](./25.02%20Modules%20-%20Imports.md) | File-local imports and import errors |
+| [Core module](./25.03%20Modules%20-%20Core%20module.md) | Builtin names and lookup precedence |
+| [Effects](./27.01%20Effects%20-%20Nominal%20effect%20declarations.md) | Declarations, propagation, and prohibitions |
+| [File execution](./28.01%20Runtime%20behavior%20-%20Scripts.md) | Script statements and module entrypoints |
+| [Embedded evaluation](./28.03%20Runtime%20behavior%20-%20Embedded%20eval.md) | Persistent sessions, results, and failures |
+| [println](./30.01%20Standard%20library%20-%20println.md) | Printed output |
+| [assert](./30.02%20Standard%20library%20-%20assert.md) | Boolean assertions |
 
-Spec chapters use a two-part numeric prefix:
+# How are chapters organized?
 
-```text
-NN.MM Topic.md
-```
+Filenames use `NN.MM Topic.md`: `NN` groups a topic and `MM` orders chapters
+within it. Gaps are intentional; existing chapters need not be renumbered when
+others are merged. Each rule has one canonical home, with links from related topics.
 
-The numbering is intended to mean:
+# How do I write an executable example?
 
-- `NN`: a major chapter such as lexical structure, expressions, statements, types, declarations, modules, effects, or runtime behavior
-- `MM`: a subchapter within that major chapter
+Use `## Example: description`, labeled `ocelot` fences, and exactly one expectation
+heading followed by a `text` fence. Sources must match the Ocelot formatter's output;
+examples demonstrating parse errors are exempt when they cannot be parsed.
 
-# What top-level chapter numbers are planned?
+| Mode | Source labels | Expectation |
+| --- | --- | --- |
+| File execution | `main.ocelot-script:` or `main.ocelot:`, plus optional helper files | `### Output` or `### Error` |
+| Embedded evaluation | `execute:` and `eval:`, plus optional helper files | `### Eval result` or `### Error` |
 
-The exact outline may evolve, but the current intended top-level numbering is:
-
-- `01`: Lexical structure
-- `02`: Expressions
-- `05`: Statements
-- `10`: Types
-- `15`: Declarations
-- `20`: Functions
-- `25`: Modules
-- `27`: Effects
-- `28`: Runtime behavior
-- `30`: Standard library
-- `91`: Lexer errors
-
-# How should examples be written?
-
-Each example should use a visible heading, one or more named `ocelot` fenced blocks, and exactly one explicit expectation section.
-
-Use:
-
-- a visible filename label such as `main.ocelot-script:` or `helper.ocelot:` immediately before each `ocelot` block
-- `execute:` immediately before an `ocelot` block when the example should apply one persistent embedded-engine snippet
-- `eval:` immediately before an `ocelot` block when the example should evaluate one expression through the embedded engine
-- `### Output` for examples that should execute successfully
-- `### Eval result` for embedded-eval examples that should return one runtime value successfully
-- `### Error` for examples that should fail with a stable error message
-
-Example:
+File examples must declare exactly one of the two main filenames. Embedded examples
+must include at least one `eval:` block. Steps share one session within an example;
+separate examples are isolated. An eval-result expectation checks the last returned
+value, not printed output. An error expectation checks normalized error text,
+including diagnostic excerpts where rendered. Keep full diagnostic expectations
+until the validator explicitly supports another format.
 
 ~~~markdown
-## Example: integer addition
+## Example: print a greeting
 
 main.ocelot-script:
 
@@ -63,33 +65,18 @@ hello
 ```
 ~~~
 
-This keeps the spec readable for humans and makes it realistic to extract examples with a future Markdown-driven conformance harness.
+An empty `text` block under `### Output` asserts successful execution with no output.
+Use one example per distinct rule; avoid repeating introductory examples across chapters.
+Keep question headings for explanatory sections and the exact headings above for
+machine-readable examples.
 
-Embedded-eval examples follow the same `## Example:` structure, but they use `execute:` and `eval:` markers instead of a required `main.ocelot-script:` file block.
-Those examples may still include filename-labeled `ocelot` blocks when helper modules should be loaded from the embedded engine's `base_path`.
+# How are examples checked?
 
-# What chapters exist today?
+`crates/spec_validation` extracts examples from numbered chapters and executes them
+through the engine. Run the harness directly with:
 
-The first numbered spec chapters are:
+```bash
+cargo run --package ocelot-spec-validation --bin ocelot-spec-validation
+```
 
-- [01.01 Lexical structure - Comments](./01.01%20Lexical%20structure%20-%20Comments.md)
-- [02.01 Expressions - Function calls](./02.01%20Expressions%20-%20Function%20calls.md)
-- [02.02 Expressions - Prefix negation](./02.02%20Expressions%20-%20Prefix%20negation.md)
-- [10.01 Types - Booleans](./10.01%20Types%20-%20Booleans.md)
-- [10.02 Types - Any](./10.02%20Types%20-%20Any.md)
-- [15.01 Declarations - Test items](./15.01%20Declarations%20-%20Test%20items.md)
-- [15.02 Declarations - Function definitions](./15.02%20Declarations%20-%20Function%20definitions.md)
-- [25.01 Modules - File modules](./25.01%20Modules%20-%20File%20modules.md)
-- [25.02 Modules - Imports](./25.02%20Modules%20-%20Imports.md)
-- [25.03 Modules - Core module](./25.03%20Modules%20-%20Core%20module.md)
-- [27.01 Effects - Nominal effect declarations](./27.01%20Effects%20-%20Nominal%20effect%20declarations.md)
-- [28.01 Runtime behavior - Scripts](./28.01%20Runtime%20behavior%20-%20Scripts.md)
-- [28.02 Runtime behavior - Test items](./28.02%20Runtime%20behavior%20-%20Test%20items.md)
-- [28.03 Runtime behavior - Embedded eval](./28.03%20Runtime%20behavior%20-%20Embedded%20eval.md)
-- [28.04 Runtime behavior - Eval results](./28.04%20Runtime%20behavior%20-%20Eval%20results.md)
-- [30.01 Standard library - println](./30.01%20Standard%20library%20-%20println.md)
-- [30.02 Standard library - assert](./30.02%20Standard%20library%20-%20assert.md)
-- [91.01 Lexer errors - Unterminated strings](./91.01%20Lexer%20errors%20-%20Unterminated%20strings.md)
-- [91.02 Lexer errors - Unterminated block comments](./91.02%20Lexer%20errors%20-%20Unterminated%20block%20comments.md)
-
-Additional chapters can be added later without redesigning the format.
+Run `nao check` for formatting, build, lint, tests, and spec validation together.
