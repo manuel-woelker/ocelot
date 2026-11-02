@@ -24,6 +24,10 @@ Functions currently return unit; return types and return statements are not impl
 `docs/TESTING.md` documents verification expectations, and `docs/PLANS.md` defines the
 workflow for implementation plans. This remains a work in progress.
 
+The [documentation guide](README.md) links these references and
+[development learnings](learnings/README.md), which preserve reusable findings
+with their context, evidence, and sources.
+
 # What principles guide the project?
 
 The goals in `README.md` are to make programming fun, friendly, and fast.

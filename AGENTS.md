@@ -25,6 +25,15 @@ Consult `docs/spec` when changing or documenting language behavior.
 
 Use `docs/PLANS.md` for plan structure, naming, verification expectations, assumptions, and completion workflow.
 
+### Development learnings
+
+Consult [development learnings](docs/learnings/README.md) when investigating unfamiliar behavior or working in an area with recorded findings.
+Create or update a learning in `docs/learnings/` alongside work that establishes a reusable finding, especially a complex or surprising discovery, disproved assumption, or debugging, performance, or platform pitfall. Routine changes do not require an entry.
+
+Follow the guide and template. Name records `YYYY-MM-DD Finding title.md`, using the date the finding was established.
+Include the finding, context, evidence, and references. Distinguish observations from inference, link relevant internal and external sources when available, and explicitly state when either has no applicable source.
+Update findings as evidence changes, preserving useful context. Link related plans or decisions rather than duplicating them.
+
 ### Question driven documentation
 
 When writing any documentation, prefer writing the headings in the form of questions, which should be answered in the following paragraphs.
