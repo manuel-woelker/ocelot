@@ -1,27 +1,30 @@
 # What is `ocelot`?
 
-`ocelot` is an experimental statically typed programming language project.
-It currently focuses on building a clean Rust workspace foundation for language infrastructure and tooling.
+`ocelot` is an experimental statically typed programming language implemented in Rust.
+The current interpreter supports strings, booleans, template strings, typed function
+parameters, nominal effects, file modules, imports, and test declarations.
+Functions currently return unit; return types and return statements are not implemented.
 
-This document reflects the current direction of the repository and will evolve as the implementation takes shape.
+# How is the implementation organized?
 
-# What is the current goal of the repository?
+- `crates/base` provides shared utilities, source locations, and diagnostics.
+- `crates/pal` abstracts filesystem access, processes, clocks, and other platform behavior.
+- `crates/ast` and `crates/parser` model and parse source code, including trivia for formatting.
+- `crates/semantic` holds symbols, types, runtime values, and native functions.
+- `crates/resolver` resolves declarations, checks arguments, and propagates effects.
+- `crates/interpreter` executes resolved syntax trees.
+- `crates/engine` loads module trees and coordinates execution, tests, and persistent embedded sessions.
+- `crates/formatter` formats parsed source.
+- `crates/cli` exposes file execution, test filtering, formatting, and a REPL.
+- `crates/spec_validation` runs executable examples from `docs/spec`.
 
-The immediate goal is to create a maintainable base for the language implementation:
+# Where is language behavior documented?
 
-- shared Rust utilities in `crates/base`
-- a platform abstraction layer in `crates/pal`
-- repository tooling for checks, CI, and planning
-- a language spec under `docs/spec`
-
-That keeps the project ready for parser, compiler, runtime, or tooling crates without forcing those decisions too early.
+`docs/spec` describes the implemented language through prose and executable examples.
+`docs/TESTING.md` documents verification expectations, and `docs/PLANS.md` defines the
+workflow for implementation plans. This remains a work in progress.
 
 # What principles guide the project?
 
-The project goals are also captured in `README.md`, but the short version is:
-
-- programming should be fun
-- programming should be friendly
-- feedback loops should be fast
-
-Those values should shape both the language design and the contributor experience around it.
+The goals in `README.md` are to make programming fun, friendly, and fast.
+They apply to the language, its diagnostics, and the contributor feedback loop.

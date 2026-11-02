@@ -5,7 +5,7 @@ This file provides guidance to human developers and AI Agents when working with 
 ## Project Overview
 
 `ocelot` is an experimental statically typed programming language project.
-The current repository infrastructure provides shared Rust utilities, a platform abstraction layer, and project tooling for future language crates.
+The Rust workspace includes parsing, semantic resolution, an interpreter, formatting, a CLI and REPL, executable specification validation, shared utilities, and a platform abstraction layer.
 
 Note: All developer documentation should be written in English.
 
