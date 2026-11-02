@@ -138,6 +138,25 @@ mod tests {
     use ocelot_semantic::source_file_kind::SourceFileKind;
 
     #[test]
+    fn executes_modules_and_embedded_calls_under_an_absolute_filesystem_root() {
+        let root =
+            std::env::temp_dir().join(format!("ocelot-engine-review-tests-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("main.ocelot"), "fun main() { helper::check(); }").unwrap();
+        std::fs::write(root.join("helper.ocelot"), "fun check() { assert(true); }").unwrap();
+        let pal = ocelot_pal::pal_real::PalReal::new_handle().unwrap();
+        let execution = Engine::new(pal.clone()).run_file(FilePath::new(root.join("main.ocelot")));
+        let mut embedded = crate::embedded_engine::EmbeddedEngine::new(pal, FilePath::new(&root));
+        let evaluation = embedded.eval("helper::check()");
+        std::fs::remove_dir_all(&root).unwrap();
+        execution.unwrap();
+        assert_eq!(
+            evaluation.unwrap(),
+            ocelot_semantic::runtime_value::RuntimeValue::unit()
+        );
+    }
+
+    #[test]
     fn nested_unit_calls_are_type_checked_before_side_effects() {
         for source in [
             "fun accept(value: bool) {} accept(println(\"side effect\"));",

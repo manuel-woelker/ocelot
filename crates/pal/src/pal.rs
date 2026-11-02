@@ -38,7 +38,8 @@ pub trait Pal: Debug + Sync + Send + 'static {
         Ok(buffer)
     }
 
-    /// walk directory using the supplied globs
+    /// Walks a directory using the supplied globs.
+    /// Returned paths preserve the absolute or relative root supplied by `path`.
     fn walk_directory(
         &self,
         path: &FilePath,

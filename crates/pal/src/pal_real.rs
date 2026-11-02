@@ -25,7 +25,7 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::io::IsTerminal as _;
 use std::io::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::{Duration, Instant, SystemTime};
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -68,17 +68,6 @@ impl PalReal {
 
     fn resolve_path(&self, path: &FilePath) -> OcelotResult<PathBuf> {
         Ok(self.base_path.join(path.as_path()))
-    }
-
-    fn relativize_path(&self, path: &Path) -> OcelotResult<FilePath> {
-        let relative_path = path.strip_prefix(&self.base_path).with_context(|| {
-            format!(
-                "Unable to relativize path '{}' against '{}'",
-                path.display(),
-                self.base_path.display()
-            )
-        })?;
-        Ok(FilePath::new(relative_path))
     }
 
     fn resolve_process_path(&self, path: &FilePath) -> OcelotResult<PathBuf> {
@@ -225,6 +214,7 @@ impl Pal for PalReal {
             overrides.add(glob)?;
         }
         walk_builder.overrides(overrides.build()?);
+        let path = path.clone();
         Ok(Box::new(
             walk_builder
                 .build()
@@ -240,7 +230,14 @@ impl Pal for PalReal {
                     }
                     Err(_) => false,
                 })
-                .flat_map(|entry| entry.map(|path| self.relativize_path(path.path()))),
+                .map(move |entry| {
+                    let entry = entry?;
+                    let relative = entry
+                        .path()
+                        .strip_prefix(&real_path)
+                        .context("walked path is outside the requested directory")?;
+                    Ok(path.join(relative))
+                }),
         ))
     }
 
@@ -484,6 +481,30 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.path);
         }
+    }
+
+    #[test]
+    fn directory_walk_preserves_absolute_roots() {
+        let pal = PalReal::new().unwrap();
+        let temp = TestTempDir::new();
+        std::fs::write(temp.path_buf("main.ocelot"), "fun main() {}").unwrap();
+        let paths = pal
+            .walk_directory(&temp.file_path(""), &["*.ocelot".into()])
+            .unwrap()
+            .collect::<ocelot_base::result::OcelotResult<Vec<_>>>()
+            .unwrap();
+        assert_eq!(paths, vec![temp.file_path("main.ocelot")]);
+    }
+
+    #[test]
+    fn directory_walk_preserves_relative_roots() {
+        let pal = PalReal::new().unwrap();
+        let paths = pal
+            .walk_directory(&"src".into(), &["pal.rs".into()])
+            .unwrap()
+            .collect::<ocelot_base::result::OcelotResult<Vec<_>>>()
+            .unwrap();
+        assert_eq!(paths, vec!["src/pal.rs".into()]);
     }
 
     #[test]
