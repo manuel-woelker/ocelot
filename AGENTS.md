@@ -96,8 +96,12 @@ Below the first line include detail information about the changes made.
 Also include the agent model identifier used for the commit in a `Model:` section in the commit message body.
 Always run `git add` and `git commit` as separate commands.
 
-**Commit message note:** When crafting commit messages, use `git commit -F -` with heredoc syntax such as `git commit -F - <<'EO_COMMIT_MESSAGE'`.
-This avoids shell escaping issues and keeps multiline commit bodies predictable without creating temporary files.
+Always commit useful units of work after `nao check` passes. Do not leave completed work uncommitted.
+Make separate commits for different logical changes. Keep each commit coherent and independently reviewable.
+For minor follow-up changes to the latest commit from the current task, rerun `nao check` and amend that commit instead of creating another commit.
+
+Write multiline commit messages to a temporary file and use `git commit -F <message-file>` (or `git commit --amend -F <message-file>`).
+Do not use heredocs or heredoc delimiters such as `EOF` to supply commit messages.
 
 Never push code or ask to push code.
 
