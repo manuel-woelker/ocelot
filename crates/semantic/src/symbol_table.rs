@@ -53,6 +53,7 @@ impl SymbolTable {
         self.add_type(Ty::new("any", TypeKind::Any));
         self.add_type(Ty::new("string", TypeKind::String));
         self.add_type(Ty::new("bool", TypeKind::Boolean));
+        self.add_type(Ty::new("()", TypeKind::Unit));
     }
 
     /// Resolves one effect name to its table handle.
@@ -124,6 +125,12 @@ impl SymbolTable {
     pub fn boolean_type_index(&self) -> TypeIndex {
         self.resolve_type("bool")
             .expect("bool type should always be seeded")
+    }
+
+    /// Returns the canonical unit type handle.
+    pub fn unit_type_index(&self) -> TypeIndex {
+        self.resolve_type("()")
+            .expect("unit type should always be seeded")
     }
 
     /// Returns the canonical unresolved type handle.

@@ -25,7 +25,6 @@ use ocelot_ast::statement_kind::StatementKind;
 use ocelot_ast::string_literal_expression::StringLiteralExpression;
 use ocelot_ast::template_string_part::TemplateStringPart;
 use ocelot_ast::test_item::TestItem;
-use ocelot_ast::type_index::TypeIndex;
 use ocelot_ast::use_item::UseItem;
 use ocelot_base::compilation_stage::CompilationStage;
 use ocelot_base::source_file::SourceFile;
@@ -161,7 +160,7 @@ fn resolves_native_call_expressions() {
         panic!("expected call expression");
     };
     assert_eq!(call_expression.function_index().unwrap(), println_index);
-    assert_eq!(expression.ty, TypeIndex::unresolved());
+    assert_eq!(expression.ty, symbol_table.unit_type_index());
 }
 
 #[test]

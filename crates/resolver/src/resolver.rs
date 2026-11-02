@@ -350,7 +350,14 @@ impl<'a> Resolver<'a> {
             ExpressionKind::StringLiteral(_) | ExpressionKind::TemplateString(_) => {
                 expression.ty = string_type_index
             }
-            ExpressionKind::QualifiedIdentifier(_) | ExpressionKind::Call(_) => {
+            ExpressionKind::Call(call) => {
+                expression.ty = if call.function_index().is_ok() {
+                    self.symbol_table.unit_type_index()
+                } else {
+                    TypeIndex::unresolved()
+                };
+            }
+            ExpressionKind::QualifiedIdentifier(_) => {
                 expression.ty = TypeIndex::unresolved();
             }
             ExpressionKind::Not(not_expression) => {

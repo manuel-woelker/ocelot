@@ -7,6 +7,7 @@ pub fn native_type_label(type_kind: TypeKind) -> SharedString {
         TypeKind::Any => "any".into(),
         TypeKind::Boolean => "bool".into(),
         TypeKind::String => "string".into(),
+        TypeKind::Unit => "()".into(),
         TypeKind::Unresolved => "unresolved".into(),
     }
 }

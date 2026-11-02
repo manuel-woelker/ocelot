@@ -138,6 +138,42 @@ mod tests {
     use ocelot_semantic::source_file_kind::SourceFileKind;
 
     #[test]
+    fn nested_unit_calls_are_type_checked_before_side_effects() {
+        for source in [
+            "fun accept(value: bool) {} accept(println(\"side effect\"));",
+            "fun accept(value: string) {} fun empty() {} accept(empty());",
+            "assert(println(\"side effect\"));",
+            "not println(\"side effect\");",
+        ] {
+            let pal = PalMock::new();
+            pal.set_file("examples/main.ocelot-script", source);
+            let engine = Engine::new(PalHandle::new(pal.clone()));
+            let error = engine.run_file("examples/main.ocelot-script").unwrap_err();
+            assert!(
+                matches!(
+                    error.kind(),
+                    ErrorKind::CompilationError(CompilationStage::Resolver)
+                ),
+                "{source}"
+            );
+            assert_eq!(pal.take_printed_output(), "", "{source}");
+        }
+    }
+
+    #[test]
+    fn unit_calls_remain_valid_for_any_parameters() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/main.ocelot-script",
+            "assert_eq(println(\"first\"), println(\"second\"));",
+        );
+        Engine::new(PalHandle::new(pal.clone()))
+            .run_file("examples/main.ocelot-script")
+            .unwrap();
+        assert_eq!(pal.take_printed_output(), "first\nsecond\n");
+    }
+
+    #[test]
     fn derives_nested_module_names_from_paths() {
         assert_eq!(
             module_name_from_path(

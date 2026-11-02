@@ -4,5 +4,7 @@ pub enum TypeKind {
     Any,
     Boolean,
     String,
+    /// The result of a function that returns no value.
+    Unit,
     Unresolved,
 }
