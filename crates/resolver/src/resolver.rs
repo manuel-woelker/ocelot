@@ -99,10 +99,26 @@ impl<'a> Resolver<'a> {
 
     fn resolve_expression(&mut self, expression: &mut Expression) {
         match &mut expression.kind {
-            ExpressionKind::BooleanLiteral(_)
-            | ExpressionKind::Identifier(_)
-            | ExpressionKind::QualifiedIdentifier(_)
-            | ExpressionKind::StringLiteral(_) => {}
+            ExpressionKind::BooleanLiteral(_) | ExpressionKind::StringLiteral(_) => {}
+            ExpressionKind::Identifier(identifier) => {
+                if !self
+                    .local_value_types
+                    .contains_key(identifier.name.as_str())
+                {
+                    self.add_diagnostic(
+                        format!("unresolved identifier `{}`", identifier.name),
+                        identifier.span.clone(),
+                        "not found",
+                    );
+                }
+            }
+            ExpressionKind::QualifiedIdentifier(identifier) => {
+                self.add_diagnostic(
+                    format!("unresolved identifier `{}`", identifier.render()),
+                    identifier.span(),
+                    "not found",
+                );
+            }
             ExpressionKind::TemplateString(template_string) => {
                 self.resolve_template_string_expression(template_string);
             }
@@ -116,7 +132,12 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_call_expression(&mut self, call_expression: &mut CallExpression) {
-        self.resolve_expression(&mut call_expression.callee);
+        if !matches!(
+            call_expression.callee.kind,
+            ExpressionKind::Identifier(_) | ExpressionKind::QualifiedIdentifier(_)
+        ) {
+            self.resolve_expression(&mut call_expression.callee);
+        }
         for argument in &mut call_expression.arguments {
             self.resolve_expression(&mut argument.value);
         }

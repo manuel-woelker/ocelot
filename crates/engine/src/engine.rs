@@ -138,6 +138,43 @@ mod tests {
     use ocelot_semantic::source_file_kind::SourceFileKind;
 
     #[test]
+    fn unknown_values_fail_during_resolution_before_any_effects() {
+        for snippet in [
+            "missing;",
+            "println(missing);",
+            "println(\"${missing}\");",
+            "not missing;",
+            "fun unused() { println(missing); }",
+            "fun f(name: string) { println(other); }",
+            "test \"unused\" { println(missing); }",
+            "core::println;",
+        ] {
+            let pal = PalMock::new();
+            pal.set_file(
+                "examples/main.ocelot-script",
+                format!("println(\"must not run\"); {snippet}"),
+            );
+            let error = Engine::new(PalHandle::new(pal.clone()))
+                .run_file("examples/main.ocelot-script")
+                .unwrap_err();
+            assert!(
+                matches!(
+                    error.kind(),
+                    ErrorKind::CompilationError(CompilationStage::Resolver)
+                ),
+                "{snippet}"
+            );
+            let rendered = ocelot_base::cli::format_cli_error("failed", &error);
+            assert!(
+                rendered.contains("unresolved identifier"),
+                "{snippet}: {rendered}"
+            );
+            assert!(rendered.contains("examples/main.ocelot-script:1:"));
+            assert_eq!(pal.take_printed_output(), "", "{snippet}");
+        }
+    }
+
+    #[test]
     fn calls_preserve_labels_and_omission_policy_across_module_boundaries() {
         let pal = PalMock::new();
         pal.set_file(
@@ -710,7 +747,7 @@ show("Linus", excited: true);"#,
     }
 
     #[test]
-    fn run_test_reports_cross_file_runtime_diagnostics_with_the_called_file_path() {
+    fn run_test_reports_cross_file_resolution_diagnostics_with_the_called_file_path() {
         let pal = PalMock::new();
         pal.set_file(
             "examples/main.ocelot-script",
@@ -727,6 +764,10 @@ show("Linus", excited: true);"#,
             .run_test("examples/main.ocelot-script", "broken")
             .unwrap_err();
 
+        assert!(matches!(
+            error.kind(),
+            ErrorKind::CompilationError(CompilationStage::Resolver)
+        ));
         assert!(
             error
                 .to_test_string()
