@@ -138,6 +138,132 @@ mod tests {
     use ocelot_semantic::source_file_kind::SourceFileKind;
 
     #[test]
+    fn calls_preserve_labels_and_omission_policy_across_module_boundaries() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/helper.ocelot",
+            "fun greet(positional name: string, excited: bool) { println(\"${name} ${excited}\"); }",
+        );
+        pal.set_file(
+            "examples/main.ocelot-script",
+            r#"use helper::greet;
+greet("Ada", excited: true);
+greet(name: "Grace", excited: false);
+helper::greet("Linus", excited: true);
+core::println(value: "explicit");
+core::assert(condition: true);
+assert_eq(expected: true, actual: true);"#,
+        );
+        Engine::new(PalHandle::new(pal.clone()))
+            .run_file("examples/main.ocelot-script")
+            .unwrap();
+        assert_eq!(
+            pal.take_printed_output(),
+            "Ada true\nGrace false\nLinus true\nexplicit\n"
+        );
+    }
+
+    #[test]
+    fn user_call_values_evaluate_left_to_right_before_binding() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/main.ocelot-script",
+            r#"show(first: "${println("first")}", second: "${println("second")}");
+fun show(first: string, second: string) { println("${first} ${second}"); }"#,
+        );
+        Engine::new(PalHandle::new(pal.clone()))
+            .run_file("examples/main.ocelot-script")
+            .unwrap();
+        assert_eq!(pal.take_printed_output(), "first\nsecond\n() ()\n");
+    }
+
+    #[test]
+    fn labels_can_forward_local_values_and_all_positional_parameters_allow_omission() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/main.ocelot-script",
+            r#"fun forward(name: string) { show(name: name, excited: true); }
+fun show(positional name: string, positional excited: bool) { println(value: "${name} ${excited}"); }
+forward(name: "Ada");
+show("Grace", false);
+show("Linus", excited: true);"#,
+        );
+        Engine::new(PalHandle::new(pal.clone()))
+            .run_file("examples/main.ocelot-script")
+            .unwrap();
+        assert_eq!(
+            pal.take_printed_output(),
+            "Ada true\nGrace false\nLinus true\n"
+        );
+    }
+
+    #[test]
+    fn invalid_argument_labels_and_policies_fail_before_effects_run() {
+        let cases = [
+            (
+                "fun f(name: string) {} f(\"${println(\"bad\")}\");",
+                "argument `name` to `f` requires a label",
+            ),
+            (
+                "fun f(name: string) {} f(wrong: \"Ada\");",
+                "unknown argument label `wrong`",
+            ),
+            (
+                "fun f(first: string, second: string) {} f(first: \"a\", first: \"b\");",
+                "duplicate argument label `first`",
+            ),
+            (
+                "fun f(first: string, second: string) {} f(second: \"a\", first: \"b\");",
+                "must follow declaration order",
+            ),
+            (
+                "fun f(positional first: string, positional second: string) {} f(first: \"a\", \"b\");",
+                "unlabeled arguments must precede labeled arguments",
+            ),
+            (
+                "fun f(first: string, positional second: string) {}",
+                "positional parameters must precede",
+            ),
+            (
+                "fun f(enabled: bool) {} f(enabled: \"bad\");",
+                "argument 1 to `f` must be bool",
+            ),
+            (
+                "fun f(name: string) {} f();",
+                "expects exactly one argument",
+            ),
+            ("fun f() {} f(name: \"Ada\");", "expects no arguments"),
+            (
+                "assert_eq(true, true);",
+                "argument `expected` to `assert_eq` requires a label",
+            ),
+            ("println(wrong: \"bad\");", "unknown argument label `wrong`"),
+            ("assert(condition: \"bad\");", "expects a bool argument"),
+        ];
+        for (source, expected) in cases {
+            let pal = PalMock::new();
+            pal.set_file("examples/main.ocelot-script", source);
+            let error = Engine::new(PalHandle::new(pal.clone()))
+                .run_file("examples/main.ocelot-script")
+                .unwrap_err();
+            assert!(
+                matches!(
+                    error.kind(),
+                    ErrorKind::CompilationError(CompilationStage::Resolver)
+                ),
+                "{source}"
+            );
+            let rendered = ocelot_base::cli::format_cli_error("execution failed", &error);
+            assert!(rendered.contains(expected), "{source}\n{rendered}");
+            assert!(
+                rendered.contains("examples/main.ocelot-script:"),
+                "{rendered}"
+            );
+            assert_eq!(pal.take_printed_output(), "", "{source}");
+        }
+    }
+
+    #[test]
     fn executes_modules_and_embedded_calls_under_an_absolute_filesystem_root() {
         let root =
             std::env::temp_dir().join(format!("ocelot-engine-review-tests-{}", std::process::id()));
@@ -159,8 +285,8 @@ mod tests {
     #[test]
     fn nested_unit_calls_are_type_checked_before_side_effects() {
         for source in [
-            "fun accept(value: bool) {} accept(println(\"side effect\"));",
-            "fun accept(value: string) {} fun empty() {} accept(empty());",
+            "fun accept(value: bool) {} accept(value: println(\"side effect\"));",
+            "fun accept(value: string) {} fun empty() {} accept(value: empty());",
             "assert(println(\"side effect\"));",
             "not println(\"side effect\");",
         ] {
@@ -184,7 +310,7 @@ mod tests {
         let pal = PalMock::new();
         pal.set_file(
             "examples/main.ocelot-script",
-            "assert_eq(println(\"first\"), println(\"second\"));",
+            "assert_eq(expected: println(\"first\"), actual: println(\"second\"));",
         );
         Engine::new(PalHandle::new(pal.clone()))
             .run_file("examples/main.ocelot-script")
@@ -219,7 +345,7 @@ mod tests {
         let pal = PalMock::new();
         pal.set_file(
             "examples/main.ocelot-script",
-            "fun main(name: string) { println(name); } main(\"hello\");",
+            "fun main(name: string) { println(name); } main(name: \"hello\");",
         );
         Engine::new(PalHandle::new(pal.clone()))
             .run_file("examples/main.ocelot-script")
@@ -341,7 +467,7 @@ mod tests {
         let pal = PalMock::new();
         pal.set_file(
             "examples/main.ocelot-script",
-            "use helper::greet;\ngreet(\"Ada\");",
+            "use helper::greet;\ngreet(name: \"Ada\");",
         );
         pal.set_file(
             "examples/helper.ocelot",

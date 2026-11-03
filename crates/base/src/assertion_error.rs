@@ -145,7 +145,10 @@ mod tests {
 
     #[test]
     fn renders_assertion_errors_with_a_source_diagnostic_and_diff() {
-        let source_file = SourceFile::new("examples/tests.ocelot", "assert_eq(\"a\", \"b\");");
+        let source_file = SourceFile::new(
+            "examples/tests.ocelot",
+            "assert_eq(expected: \"a\", actual: \"b\");",
+        );
         let assertion_error = AssertionError::new(
             &source_file,
             Span::new(0, source_file.source().len() - 1),
@@ -160,8 +163,8 @@ mod tests {
             error: assert_eq values differ
               ╭▸ examples/tests.ocelot:1
               │
-            1 │ assert_eq("a", "b");
-              ╰╴━━━━━━━━━━━━━━━━━━━ assertion failed here
+            1 │ assert_eq(expected: "a", actual: "b");
+              ╰╴━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ assertion failed here
             at examples/tests.ocelot:1:1
 
             expected: "a"

@@ -1,7 +1,7 @@
 use ocelot_ast::effect_index::EffectIndex;
 use ocelot_ast::function_index::FunctionIndex;
 use ocelot_ast::function_item::FunctionItem;
-use ocelot_ast::type_index::TypeIndex;
+use ocelot_ast::function_parameter::FunctionParameter;
 use ocelot_base::shared_string::SharedString;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
@@ -16,7 +16,8 @@ use crate::native_function::NativeFunction;
 pub struct FunctionDefinition {
     pub name: SharedString,
     pub module_name: SharedString,
-    pub argument_types: Vec<TypeIndex>,
+    /// Declared parameter labels, omission policy, types, and source spans.
+    pub parameters: Vec<FunctionParameter>,
     pub can_effects: BTreeSet<EffectIndex>,
     pub cannot_effects: BTreeSet<EffectIndex>,
     pub direct_effects: BTreeSet<EffectIndex>,
@@ -33,7 +34,7 @@ impl FunctionDefinition {
     pub fn native(
         module_name: impl Into<SharedString>,
         qualified_name: impl Into<SharedString>,
-        argument_types: Vec<TypeIndex>,
+        parameters: Vec<FunctionParameter>,
         native_function: Box<dyn NativeFunction>,
         can_effects: BTreeSet<EffectIndex>,
         cannot_effects: BTreeSet<EffectIndex>,
@@ -41,7 +42,7 @@ impl FunctionDefinition {
         Self {
             name: qualified_name.into(),
             module_name: module_name.into(),
-            argument_types,
+            parameters,
             can_effects: can_effects.clone(),
             cannot_effects,
             direct_effects: can_effects.clone(),
@@ -59,7 +60,6 @@ impl FunctionDefinition {
         module_name: impl Into<SharedString>,
         qualified_name: impl Into<SharedString>,
         function: FunctionItem,
-        argument_types: Vec<TypeIndex>,
         can_effects: BTreeSet<EffectIndex>,
         cannot_effects: BTreeSet<EffectIndex>,
         source_file: SourceFile,
@@ -67,7 +67,7 @@ impl FunctionDefinition {
         Self {
             name: qualified_name.into(),
             module_name: module_name.into(),
-            argument_types,
+            parameters: function.parameters.clone(),
             direct_effects: can_effects.clone(),
             direct_effect_sources: BTreeMap::new(),
             inferred_effects: can_effects.clone(),

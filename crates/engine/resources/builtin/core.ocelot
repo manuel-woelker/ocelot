@@ -4,8 +4,8 @@ effect write_stdout;
 effect panic;
 
 /// Writes one value to standard output followed by a newline.
-native fun println(value: any) can write_stdout;
+native fun println(positional value: any) can write_stdout;
 /// Fails when the condition is false.
-native fun assert(condition: bool) can panic;
+native fun assert(positional condition: bool) can panic;
 /// Fails when the two values are not equal.
 native fun assert_eq(expected: any, actual: any) can panic;

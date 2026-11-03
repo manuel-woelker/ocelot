@@ -194,12 +194,13 @@ fn resolves_template_strings_as_string_typed_expressions() {
     let ExpressionKind::Call(call_expression) = &expression.kind else {
         panic!("expected call expression");
     };
-    let ExpressionKind::TemplateString(template_string) = &call_expression.arguments[0].kind else {
+    let ExpressionKind::TemplateString(template_string) = &call_expression.arguments[0].value.kind
+    else {
         panic!("expected template string argument");
     };
 
     assert_eq!(
-        call_expression.arguments[0].ty,
+        call_expression.arguments[0].value.ty,
         symbol_table.string_type_index()
     );
     assert!(matches!(
@@ -311,44 +312,15 @@ fn resolve_program_reports_builtin_module_name_conflicts() {
 
 #[test]
 fn resolves_parameter_references_inside_function_bodies() {
-    let mut script = CompilationUnit::new(
-        vec![
-            Item::new(
-                ItemKind::Function(FunctionItem::new(
-                    Identifier::new("greet", Span::new(4, 9)),
-                    vec![parameter("name", "string", Span::new(10, 22))],
-                    None,
-                    None,
-                    vec![Statement::new(
-                        StatementKind::Expression(ExpressionStatement::new(call(
-                            identifier("println", Span::new(27, 34)),
-                            vec![identifier("name", Span::new(35, 39))],
-                            Span::new(27, 40),
-                        ))),
-                        Span::new(27, 41),
-                    )],
-                    Span::new(0, 43),
-                )),
-                Span::new(0, 43),
-            ),
-            Item::new(
-                ItemKind::Statement(Statement::new(
-                    StatementKind::Expression(ExpressionStatement::new(call(
-                        identifier("greet", Span::new(44, 49)),
-                        vec![string_literal("hello", Span::new(50, 57))],
-                        Span::new(44, 58),
-                    ))),
-                    Span::new(44, 59),
-                )),
-                Span::new(44, 59),
-            ),
-        ],
-        Span::new(0, 59),
-    );
     let source_file = SourceFile::new(
         "examples/functions.ocelot",
-        "fun greet(name: string) { println(name); } greet(\"hello\");",
+        "fun greet(name: string) { println(name); } greet(name: \"hello\");",
     );
+    let mut script = ocelot_parser::parse_compilation_unit::parse_compilation_unit(
+        &source_file,
+        &mut ocelot_base::source_diagnostics::SourceDiagnostics::default(),
+    )
+    .unwrap();
     let mut symbol_table = SymbolTable::new();
     let compilation_inputs = compilation_inputs();
     let mut context = CompilationContext::default();
@@ -366,7 +338,11 @@ fn resolves_parameter_references_inside_function_bodies() {
         .function_definition(symbol_table.resolve_function("functions::greet").unwrap())
         .unwrap();
     assert_eq!(
-        function_definition.argument_types,
+        function_definition
+            .parameters
+            .iter()
+            .map(|p| p.ty)
+            .collect::<Vec<_>>(),
         vec![symbol_table.string_type_index()]
     );
 
@@ -378,7 +354,7 @@ fn resolves_parameter_references_inside_function_bodies() {
         panic!("expected call expression");
     };
     assert_eq!(
-        call_expression.arguments[0].ty,
+        call_expression.arguments[0].value.ty,
         symbol_table.string_type_index()
     );
 }
@@ -604,37 +580,15 @@ fn reports_wrong_user_defined_call_arity() {
 
 #[test]
 fn reports_wrong_user_defined_call_argument_types() {
-    let mut script = CompilationUnit::new(
-        vec![
-            Item::new(
-                ItemKind::Function(FunctionItem::new(
-                    Identifier::new("greet", Span::new(4, 9)),
-                    vec![parameter("excited", "bool", Span::new(10, 23))],
-                    None,
-                    None,
-                    Vec::new(),
-                    Span::new(0, 27),
-                )),
-                Span::new(0, 27),
-            ),
-            Item::new(
-                ItemKind::Statement(Statement::new(
-                    StatementKind::Expression(ExpressionStatement::new(call(
-                        identifier("greet", Span::new(28, 33)),
-                        vec![string_literal("hello", Span::new(34, 41))],
-                        Span::new(28, 42),
-                    ))),
-                    Span::new(28, 43),
-                )),
-                Span::new(28, 43),
-            ),
-        ],
-        Span::new(0, 43),
-    );
     let source_file = SourceFile::new(
         "examples/functions.ocelot",
-        "fun greet(excited: bool) {} greet(\"hello\");",
+        "fun greet(excited: bool) {} greet(excited: \"hello\");",
     );
+    let mut script = ocelot_parser::parse_compilation_unit::parse_compilation_unit(
+        &source_file,
+        &mut ocelot_base::source_diagnostics::SourceDiagnostics::default(),
+    )
+    .unwrap();
     let mut symbol_table = SymbolTable::new();
     let compilation_inputs = compilation_inputs();
     let mut context = CompilationContext::default();

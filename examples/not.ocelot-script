@@ -4,5 +4,5 @@ println(not not true);
 
 test "not inverts booleans" {
     assert(not false);
-    assert_eq(not true, false);
+    assert_eq(expected: not true, actual: false);
 }

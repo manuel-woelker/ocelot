@@ -318,7 +318,7 @@ impl<'a, D: DeclarationIndex> DeclarationIndexer<'a, D> {
                 .add_function(FunctionDefinition::native(
                     self.module_name,
                     qualified_name,
-                    argument_types,
+                    function_item.parameters,
                     native_function,
                     can_effects,
                     cannot_effects,
@@ -331,7 +331,6 @@ impl<'a, D: DeclarationIndex> DeclarationIndexer<'a, D> {
                 self.module_name,
                 qualified_name,
                 function_item,
-                argument_types,
                 can_effects,
                 cannot_effects,
                 self.source_file.clone(),
@@ -494,8 +493,17 @@ impl<'a, D: DeclarationIndex> DeclarationIndexer<'a, D> {
         function_item: &mut FunctionItem,
     ) -> Vec<TypeIndex> {
         let mut seen_parameters = HashMap::<SharedString, FunctionParameter>::new();
+        let mut saw_required_label = false;
 
         for parameter in &function_item.parameters {
+            if parameter.positional && saw_required_label {
+                self.add_diagnostic(
+                    "positional parameters must precede parameters that require labels",
+                    parameter.span.clone(),
+                    "move this positional parameter before required labels",
+                );
+            }
+            saw_required_label |= !parameter.positional;
             if let Some(original_parameter) =
                 seen_parameters.insert(parameter.identifier.name.clone(), parameter.clone())
             {

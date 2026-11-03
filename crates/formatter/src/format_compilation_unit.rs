@@ -132,6 +132,9 @@ fn write_function_item(output: &mut String, function_item: &FunctionItem, indent
 }
 
 fn write_function_parameter(output: &mut String, parameter: &FunctionParameter) {
+    if parameter.positional {
+        output.push_str("positional ");
+    }
     output.push_str(parameter.identifier.name.as_str());
     output.push_str(": ");
     output.push_str(parameter.type_name.name.as_str());
@@ -221,7 +224,11 @@ fn write_expression(output: &mut String, expression: &Expression) {
                 if index > 0 {
                     output.push_str(", ");
                 }
-                write_expression(output, argument);
+                if let Some(label) = &argument.label {
+                    output.push_str(label.name.as_str());
+                    output.push_str(": ");
+                }
+                write_expression(output, &argument.value);
             }
             output.push(')');
         }
@@ -337,6 +344,17 @@ mod tests {
             source_diagnostics.diagnostics
         );
         compilation_unit
+    }
+
+    #[test]
+    fn formats_labels_and_positional_parameters_without_dropping_explicit_labels() {
+        let source = r#"fun greet( positional name:string,excited:bool){println(value:"${name} ${excited}");}
+helper::greet(name:"Ada",excited:not false);
+greet("Grace",excited:true); // keep label choice"#;
+        let expected = "fun greet(positional name: string, excited: bool) {\n    println(value: \"${name} ${excited}\");\n}\nhelper::greet(name: \"Ada\", excited: not false);\ngreet(\"Grace\", excited: true); // keep label choice";
+        let formatted = format_compilation_unit(&parse(source));
+        assert_eq!(formatted, expected);
+        assert_eq!(format_compilation_unit(&parse(&formatted)), formatted);
     }
 
     #[test]

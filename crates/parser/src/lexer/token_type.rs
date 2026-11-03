@@ -1,4 +1,4 @@
-/// Token kinds needed for the first script-style `println()` programs.
+/// Token kinds recognized by the Ocelot lexer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenType {
     Can,
@@ -14,6 +14,7 @@ pub enum TokenType {
     Fun,
     Native,
     Not,
+    Positional,
     True,
     Use,
     Colon,

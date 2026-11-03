@@ -2,5 +2,5 @@ println(true);
 println(false);
 
 test "boolean equality works" {
-    assert_eq(true, true);
+    assert_eq(expected: true, actual: true);
 }

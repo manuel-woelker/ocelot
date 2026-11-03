@@ -2,6 +2,7 @@ use crate::lexer::lex::lex;
 use crate::lexer::token::Token;
 use crate::lexer::token_type::TokenType;
 use ocelot_ast::boolean_literal_expression::BooleanLiteralExpression;
+use ocelot_ast::call_argument::CallArgument;
 use ocelot_ast::call_expression::CallExpression;
 use ocelot_ast::compilation_unit::CompilationUnit;
 use ocelot_ast::effect_item::EffectItem;
@@ -253,11 +254,18 @@ impl<'a> Parser<'a> {
         }
 
         loop {
+            let start = self.current().span.start();
+            let positional = self.at(TokenType::Positional);
+            if positional {
+                self.position += 1;
+            }
             let identifier = self.parse_identifier_token("expected parameter name")?;
             self.expect(TokenType::Colon, "expected `:` after parameter name")?;
             let type_name = self.parse_identifier_token("expected parameter type")?;
-            let span = Span::new(identifier.span.start(), type_name.span.end());
-            parameters.push(FunctionParameter::new(identifier, type_name, span));
+            let span = Span::new(start, type_name.span.end());
+            let mut parameter = FunctionParameter::new(identifier, type_name, span);
+            parameter.positional = positional;
+            parameters.push(parameter);
 
             if !self.at(TokenType::Comma) {
                 break;
@@ -490,7 +498,19 @@ impl<'a> Parser<'a> {
 
         if !self.at(TokenType::RightParen) {
             loop {
-                arguments.push(self.parse_expression()?);
+                let label = if self.at(TokenType::Identifier)
+                    && self
+                        .tokens
+                        .get(self.position + 1)
+                        .is_some_and(|token| token.token_type == TokenType::Colon)
+                {
+                    let label = self.parse_identifier_token("expected argument label")?;
+                    self.expect(TokenType::Colon, "expected `:` after argument label")?;
+                    Some(label)
+                } else {
+                    None
+                };
+                arguments.push(CallArgument::new(label, self.parse_expression()?));
 
                 if !self.at(TokenType::Comma) {
                     break;
@@ -503,7 +523,7 @@ impl<'a> Parser<'a> {
         let right_paren = self.expect(TokenType::RightParen, "expected `)` after argument list")?;
         let span = Span::new(callee.span.start(), right_paren.span.end());
         Ok(Expression::new(
-            ExpressionKind::Call(CallExpression::new(callee, arguments)),
+            ExpressionKind::Call(CallExpression::with_arguments(callee, arguments)),
             span,
         ))
     }

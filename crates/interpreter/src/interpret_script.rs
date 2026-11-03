@@ -25,7 +25,6 @@ mod tests {
     use ocelot_ast::expression_kind::ExpressionKind;
     use ocelot_ast::expression_statement::ExpressionStatement;
     use ocelot_ast::function_item::FunctionItem;
-    use ocelot_ast::function_parameter::FunctionParameter;
     use ocelot_ast::identifier::Identifier;
     use ocelot_ast::item::Item;
     use ocelot_ast::item_kind::ItemKind;
@@ -33,8 +32,6 @@ mod tests {
     use ocelot_ast::statement::Statement;
     use ocelot_ast::statement_kind::StatementKind;
     use ocelot_ast::string_literal_expression::StringLiteralExpression;
-    use ocelot_ast::template_string_expression::TemplateStringExpression;
-    use ocelot_ast::template_string_part::TemplateStringPart;
     use ocelot_ast::test_item::TestItem;
     use ocelot_base::error::ErrorKind;
     use ocelot_base::result::OcelotResult;
@@ -103,17 +100,6 @@ mod tests {
         Expression::new(ExpressionKind::Not(NotExpression::new(operand)), span)
     }
 
-    fn parameter(name: &str, type_name: &str, span: Span) -> FunctionParameter {
-        FunctionParameter::new(
-            Identifier::new(name, Span::new(span.start(), span.start() + name.len())),
-            Identifier::new(
-                type_name,
-                Span::new(span.end() - type_name.len(), span.end()),
-            ),
-            span,
-        )
-    }
-
     #[test]
     fn interprets_println_string_literal() {
         let script = CompilationUnit::new(
@@ -153,73 +139,18 @@ mod tests {
 
     #[test]
     fn interprets_template_strings_by_concatenating_text_and_display_values() {
-        let script = CompilationUnit::new(
-            vec![
-                Item::new(
-                    ItemKind::Function(FunctionItem::new(
-                        Identifier::new("greet", Span::new(4, 9)),
-                        vec![parameter("name", "string", Span::new(10, 22))],
-                        None,
-                        None,
-                        vec![Statement::new(
-                            StatementKind::Expression(ExpressionStatement::new(call_expression(
-                                "println",
-                                vec![Expression::new(
-                                    ExpressionKind::TemplateString(TemplateStringExpression::new(
-                                        vec![
-                                            TemplateStringPart::Text("Hello ".into()),
-                                            TemplateStringPart::Interpolation(Expression::new(
-                                                ExpressionKind::Identifier(Identifier::new(
-                                                    "name",
-                                                    Span::new(35, 39),
-                                                )),
-                                                Span::new(35, 39),
-                                            )),
-                                            TemplateStringPart::Text("!".into()),
-                                        ],
-                                    )),
-                                    Span::new(28, 42),
-                                )],
-                                Span::new(20, 43),
-                            ))),
-                            Span::new(20, 44),
-                        )],
-                        Span::new(0, 46),
-                    )),
-                    Span::new(0, 46),
-                ),
-                Item::new(
-                    ItemKind::Statement(Statement::new(
-                        StatementKind::Expression(ExpressionStatement::new(call_expression(
-                            "greet",
-                            vec![Expression::new(
-                                ExpressionKind::StringLiteral(StringLiteralExpression::new("Ada")),
-                                Span::new(53, 58),
-                            )],
-                            Span::new(47, 59),
-                        ))),
-                        Span::new(47, 60),
-                    )),
-                    Span::new(47, 60),
-                ),
-            ],
-            Span::new(0, 60),
+        let (script, source_file) = parse_script(
+            "fun greet(name: string) { println(\"Hello ${name}!\"); } greet(name: \"Ada\");",
         );
         let pal = PalMock::new();
-        let source_file = SourceFile::new(
-            "examples/template.ocelot",
-            "fun greet(name: string) { println(\"Hello ${name}!\"); } greet(\"Ada\");",
-        );
-
         interpret_script(&script, &source_file, &pal).unwrap();
-
         assert_eq!(pal.take_printed_output(), "Hello Ada!\n");
     }
 
     #[test]
     fn interprets_template_strings_with_multiple_interpolations_from_source() {
         let (script, source_file) = parse_script(
-            "fun greet(name: string) { println(\"${name} ${not false}\"); } greet(\"Ada\");",
+            "fun greet(name: string) { println(\"${name} ${not false}\"); } greet(name: \"Ada\");",
         );
         let pal = PalMock::new();
 
@@ -352,56 +283,9 @@ mod tests {
 
     #[test]
     fn interprets_user_defined_functions_with_string_parameters() {
-        let script = CompilationUnit::new(
-            vec![
-                Item::new(
-                    ItemKind::Function(FunctionItem::new(
-                        Identifier::new("greet", Span::new(4, 9)),
-                        vec![parameter("name", "string", Span::new(10, 22))],
-                        None,
-                        None,
-                        vec![Statement::new(
-                            StatementKind::Expression(ExpressionStatement::new(call_expression(
-                                "println",
-                                vec![Expression::new(
-                                    ExpressionKind::Identifier(Identifier::new(
-                                        "name",
-                                        Span::new(33, 37),
-                                    )),
-                                    Span::new(33, 37),
-                                )],
-                                Span::new(25, 38),
-                            ))),
-                            Span::new(25, 39),
-                        )],
-                        Span::new(0, 41),
-                    )),
-                    Span::new(0, 41),
-                ),
-                Item::new(
-                    ItemKind::Statement(Statement::new(
-                        StatementKind::Expression(ExpressionStatement::new(call_expression(
-                            "greet",
-                            vec![Expression::new(
-                                ExpressionKind::StringLiteral(StringLiteralExpression::new(
-                                    "hello",
-                                )),
-                                Span::new(48, 55),
-                            )],
-                            Span::new(42, 56),
-                        ))),
-                        Span::new(42, 57),
-                    )),
-                    Span::new(42, 57),
-                ),
-            ],
-            Span::new(0, 57),
-        );
+        let (script, source_file) =
+            parse_script("fun greet(name: string) { println(name); } greet(name: \"hello\");");
         let pal = PalMock::new();
-        let source_file = SourceFile::new(
-            "examples/functions.ocelot",
-            "fun greet(name: string) { println(name); } greet(\"hello\");",
-        );
 
         interpret_script(&script, &source_file, &pal).unwrap();
 
@@ -410,54 +294,9 @@ mod tests {
 
     #[test]
     fn interprets_user_defined_functions_with_boolean_parameters() {
-        let script = CompilationUnit::new(
-            vec![
-                Item::new(
-                    ItemKind::Function(FunctionItem::new(
-                        Identifier::new("check", Span::new(4, 9)),
-                        vec![parameter("value", "bool", Span::new(10, 21))],
-                        None,
-                        None,
-                        vec![Statement::new(
-                            StatementKind::Expression(ExpressionStatement::new(call_expression(
-                                "assert",
-                                vec![Expression::new(
-                                    ExpressionKind::Identifier(Identifier::new(
-                                        "value",
-                                        Span::new(31, 36),
-                                    )),
-                                    Span::new(31, 36),
-                                )],
-                                Span::new(24, 37),
-                            ))),
-                            Span::new(24, 38),
-                        )],
-                        Span::new(0, 40),
-                    )),
-                    Span::new(0, 40),
-                ),
-                Item::new(
-                    ItemKind::Statement(Statement::new(
-                        StatementKind::Expression(ExpressionStatement::new(call_expression(
-                            "check",
-                            vec![Expression::new(
-                                ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(true)),
-                                Span::new(45, 49),
-                            )],
-                            Span::new(39, 50),
-                        ))),
-                        Span::new(39, 51),
-                    )),
-                    Span::new(39, 51),
-                ),
-            ],
-            Span::new(0, 51),
-        );
+        let (script, source_file) =
+            parse_script("fun check(value: bool) { assert(value); } check(value: true);");
         let pal = PalMock::new();
-        let source_file = SourceFile::new(
-            "examples/functions.ocelot",
-            "fun check(value: bool) { assert(value); } check(true);",
-        );
 
         interpret_script(&script, &source_file, &pal).unwrap();
     }
@@ -566,33 +405,8 @@ mod tests {
 
     #[test]
     fn interprets_assert_eq_when_values_match() {
-        let script = CompilationUnit::new(
-            vec![Item::new(
-                ItemKind::Statement(Statement::new(
-                    StatementKind::Expression(ExpressionStatement::new(call_expression(
-                        "assert_eq",
-                        vec![
-                            Expression::new(
-                                ExpressionKind::StringLiteral(StringLiteralExpression::new("same")),
-                                Span::new(10, 16),
-                            ),
-                            Expression::new(
-                                ExpressionKind::StringLiteral(StringLiteralExpression::new("same")),
-                                Span::new(18, 24),
-                            ),
-                        ],
-                        Span::new(0, 25),
-                    ))),
-                    Span::new(0, 26),
-                )),
-                Span::new(0, 26),
-            )],
-            Span::new(0, 26),
-        );
-        let source_file = SourceFile::new(
-            "examples/assertions.ocelot",
-            "assert_eq(\"same\", \"same\");",
-        );
+        let (script, source_file) =
+            parse_script("assert_eq(expected: \"same\", actual: \"same\");");
         let pal = PalMock::new();
 
         interpret_script(&script, &source_file, &pal).unwrap();
@@ -601,30 +415,7 @@ mod tests {
 
     #[test]
     fn interprets_assert_eq_for_boolean_values() {
-        let script = CompilationUnit::new(
-            vec![Item::new(
-                ItemKind::Statement(Statement::new(
-                    StatementKind::Expression(ExpressionStatement::new(call_expression(
-                        "assert_eq",
-                        vec![
-                            Expression::new(
-                                ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(true)),
-                                Span::new(10, 14),
-                            ),
-                            Expression::new(
-                                ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(true)),
-                                Span::new(16, 20),
-                            ),
-                        ],
-                        Span::new(0, 21),
-                    ))),
-                    Span::new(0, 22),
-                )),
-                Span::new(0, 22),
-            )],
-            Span::new(0, 22),
-        );
-        let source_file = SourceFile::new("examples/assertions.ocelot", "assert_eq(true, true);");
+        let (script, source_file) = parse_script("assert_eq(expected: true, actual: true);");
         let pal = PalMock::new();
 
         interpret_script(&script, &source_file, &pal).unwrap();
@@ -759,30 +550,7 @@ mod tests {
 
     #[test]
     fn reports_assert_eq_mismatches_as_assertion_errors() {
-        let script = CompilationUnit::new(
-            vec![Item::new(
-                ItemKind::Statement(Statement::new(
-                    StatementKind::Expression(ExpressionStatement::new(call_expression(
-                        "assert_eq",
-                        vec![
-                            Expression::new(
-                                ExpressionKind::StringLiteral(StringLiteralExpression::new("a")),
-                                Span::new(10, 13),
-                            ),
-                            Expression::new(
-                                ExpressionKind::StringLiteral(StringLiteralExpression::new("b")),
-                                Span::new(15, 18),
-                            ),
-                        ],
-                        Span::new(0, 19),
-                    ))),
-                    Span::new(0, 20),
-                )),
-                Span::new(0, 20),
-            )],
-            Span::new(0, 20),
-        );
-        let source_file = SourceFile::new("examples/assertions.ocelot", "assert_eq(\"a\", \"b\");");
+        let (script, source_file) = parse_script("assert_eq(expected: \"a\", actual: \"b\");");
         let pal = PalMock::new();
 
         let error = interpret_script(&script, &source_file, &pal).unwrap_err();
@@ -792,32 +560,7 @@ mod tests {
 
     #[test]
     fn reports_boolean_assert_eq_mismatches_with_boolean_values() {
-        let script = CompilationUnit::new(
-            vec![Item::new(
-                ItemKind::Statement(Statement::new(
-                    StatementKind::Expression(ExpressionStatement::new(call_expression(
-                        "assert_eq",
-                        vec![
-                            Expression::new(
-                                ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(true)),
-                                Span::new(10, 14),
-                            ),
-                            Expression::new(
-                                ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(
-                                    false,
-                                )),
-                                Span::new(16, 21),
-                            ),
-                        ],
-                        Span::new(0, 22),
-                    ))),
-                    Span::new(0, 23),
-                )),
-                Span::new(0, 23),
-            )],
-            Span::new(0, 23),
-        );
-        let source_file = SourceFile::new("examples/assertions.ocelot", "assert_eq(true, false);");
+        let (script, source_file) = parse_script("assert_eq(expected: true, actual: false);");
         let pal = PalMock::new();
 
         let error = interpret_script(&script, &source_file, &pal).unwrap_err();

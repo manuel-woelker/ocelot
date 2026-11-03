@@ -148,7 +148,7 @@ impl<'a> Interpreter<'a> {
                 let arguments = call_expression
                     .arguments
                     .iter()
-                    .map(|argument| self.evaluate_expression(argument))
+                    .map(|argument| self.evaluate_expression(&argument.value))
                     .collect::<OcelotResult<Vec<_>>>()?;
                 let context =
                     NativeFunctionContext::new(self.pal, self.source_file, expression.span.clone());
@@ -203,7 +203,7 @@ impl<'a> Interpreter<'a> {
         for (parameter, argument) in function.parameters.iter().zip(&call_expression.arguments) {
             local_bindings.insert(
                 parameter.identifier.name.clone(),
-                self.evaluate_expression(argument)?,
+                self.evaluate_expression(&argument.value)?,
             );
         }
 

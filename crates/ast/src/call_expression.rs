@@ -1,3 +1,4 @@
+use crate::call_argument::CallArgument;
 use crate::expression::Expression;
 use crate::function_index::FunctionIndex;
 use ocelot_base::result::{OcelotResult, OptionExt};
@@ -5,14 +6,28 @@ use ocelot_base::result::{OcelotResult, OptionExt};
 /// Function call expression payload.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CallExpression {
+    /// The function name or qualified name being invoked.
     pub callee: Box<Expression>,
-    pub arguments: Vec<Expression>,
+    /// Argument labels and values in source evaluation order.
+    pub arguments: Vec<CallArgument>,
+    /// The function selected by semantic resolution.
     pub resolved_function_index: Option<FunctionIndex>,
 }
 
 impl CallExpression {
-    /// Creates a call expression payload.
+    /// Creates a call expression with unlabeled arguments.
     pub fn new(callee: Expression, arguments: Vec<Expression>) -> Self {
+        Self::with_arguments(
+            callee,
+            arguments
+                .into_iter()
+                .map(|value| CallArgument::new(None, value))
+                .collect(),
+        )
+    }
+
+    /// Creates a call expression preserving its explicit argument labels.
+    pub fn with_arguments(callee: Expression, arguments: Vec<CallArgument>) -> Self {
         Self {
             callee: Box::new(callee),
             arguments,

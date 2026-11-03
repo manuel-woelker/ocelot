@@ -118,7 +118,7 @@ impl<'a> Resolver<'a> {
     fn resolve_call_expression(&mut self, call_expression: &mut CallExpression) {
         self.resolve_expression(&mut call_expression.callee);
         for argument in &mut call_expression.arguments {
-            self.resolve_expression(argument);
+            self.resolve_expression(&mut argument.value);
         }
 
         let resolved = match &call_expression.callee.kind {
@@ -165,6 +165,10 @@ impl<'a> Resolver<'a> {
         };
 
         if !self.validate_call_arity(function_name.as_str(), call_expression, function_index) {
+            return;
+        }
+
+        if !self.validate_call_labels(function_name.as_str(), call_expression, function_index) {
             return;
         }
 
@@ -273,6 +277,69 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    fn validate_call_labels(
+        &mut self,
+        function_name: &str,
+        call: &CallExpression,
+        function_index: FunctionIndex,
+    ) -> bool {
+        let Ok(definition) = self.symbol_table.function_definition(function_index) else {
+            return false;
+        };
+        let mut seen_labels = std::collections::HashSet::new();
+        let mut saw_label = false;
+        let mut valid = true;
+        for (argument, parameter) in call.arguments.iter().zip(&definition.parameters) {
+            if let Some(label) = &argument.label {
+                saw_label = true;
+                if !seen_labels.insert(&label.name) {
+                    self.add_diagnostic(
+                        format!("duplicate argument label `{}`", label.name),
+                        label.span.clone(),
+                        "argument already supplied",
+                    );
+                    valid = false;
+                } else if label.name != parameter.identifier.name {
+                    let known = definition
+                        .parameters
+                        .iter()
+                        .any(|p| p.identifier.name == label.name);
+                    self.add_diagnostic(
+                        if known {
+                            format!("arguments to `{function_name}` must follow declaration order")
+                        } else {
+                            format!(
+                                "unknown argument label `{}` for `{function_name}`",
+                                label.name
+                            )
+                        },
+                        label.span.clone(),
+                        format!("expected `{}`", parameter.identifier.name),
+                    );
+                    valid = false;
+                }
+            } else if !parameter.positional {
+                self.add_diagnostic(
+                    format!(
+                        "argument `{}` to `{function_name}` requires a label",
+                        parameter.identifier.name
+                    ),
+                    argument.value.span.clone(),
+                    format!("write `{}: ...`", parameter.identifier.name),
+                );
+                valid = false;
+            } else if saw_label {
+                self.add_diagnostic(
+                    "unlabeled arguments must precede labeled arguments",
+                    argument.value.span.clone(),
+                    format!("write `{}: ...`", parameter.identifier.name),
+                );
+                valid = false;
+            }
+        }
+        valid
+    }
+
     fn validate_call_argument_types(
         &mut self,
         function_name: &str,
@@ -284,24 +351,25 @@ impl<'a> Resolver<'a> {
         };
         let any_type_index = self.symbol_table.any_type_index();
 
-        for (argument_index, (argument, expected_type)) in call_expression
+        for (argument_index, (argument, parameter)) in call_expression
             .arguments
             .iter()
-            .zip(function_definition.argument_types.iter())
+            .zip(function_definition.parameters.iter())
             .enumerate()
         {
-            if argument.ty.is_unresolved() || *expected_type == any_type_index {
+            let expected_type = parameter.ty;
+            if argument.value.ty.is_unresolved() || expected_type == any_type_index {
                 continue;
             }
 
-            if argument.ty == *expected_type {
+            if argument.value.ty == expected_type {
                 continue;
             }
 
             self.add_diagnostic(
-                self.argument_type_error_message(function_name, argument_index, *expected_type),
-                argument.span.clone(),
-                format!("expected {}", self.type_label(*expected_type)),
+                self.argument_type_error_message(function_name, argument_index, expected_type),
+                argument.value.span.clone(),
+                format!("expected {}", self.type_label(expected_type)),
             );
         }
     }
@@ -315,7 +383,7 @@ impl<'a> Resolver<'a> {
         let Ok(function_definition) = self.symbol_table.function_definition(function_index) else {
             return true;
         };
-        let expected = function_definition.argument_types.len();
+        let expected = function_definition.parameters.len();
         let actual = call_expression.arguments.len();
 
         if expected == actual {
@@ -425,6 +493,7 @@ impl<'a> Resolver<'a> {
     ) -> Span {
         if actual_argument_count > expected_argument_count {
             return call_expression.arguments[expected_argument_count]
+                .value
                 .span
                 .clone();
         }

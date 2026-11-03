@@ -17,15 +17,15 @@ The policy is part of the declaration for user-defined and native functions.
 
 # What will be implemented and in what order?
 
-- [ ] Add AST argument labels and parameter policy, then lexer/parser support and formatting.
-- [ ] Preserve declaration parameter metadata for native and user-defined functions;
+- [x] Add AST argument labels and parameter policy, then lexer/parser support and formatting.
+- [x] Preserve declaration parameter metadata for native and user-defined functions;
   enforce label, order, arity, and type rules before effects can execute.
-- [ ] Evaluate argument values in source order and bind them to the corresponding parameters.
-- [ ] Update builtins, executable examples, fixtures, and tests to the new syntax.
-- [ ] Add colocated parser, formatter, resolver, and engine regressions, including
+- [x] Evaluate argument values in source order and bind them to the corresponding parameters.
+- [x] Update builtins, executable examples, fixtures, and tests to the new syntax.
+- [x] Add colocated parser, formatter, resolver, and engine regressions, including
   imported/qualified/native calls, templates, side effects, and invalid inputs.
-- [ ] Update the canonical function-call and function-definition specification chapters.
-- [ ] Run `nao check`, inspect diagnostics and formatting, record verification, and
+- [x] Update the canonical function-call and function-definition specification chapters.
+- [x] Run `nao check`, inspect diagnostics and formatting, record verification, and
   move this plan to `completed` before committing the completed feature.
 
 # What assumptions and risks apply?
@@ -45,3 +45,28 @@ type errors, and evaluation order. Verify parser metadata and formatter round tr
 Migrate all current executable examples without removing their distinct rules;
 run the full spec harness and Rust suite through `nao check`. The AST/parser/formatter
 work may land as a separately verified preparatory commit before semantics switch.
+
+# What was implemented and verified?
+
+The feature landed as one coherent implementation unit after the plan commit.
+`CallArgument` retains explicit labels and values; resolved function metadata now
+retains parameter names, types, spans, and positional policy instead of only types.
+The interpreter evaluates values in source order without argument reordering.
+The formatter preserves explicit labels and positional declarations.
+
+Colocated regressions cover parsing and source spans, malformed inputs, formatting
+round trips, required and optional labels, duplicate/unknown/reordered labels,
+declaration order, arity and types, native calls, imported/qualified calls, local
+value forwarding, evaluation order, and persistent embedded sessions. Rejected
+calls are checked before effects execute. Several manually assembled test ASTs
+were replaced with parsed source fixtures so labels and spans cannot drift apart.
+
+`nao check` passed, including build, formatting, clippy, Rust tests, and all 59 spec
+examples. `git diff --check` passed. Direct script execution of the migrated
+boolean and negation examples passed. A broader `ocelot test booleans,not` smoke
+run passed those example tests but also reported the repository's existing
+malformed comment and unterminated-string examples during discovery; those
+negative examples were left unchanged and are outside this feature.
+
+No planned work remains. General argument reordering and label aliases remain
+outside the supported calling convention.

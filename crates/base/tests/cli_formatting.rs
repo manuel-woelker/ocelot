@@ -71,7 +71,10 @@ fn format_cli_error_returns_only_rendered_diagnostics_for_compilation_errors() {
 
 #[test]
 fn format_cli_error_returns_only_rendered_assertion_errors() {
-    let source_file = SourceFile::new("examples/tests.ocelot", "assert_eq(\"a\", \"b\");");
+    let source_file = SourceFile::new(
+        "examples/tests.ocelot",
+        "assert_eq(expected: \"a\", actual: \"b\");",
+    );
     let error = OcelotError::assertion_error(AssertionError::new(
         &source_file,
         Span::new(0, source_file.source().len() - 1),
@@ -84,8 +87,8 @@ fn format_cli_error_returns_only_rendered_assertion_errors() {
         error: assert_eq values differ
           ╭▸ examples/tests.ocelot:1
           │
-        1 │ assert_eq("a", "b");
-          ╰╴━━━━━━━━━━━━━━━━━━━ assertion failed here
+        1 │ assert_eq(expected: "a", actual: "b");
+          ╰╴━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ assertion failed here
         at examples/tests.ocelot:1:1
 
         expected: "a"

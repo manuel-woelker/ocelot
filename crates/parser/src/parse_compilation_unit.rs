@@ -46,6 +46,57 @@ mod tests {
     use ocelot_base::span::Span;
 
     #[test]
+    fn parses_parameter_omission_policy_and_call_argument_labels() {
+        let source = "fun greet(positional name: string, excited: bool) {} greet(name: \"Ada\", excited: not false);";
+        let file = SourceFile::new("main.ocelot-script", source);
+        let parsed = parse_compilation_unit(&file, &mut SourceDiagnostics::default()).unwrap();
+        let ItemKind::Function(function) = &parsed.items[0].kind else {
+            panic!("expected function")
+        };
+        assert!(function.parameters[0].positional);
+        assert!(!function.parameters[1].positional);
+        assert_eq!(
+            &source[function.parameters[0].span.start()..function.parameters[0].span.end()],
+            "positional name: string"
+        );
+        let ItemKind::Statement(statement) = &parsed.items[1].kind else {
+            panic!("expected statement")
+        };
+        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+        let ExpressionKind::Call(call) = &expression.kind else {
+            panic!("expected call")
+        };
+        let label = call.arguments[0].label.as_ref().unwrap();
+        assert_eq!(label.name, "name");
+        assert_eq!(&source[label.span.start()..label.span.end()], "name");
+        assert_eq!(call.arguments[1].label.as_ref().unwrap().name, "excited");
+        assert!(matches!(
+            call.arguments[1].value.kind,
+            ExpressionKind::Not(_)
+        ));
+    }
+
+    #[test]
+    fn reports_malformed_labels_and_positional_modifiers() {
+        for source in [
+            "println(value:);",
+            "println(value \"hello\");",
+            "println(value: \"hello\",);",
+            "fun f(positional : string) {}",
+            "fun f(positional positional name: string) {}",
+            "fun positional() {}",
+        ] {
+            let file = SourceFile::new("main.ocelot-script", source);
+            let mut diagnostics = SourceDiagnostics::default();
+            assert!(
+                parse_compilation_unit(&file, &mut diagnostics).is_err(),
+                "{source}"
+            );
+            assert!(diagnostics.has_errors(), "{source}");
+        }
+    }
+
+    #[test]
     fn parses_println_call_expression_statement() {
         let source_file = SourceFile::new("examples/hello.ocelot", "println(\"hello\");");
         let mut source_diagnostics = SourceDiagnostics::default();
@@ -71,7 +122,7 @@ mod tests {
 
                             assert_eq!(arguments.len(), 1);
 
-                            match &arguments[0].kind {
+                            match &arguments[0].value.kind {
                                 ExpressionKind::StringLiteral(string_literal) => {
                                     assert_eq!(string_literal.value, "hello");
                                 }
@@ -169,7 +220,10 @@ mod tests {
 
     #[test]
     fn parses_boolean_literals_as_call_arguments() {
-        let source_file = SourceFile::new("examples/booleans.ocelot", "assert_eq(true, false);");
+        let source_file = SourceFile::new(
+            "examples/booleans.ocelot",
+            "assert_eq(expected: true, actual: false);",
+        );
         let mut source_diagnostics = SourceDiagnostics::default();
 
         let script = parse_compilation_unit(&source_file, &mut source_diagnostics).unwrap();
@@ -186,11 +240,11 @@ mod tests {
                     };
 
                     assert_eq!(
-                        arguments[0].kind,
+                        arguments[0].value.kind,
                         ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(true))
                     );
                     assert_eq!(
-                        arguments[1].kind,
+                        arguments[1].value.kind,
                         ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(false))
                     );
                 }
@@ -426,7 +480,7 @@ mod tests {
                     };
 
                     assert_eq!(
-                        arguments[0].kind,
+                        arguments[0].value.kind,
                         ExpressionKind::Not(NotExpression::new(Expression::new(
                             ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(false)),
                             Span::new(11, 16),

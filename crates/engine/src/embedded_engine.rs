@@ -193,6 +193,23 @@ mod tests {
     use ocelot_semantic::runtime_value::RuntimeValue;
 
     #[test]
+    fn persistent_definitions_keep_their_argument_label_policy() {
+        let pal = PalMock::new();
+        let mut engine = EmbeddedEngine::new(PalHandle::new(pal.clone()), "examples");
+        engine.execute("fun greet(positional name: string, excited: bool) { println(\"${name} ${excited}\"); }").unwrap();
+        engine.eval("greet(\"Ada\", excited: true)").unwrap();
+        engine
+            .eval("greet(name: \"Grace\", excited: false)")
+            .unwrap();
+        assert!(engine.eval("greet(\"bad\", true)").is_err());
+        engine.eval("greet(\"Linus\", excited: true)").unwrap();
+        assert_eq!(
+            pal.take_printed_output(),
+            "Ada true\nGrace false\nLinus true\n"
+        );
+    }
+
+    #[test]
     fn eval_rejects_non_expression_inputs_without_side_effects_or_state_changes() {
         let pal = PalMock::new();
         let mut engine = EmbeddedEngine::new(PalHandle::new(pal.clone()), "examples");

@@ -162,6 +162,7 @@ pub fn lex(source_file: &SourceFile, source_diagnostics: &mut SourceDiagnostics)
                         "fun" => TokenType::Fun,
                         "native" => TokenType::Native,
                         "not" => TokenType::Not,
+                        "positional" => TokenType::Positional,
                         "test" => TokenType::Test,
                         "true" => TokenType::True,
                         "use" => TokenType::Use,

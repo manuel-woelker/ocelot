@@ -2,9 +2,11 @@ use crate::identifier::Identifier;
 use crate::type_index::TypeIndex;
 use ocelot_base::span::Span;
 
-/// One typed parameter in a user-defined function declaration.
+/// One typed parameter in a function declaration.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionParameter {
+    /// Whether callers may omit this parameter's label.
+    pub positional: bool,
     pub identifier: Identifier,
     pub type_name: Identifier,
     pub ty: TypeIndex,
@@ -15,6 +17,7 @@ impl FunctionParameter {
     /// Creates one function parameter from its declared name and type.
     pub fn new(identifier: Identifier, type_name: Identifier, span: Span) -> Self {
         Self {
+            positional: false,
             identifier,
             type_name,
             ty: TypeIndex::unresolved(),

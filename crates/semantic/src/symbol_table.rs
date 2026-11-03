@@ -309,7 +309,16 @@ mod tests {
         let function_index = symbol_table.add_function(FunctionDefinition::native(
             "core",
             "core::println",
-            vec![symbol_table.any_type_index()],
+            vec![{
+                let mut parameter = ocelot_ast::function_parameter::FunctionParameter::new(
+                    Identifier::new("value", Span::default()),
+                    Identifier::new("any", Span::default()),
+                    Span::default(),
+                );
+                parameter.ty = symbol_table.any_type_index();
+                parameter.positional = true;
+                parameter
+            }],
             crate::native_function::default_native_function_registry()
                 .resolve("core::println")
                 .unwrap(),
@@ -320,7 +329,9 @@ mod tests {
 
         assert_eq!(function.name, "core::println");
         assert_eq!(function.module_name, "core");
-        assert_eq!(function.argument_types, vec![symbol_table.any_type_index()]);
+        assert_eq!(function.parameters[0].ty, symbol_table.any_type_index());
+        assert_eq!(function.parameters[0].identifier.name, "value");
+        assert!(function.parameters[0].positional);
         assert!(matches!(
             function.kind,
             crate::function_kind::FunctionKind::NativeFunction { .. }
@@ -421,7 +432,6 @@ mod tests {
                 Vec::new(),
                 Span::new(0, 13),
             ),
-            Vec::new(),
             BTreeSet::new(),
             BTreeSet::new(),
             SourceFile::new("greetings.ocelot", "fun greet() {}"),
@@ -454,7 +464,6 @@ mod tests {
                 Vec::new(),
                 Span::new(0, 13),
             ),
-            Vec::new(),
             BTreeSet::new(),
             BTreeSet::new(),
             SourceFile::new("greetings.ocelot", "fun greet() {}"),
@@ -480,7 +489,6 @@ mod tests {
                 Vec::new(),
                 Span::new(0, 13),
             ),
-            Vec::new(),
             BTreeSet::new(),
             BTreeSet::new(),
             SourceFile::new("greetings.ocelot", "fun greet() {}"),
@@ -517,7 +525,6 @@ mod tests {
                 Vec::new(),
                 Span::new(0, 13),
             ),
-            Vec::new(),
             BTreeSet::new(),
             BTreeSet::new(),
             SourceFile::new("math.ocelot", "fun greet() {}"),
