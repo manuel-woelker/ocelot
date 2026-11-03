@@ -21,6 +21,13 @@ Note: All developer documentation should be written in English.
 Consult `docs/PLANS.md` when creating, updating, or completing plan documents in `docs/plans`.
 Consult `docs/spec` when changing or documenting language behavior.
 
+### Decision records
+
+Consult [decision records](docs/decisions/README.md) before changing architecture, public APIs, project conventions, or product behavior.
+Record significant choices in `docs/decisions/` following [DR-000](<docs/decisions/DR-000 Record decisions in the repository.md>), using the next unused `DR-NNN Decision title.md` identifier and including rationale, context, consequences, and alternatives.
+Review records alongside the work. Do not mark a proposal Accepted merely because it was written. Preserve accepted history; supersede changed decisions with a new, bidirectionally linked record.
+Ground retrospective records in implementation and plans, and identify reconstructed reasoning rather than inventing historical deliberations or dates. Routine changes need no record.
+
 ### Planning
 
 Use `docs/PLANS.md` for plan structure, naming, verification expectations, assumptions, and completion workflow.

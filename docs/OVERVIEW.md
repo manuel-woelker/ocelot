@@ -28,6 +28,7 @@ workflow for implementation plans. This remains a work in progress.
 The [documentation guide](README.md) links these references and
 [development learnings](learnings/README.md), which preserve reusable findings
 with their context, evidence, and sources.
+[Decision records](decisions/README.md) explain significant choices and their tradeoffs.
 
 # What principles guide the project?
 

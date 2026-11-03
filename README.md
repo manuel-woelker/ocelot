@@ -56,3 +56,5 @@ Fast feedback loops are more fun, and more friendly to me as a user since they r
 See the [documentation guide](docs/README.md) for the language spec, testing,
 planning, and [development learnings](docs/learnings/README.md).
 Record reusable discoveries with their evidence using the linked learning template.
+Significant technical and product choices belong in [decision records](docs/decisions/README.md),
+following [DR-000](<docs/decisions/DR-000 Record decisions in the repository.md>).

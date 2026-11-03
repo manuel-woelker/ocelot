@@ -67,4 +67,5 @@ Reproduction steps, tests, commands, or measurements and their observed results.
 This mechanism is adapted from Noice's development-learnings guide and
 `DR-012 Record development learnings`: dated, evidence-backed findings maintained
 with the work that establishes them. Ocelot uses its existing question-driven
-documentation style and needs no additional tooling or decision-record system.
+documentation style and needs no additional tooling. Related architectural and
+product choices are recorded in [decision records](../decisions/README.md).
