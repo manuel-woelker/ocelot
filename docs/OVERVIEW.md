@@ -30,6 +30,15 @@ The [documentation guide](README.md) links these references and
 with their context, evidence, and sources.
 [Decision records](decisions/README.md) explain significant choices and their tradeoffs.
 
+# Where is the architecture rationale?
+
+Start with the decisions on the [PAL](<decisions/DR-001 Isolate platform interactions behind the PAL.md>),
+[canonical semantic model](<decisions/DR-003 Resolve programs into one canonical semantic model.md>),
+[filesystem modules and scripts](<decisions/DR-004 Use filesystem modules and explicit script extensions.md>),
+and [embedded sessions](<decisions/DR-009 Reuse source backed embedded sessions for the REPL.md>).
+The [argument-label decision](<decisions/DR-011 Require argument labels with explicit positional opt in.md>)
+records the latest public calling-convention tradeoffs.
+
 # What principles guide the project?
 
 The goals in `README.md` are to make programming fun, friendly, and fast.

@@ -69,3 +69,4 @@ This mechanism is adapted from Noice's development-learnings guide and
 with the work that establishes them. Ocelot uses its existing question-driven
 documentation style and needs no additional tooling. Related architectural and
 product choices are recorded in [decision records](../decisions/README.md).
+Ocelot's adoption is recorded in [DR-012](<../decisions/DR-012 Record reusable development learnings with evidence.md>).

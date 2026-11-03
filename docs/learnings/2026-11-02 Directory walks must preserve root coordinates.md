@@ -49,5 +49,7 @@ case subsequently reached entrypoint validation instead of failing discovery.
   [module compilation and entry-path comparisons](../../crates/engine/src/compile_program.rs),
   and [completed review plan](../plans/completed/2026-11-02-initial-review-fixes-plan.md).
 - Internal commit: `20c128f` (`fix(pal): preserve directory walk root coordinates`).
+- Related decision: [DR-001](<../decisions/DR-001 Isolate platform interactions behind the PAL.md>)
+  records why platform behavior belongs behind the PAL; this learning records the path evidence.
 - External: No applicable external source; this finding is supported by repository
   behavior and tests.
