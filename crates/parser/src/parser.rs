@@ -17,6 +17,7 @@ use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_ast::not_expression::NotExpression;
 use ocelot_ast::qualified_identifier::QualifiedIdentifier;
+use ocelot_ast::return_statement::ReturnStatement;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
 use ocelot_ast::string_literal_expression::StringLiteralExpression;
@@ -161,6 +162,21 @@ impl<'a> Parser<'a> {
         self.expect(TokenType::LeftParen, "expected `(` after function name")?;
         let parameters = self.parse_function_parameters()?;
         self.expect(TokenType::RightParen, "expected `)` after parameter list")?;
+        let return_type_name = if self.at(TokenType::Arrow) {
+            self.expect(TokenType::Arrow, "expected `->` before return type")?;
+            if self.at(TokenType::LeftParen) {
+                let start = self.expect(TokenType::LeftParen, "expected `()` result type")?;
+                let end = self.expect(TokenType::RightParen, "expected `)` in unit result type")?;
+                Some(Identifier::new(
+                    "()",
+                    Span::new(start.span.start(), end.span.end()),
+                ))
+            } else {
+                Some(self.parse_identifier_token("expected return type after `->`")?)
+            }
+        } else {
+            None
+        };
         let can_clause = if self.at(TokenType::Can) {
             Some(self.parse_function_effect_clause(TokenType::Can, "expected `can` effect clause")?)
         } else {
@@ -182,7 +198,7 @@ impl<'a> Parser<'a> {
             );
         }
         let span;
-        let function_item = if native_token.is_some() {
+        let mut function_item = if native_token.is_some() {
             if self.at(TokenType::LeftBrace) {
                 return self.emit_fatal_diagnostic(
                     "native functions must not have a body",
@@ -224,6 +240,7 @@ impl<'a> Parser<'a> {
             )
         };
 
+        function_item.return_type_name = return_type_name;
         Ok(Item::with_trivia(
             ItemKind::Function(function_item),
             Trivia::default(),
@@ -373,6 +390,20 @@ impl<'a> Parser<'a> {
 
     fn parse_statement(&mut self) -> OcelotResult<Statement> {
         let leading_trivia = self.take_current_leading_trivia();
+        if self.at(TokenType::Return) {
+            let keyword = self.expect(TokenType::Return, "expected `return`")?;
+            let expression = if self.at(TokenType::Semicolon) {
+                None
+            } else {
+                Some(self.parse_expression()?)
+            };
+            let semicolon = self.expect(TokenType::Semicolon, "expected `;` after return")?;
+            return Ok(Statement::with_trivia(
+                StatementKind::Return(ReturnStatement { expression }),
+                Trivia::new(leading_trivia, Vec::new()),
+                Span::new(keyword.span.start(), semicolon.span.end()),
+            ));
+        }
         let expression = self.parse_expression()?;
         let semicolon = self.expect(TokenType::Semicolon, "expected `;` after statement")?;
         let statement_span = Span::new(expression.span.start(), semicolon.span.end());
@@ -774,7 +805,9 @@ mod tests {
         let ItemKind::Statement(statement) = &script.items[0].kind else {
             panic!("expected statement");
         };
-        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind else {
+            panic!("expected expression statement")
+        };
         let ExpressionKind::Call(call_expression) = &expression.kind else {
             panic!("expected call expression");
         };

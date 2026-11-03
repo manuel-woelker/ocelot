@@ -2,6 +2,7 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenType {
     Can,
+    Arrow,
     Cannot,
     Effect,
     Identifier,
@@ -15,6 +16,7 @@ pub enum TokenType {
     Native,
     Not,
     Positional,
+    Return,
     True,
     Use,
     Colon,

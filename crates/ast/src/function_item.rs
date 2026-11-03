@@ -2,6 +2,7 @@ use crate::function_effect_clause::FunctionEffectClause;
 use crate::function_parameter::FunctionParameter;
 use crate::identifier::Identifier;
 use crate::statement::Statement;
+use crate::type_index::TypeIndex;
 use ocelot_base::span::Span;
 
 /// Top-level user-defined function declaration.
@@ -10,6 +11,10 @@ pub struct FunctionItem {
     pub is_native: bool,
     pub identifier: Identifier,
     pub parameters: Vec<FunctionParameter>,
+    /// Explicit result type spelling and span, absent when unit is implicit.
+    pub return_type_name: Option<Identifier>,
+    /// The result type filled in during declaration resolution.
+    pub return_type: TypeIndex,
     pub can_clause: Option<FunctionEffectClause>,
     pub cannot_clause: Option<FunctionEffectClause>,
     pub body: Vec<Statement>,
@@ -30,6 +35,8 @@ impl FunctionItem {
             is_native: false,
             identifier,
             parameters,
+            return_type_name: None,
+            return_type: TypeIndex::unresolved(),
             can_clause,
             cannot_clause,
             body,
@@ -49,6 +56,8 @@ impl FunctionItem {
             is_native: true,
             identifier,
             parameters,
+            return_type_name: None,
+            return_type: TypeIndex::unresolved(),
             can_clause,
             cannot_clause,
             body: Vec::new(),

@@ -80,6 +80,24 @@ impl<'a> Resolver<'a> {
             self.resolve_statement(statement);
         }
 
+        if !function_item.return_type.is_unresolved()
+            && function_item.return_type != self.symbol_table.unit_type_index()
+            && !function_item
+                .body
+                .iter()
+                .any(|statement| matches!(statement.kind, StatementKind::Return(_)))
+        {
+            self.add_diagnostic(
+                format!(
+                    "function `{}` must return {}",
+                    function_item.identifier.name,
+                    self.type_label(function_item.return_type)
+                ),
+                function_item.identifier.span.clone(),
+                "add an explicit return statement",
+            );
+        }
+
         self.local_value_types.clear();
     }
 
@@ -91,6 +109,50 @@ impl<'a> Resolver<'a> {
 
     fn resolve_statement(&mut self, statement: &mut Statement) {
         match &mut statement.kind {
+            StatementKind::Return(return_statement) => {
+                let actual_type = if let Some(expression) = &mut return_statement.expression {
+                    self.resolve_expression(expression);
+                    expression.ty
+                } else {
+                    self.symbol_table.unit_type_index()
+                };
+                let Some(function) = &self.resolved_function else {
+                    self.add_diagnostic(
+                        "return is only allowed in function bodies",
+                        statement.span.clone(),
+                        "not inside a function",
+                    );
+                    return;
+                };
+                /* 📖 # Why read the result type from the declaration table?
+                Body resolution temporarily moves the function AST out of `ResolvedFunction`,
+                leaving a placeholder there. The symbol table retains the complete signature
+                throughout this pass, including for forward and recursive calls.
+                */
+                let expected_type = self
+                    .symbol_table
+                    .function_definition(function.function_index)
+                    .expect("resolved function must have a declaration")
+                    .return_type;
+                if !expected_type.is_unresolved()
+                    && !actual_type.is_unresolved()
+                    && expected_type != actual_type
+                {
+                    self.add_diagnostic(
+                        format!(
+                            "return type mismatch: expected {}, got {}",
+                            self.type_label(expected_type),
+                            self.type_label(actual_type)
+                        ),
+                        return_statement
+                            .expression
+                            .as_ref()
+                            .map(|value| value.span.clone())
+                            .unwrap_or_else(|| statement.span.clone()),
+                        format!("expected {}", self.type_label(expected_type)),
+                    );
+                }
+            }
             StatementKind::Expression(ExpressionStatement { expression }) => {
                 self.resolve_expression(expression);
             }
@@ -440,11 +502,12 @@ impl<'a> Resolver<'a> {
                 expression.ty = string_type_index
             }
             ExpressionKind::Call(call) => {
-                expression.ty = if call.function_index().is_ok() {
-                    self.symbol_table.unit_type_index()
-                } else {
-                    TypeIndex::unresolved()
-                };
+                expression.ty = call
+                    .function_index()
+                    .ok()
+                    .and_then(|index| self.symbol_table.function_definition(index).ok())
+                    .map(|function| function.return_type)
+                    .unwrap_or_else(TypeIndex::unresolved);
             }
             ExpressionKind::QualifiedIdentifier(_) => {
                 expression.ty = TypeIndex::unresolved();

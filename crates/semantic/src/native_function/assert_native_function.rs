@@ -36,7 +36,7 @@ impl NativeFunction for AssertNativeFunction {
     }
 
     fn signature(&self) -> NativeFunctionSignature {
-        NativeFunctionSignature::new(vec![TypeKind::Boolean])
+        NativeFunctionSignature::new(vec![TypeKind::Boolean], TypeKind::Unit)
     }
 
     fn boxed_clone(&self) -> Box<dyn NativeFunction> {

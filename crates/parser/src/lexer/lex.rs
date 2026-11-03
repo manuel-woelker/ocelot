@@ -68,6 +68,15 @@ pub fn lex(source_file: &SourceFile, source_diagnostics: &mut SourceDiagnostics)
                     ));
                     index += 1;
                 }
+                b'-' if index + 1 < bytes.len() && bytes[index + 1] == b'>' => {
+                    tokens.push(Token::with_leading_trivia(
+                        TokenType::Arrow,
+                        Trivia::new(leading_trivia, Vec::new()),
+                        index,
+                        index + 2,
+                    ));
+                    index += 2;
+                }
                 b',' => {
                     tokens.push(Token::with_leading_trivia(
                         TokenType::Comma,
@@ -163,6 +172,7 @@ pub fn lex(source_file: &SourceFile, source_diagnostics: &mut SourceDiagnostics)
                         "native" => TokenType::Native,
                         "not" => TokenType::Not,
                         "positional" => TokenType::Positional,
+                        "return" => TokenType::Return,
                         "test" => TokenType::Test,
                         "true" => TokenType::True,
                         "use" => TokenType::Use,

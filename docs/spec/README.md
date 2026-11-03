@@ -16,6 +16,7 @@ in the language rules.
 | [Any](./10.02%20Types%20-%20Any.md) | Native signature escape hatch |
 | [Tests](./15.01%20Declarations%20-%20Test%20items.md) | Declarations and behavior during normal execution |
 | [Function definitions](./15.02%20Declarations%20-%20Function%20definitions.md) | Syntax, parameters, and declaration scope |
+| [Return values](./20.01%20Functions%20-%20Return%20values.md) | Explicit result types, returns, and fallthrough checks |
 | [File modules](./25.01%20Modules%20-%20File%20modules.md) | Module discovery, paths, and exported functions |
 | [Imports](./25.02%20Modules%20-%20Imports.md) | File-local imports and import errors |
 | [Core module](./25.03%20Modules%20-%20Core%20module.md) | Builtin names and lookup precedence |

@@ -72,29 +72,45 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
-    /// Executes one ordered sequence of statements.
+    /// Executes statements, stopping at a return and discarding its result.
     pub fn interpret_statements(&self, statements: &[Statement]) -> OcelotResult<()> {
+        self.interpret_function_body(statements).map(|_| ())
+    }
+
+    /// Executes a function body, stopping at its first return or producing unit on fallthrough.
+    pub fn interpret_function_body(&self, statements: &[Statement]) -> OcelotResult<RuntimeValue> {
         for statement in statements {
-            self.interpret_statement(statement)?;
+            if let Some(value) = self.interpret_statement(statement)? {
+                return Ok(value);
+            }
         }
-        Ok(())
+        Ok(RuntimeValue::unit())
     }
 
     fn interpret_item(&self, item: &ocelot_ast::item::Item) -> OcelotResult<()> {
         match &item.kind {
             ItemKind::Effect(_) => Ok(()),
             ItemKind::Function(_) => Ok(()),
-            ItemKind::Statement(statement) => self.interpret_statement(statement),
+            ItemKind::Statement(statement) => {
+                self.interpret_statements(std::slice::from_ref(statement))
+            }
             ItemKind::Test(_) => Ok(()),
             ItemKind::Use(_) => Ok(()),
         }
     }
 
-    fn interpret_statement(&self, statement: &Statement) -> OcelotResult<()> {
+    fn interpret_statement(&self, statement: &Statement) -> OcelotResult<Option<RuntimeValue>> {
         match &statement.kind {
+            StatementKind::Return(return_statement) => {
+                let value = match &return_statement.expression {
+                    Some(expression) => self.evaluate_expression(expression)?,
+                    None => RuntimeValue::unit(),
+                };
+                Ok(Some(value))
+            }
             StatementKind::Expression(ExpressionStatement { expression }) => {
                 self.evaluate_expression(expression)?;
-                Ok(())
+                Ok(None)
             }
         }
     }
@@ -208,8 +224,7 @@ impl<'a> Interpreter<'a> {
         }
 
         Interpreter::new_with_bindings(self.pal, source_file, self.symbol_table, local_bindings)
-            .interpret_statements(&function.body)?;
-        Ok(RuntimeValue::unit())
+            .interpret_function_body(&function.body)
     }
 
     fn unresolved_qualified_identifier_error<T>(

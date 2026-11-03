@@ -30,7 +30,7 @@ impl NativeFunction for PrintlnNativeFunction {
     }
 
     fn signature(&self) -> NativeFunctionSignature {
-        NativeFunctionSignature::new(vec![TypeKind::Any])
+        NativeFunctionSignature::new(vec![TypeKind::Any], TypeKind::Unit)
     }
 
     fn boxed_clone(&self) -> Box<dyn NativeFunction> {

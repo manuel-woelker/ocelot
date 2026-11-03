@@ -155,7 +155,9 @@ fn resolves_native_call_expressions() {
     let ItemKind::Statement(statement) = &script.items[0].kind else {
         panic!("expected statement");
     };
-    let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+    let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind else {
+        panic!("expected expression statement")
+    };
     let ExpressionKind::Call(call_expression) = &expression.kind else {
         panic!("expected call expression");
     };
@@ -190,7 +192,9 @@ fn resolves_template_strings_as_string_typed_expressions() {
     let ItemKind::Statement(statement) = &script.items[0].kind else {
         panic!("expected statement item");
     };
-    let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+    let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind else {
+        panic!("expected expression statement")
+    };
     let ExpressionKind::Call(call_expression) = &expression.kind else {
         panic!("expected call expression");
     };
@@ -262,7 +266,9 @@ fn resolve_program_returns_resolved_modules_and_symbol_table() {
             _ => None,
         })
         .expect("expected statement");
-    let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+    let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind else {
+        panic!("expected expression statement")
+    };
     let ExpressionKind::Call(call_expression) = &expression.kind else {
         panic!("expected call expression");
     };
@@ -349,7 +355,10 @@ fn resolves_parameter_references_inside_function_bodies() {
     let FunctionKind::UserDefined { function, .. } = &function_definition.kind else {
         panic!("expected user-defined function");
     };
-    let StatementKind::Expression(ExpressionStatement { expression }) = &function.body[0].kind;
+    let StatementKind::Expression(ExpressionStatement { expression }) = &function.body[0].kind
+    else {
+        panic!("expected expression statement")
+    };
     let ExpressionKind::Call(call_expression) = &expression.kind else {
         panic!("expected call expression");
     };
@@ -694,7 +703,9 @@ fn resolves_module_qualified_calls() {
     let ItemKind::Statement(statement) = &main_script.items[0].kind else {
         panic!("expected statement");
     };
-    let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+    let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind else {
+        panic!("expected expression statement")
+    };
     let ExpressionKind::Call(call_expression) = &expression.kind else {
         panic!("expected call expression");
     };
@@ -806,7 +817,9 @@ fn resolves_imported_function_calls() {
     let ItemKind::Statement(statement) = &main_script.items[0].kind else {
         panic!("expected statement");
     };
-    let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+    let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind else {
+        panic!("expected expression statement")
+    };
     let ExpressionKind::Call(call_expression) = &expression.kind else {
         panic!("expected call expression");
     };
@@ -943,7 +956,10 @@ fn imported_names_are_available_inside_function_bodies() {
     let FunctionKind::UserDefined { function, .. } = &run.kind else {
         panic!("expected user-defined function");
     };
-    let StatementKind::Expression(ExpressionStatement { expression }) = &function.body[0].kind;
+    let StatementKind::Expression(ExpressionStatement { expression }) = &function.body[0].kind
+    else {
+        panic!("expected expression statement")
+    };
     let ExpressionKind::Call(call_expression) = &expression.kind else {
         panic!("expected call expression");
     };

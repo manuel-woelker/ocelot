@@ -314,7 +314,8 @@ impl EngineWorker {
         };
 
         ocelot_interpreter::interpreter::Interpreter::new(&*self.pal, source_file, symbol_table)
-            .interpret_statements(&function.body)
+            .interpret_function_body(&function.body)
+            .map(|_| ())
     }
 }
 

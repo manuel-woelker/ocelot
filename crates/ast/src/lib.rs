@@ -20,6 +20,7 @@ pub mod item;
 pub mod item_kind;
 pub mod not_expression;
 pub mod qualified_identifier;
+pub mod return_statement;
 pub mod statement;
 pub mod statement_kind;
 pub mod string_literal_expression;

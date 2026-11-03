@@ -319,6 +319,7 @@ mod tests {
                 parameter.positional = true;
                 parameter
             }],
+            symbol_table.unit_type_index(),
             crate::native_function::default_native_function_registry()
                 .resolve("core::println")
                 .unwrap(),

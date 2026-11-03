@@ -26,17 +26,17 @@ means unit. Return types are explicit rather than inferred from function bodies.
 
 # What will be implemented?
 
-- [ ] Add AST return annotation/type metadata and a return-statement payload.
-- [ ] Parse `->` result types and return statements; preserve them in formatting.
-- [ ] Resolve signatures before bodies, annotate calls, and validate return types,
+- [x] Add AST return annotation/type metadata and a return-statement payload.
+- [x] Parse `->` result types and return statements; preserve them in formatting.
+- [x] Resolve signatures before bodies, annotate calls, and validate return types,
   return placement, and non-unit fallthrough without weakening value-name checking.
-- [ ] Add native result signature metadata and validate it against source declarations.
-- [ ] Propagate return values through the interpreter and module-entrypoint execution.
-- [ ] Add colocated regressions for parsing, malformed syntax, format round trips,
+- [x] Add native result signature metadata and validate it against source declarations.
+- [x] Propagate return values through the interpreter and module-entrypoint execution.
+- [x] Add colocated regressions for parsing, malformed syntax, format round trips,
   type errors, effects, early returns, calls across modules, and embedded evaluation.
-- [ ] Update the spec and overview, add executable examples and a decision record,
+- [x] Update the spec and overview, add executable examples and a decision record,
   and migrate statements in tests to handle the new AST variant.
-- [ ] Run `nao check`, inspect representative diagnostics, record results, and
+- [x] Run `nao check`, inspect representative diagnostics, record results, and
   move this plan into `completed` before committing the feature.
 
 # What assumptions and tradeoffs are intentional?
@@ -56,3 +56,29 @@ executing infinite recursion, imported/qualified functions, positional parameter
 native signature mismatches, effect propagation through returned calls, and persistent
 eval results. Verify formatting idempotence and parse errors, executable spec
 snapshots, and the complete build/lint/Rust/spec check graph with `nao check`.
+
+# What was implemented and verified?
+
+AST declarations retain explicit result spelling and the resolved result index.
+Signature indexing resolves result types before any body is analyzed; calls and
+return checks read that canonical metadata. Return statements carry an optional
+expression, with bare returns producing unit. The interpreter propagates normal
+return values separately from errors and stops the current invocation only.
+Module execution explicitly discards its entrypoint's result. Eval's input guard
+continues to require one expression, now excluding the new return statement variant.
+
+Colocated regressions cover string, bool, and unit results; default unit behavior;
+forward and recursive signatures; imported and qualified calls; nested-call argument
+evaluation order; early returns; missing, misplaced, and mismatched returns;
+unknown and any result types; native declaration/signature mismatches; formatting
+round trips and malformed syntax; unreachable static errors and effects; and
+persistent embedded sessions after rejected source. No new value kind or dependency
+was needed. DR-014 records the accepted design.
+
+`nao check` passed, including build, formatting, clippy, Rust tests, and all 66
+examples across 18 spec chapters. Representative CLI diagnostics for fallthrough,
+wrong result types, and script returns were inspected and included as executable
+spec snapshots. `git diff --check` and local documentation link checks passed.
+An isolated REPL smoke test returned a typed string, reported an invalid typed
+definition, and then successfully called the earlier retained function again.
+No planned work remains; future branching requires path-sensitive return analysis.

@@ -92,7 +92,10 @@ impl EmbeddedEngine {
         if input.items.len() != 1
             || !matches!(
                 input.items[0].kind,
-                ocelot_ast::item_kind::ItemKind::Statement(_)
+                ocelot_ast::item_kind::ItemKind::Statement(ocelot_ast::statement::Statement {
+                    kind: StatementKind::Expression(_),
+                    ..
+                })
             )
         {
             self.source_diagnostics.diagnostics.push(
@@ -122,7 +125,9 @@ impl EmbeddedEngine {
             .statements()
             .find(|statement| statement.span.start() >= new_item_offset)
             .context("internal error: eval did not produce a statement")?;
-        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind;
+        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind else {
+            ocelot_base::bail!("internal error: eval requires an expression statement");
+        };
 
         ocelot_interpreter::interpreter::Interpreter::new(
             &*self.pal,
@@ -191,6 +196,35 @@ mod tests {
     use ocelot_pal::pal::PalHandle;
     use ocelot_pal::pal_mock::PalMock;
     use ocelot_semantic::runtime_value::RuntimeValue;
+
+    #[test]
+    fn eval_returns_typed_values_and_failed_returns_do_not_replace_session_source() {
+        let pal = PalMock::new();
+        let mut engine = EmbeddedEngine::new(PalHandle::new(pal.clone()), "examples");
+        engine.execute("fun greeting(name: string) -> string { return \"Hello ${name}!\"; } fun enabled() -> bool { return true; } fun done() -> () { return; }").unwrap();
+        assert_eq!(
+            engine.eval("greeting(name: \"Ada\")").unwrap(),
+            RuntimeValue::string("Hello Ada!")
+        );
+        assert_eq!(
+            engine.eval("not enabled()").unwrap(),
+            RuntimeValue::boolean(false)
+        );
+        assert_eq!(engine.eval("done()").unwrap(), RuntimeValue::unit());
+        assert!(
+            engine
+                .execute("fun broken() -> string { return false; }")
+                .is_err()
+        );
+        assert!(engine.execute("return;").is_err());
+        assert!(engine.eval("return true").is_err());
+        assert_eq!(
+            engine.eval("greeting(name: \"Grace\")").unwrap(),
+            RuntimeValue::string("Hello Grace!")
+        );
+        assert!(engine.eval("broken()").is_err());
+        assert_eq!(pal.take_printed_output(), "");
+    }
 
     #[test]
     fn persistent_definitions_keep_their_argument_label_policy() {

@@ -273,6 +273,7 @@ impl<'a, D: DeclarationIndex> DeclarationIndexer<'a, D> {
         let can_effects = self.resolve_effect_clause(function_item.can_clause.as_ref());
         let cannot_effects = self.resolve_effect_clause(function_item.cannot_clause.as_ref());
         let argument_types = self.resolve_function_parameter_types(&mut function_item);
+        function_item.return_type = self.resolve_function_return_type(&function_item);
 
         if function_item.is_native {
             if self.module_name != "core" {
@@ -295,6 +296,17 @@ impl<'a, D: DeclarationIndex> DeclarationIndexer<'a, D> {
             };
 
             let signature = native_function.signature();
+            if !function_item.return_type.is_unresolved()
+                && self
+                    .declaration_index
+                    .type_definition(function_item.return_type)?
+                    .kind
+                    != signature.return_type
+            {
+                ocelot_base::bail!(
+                    "internal error: native function `{qualified_name}` return type does not match its registered signature"
+                );
+            }
             if signature.argument_types.len() != argument_types.len() {
                 ocelot_base::bail!(
                     "internal error: native function `{qualified_name}` declaration does not match its registered signature"
@@ -319,6 +331,7 @@ impl<'a, D: DeclarationIndex> DeclarationIndexer<'a, D> {
                     self.module_name,
                     qualified_name,
                     function_item.parameters,
+                    function_item.return_type,
                     native_function,
                     can_effects,
                     cannot_effects,
@@ -486,6 +499,29 @@ impl<'a, D: DeclarationIndex> DeclarationIndexer<'a, D> {
             "already defined here",
         ));
         self.compilation_context.add_diagnostic(diagnostic);
+    }
+
+    fn resolve_function_return_type(&mut self, function: &FunctionItem) -> TypeIndex {
+        let Some(annotation) = &function.return_type_name else {
+            return self
+                .declaration_index
+                .resolve_type("()")
+                .expect("unit type should be seeded");
+        };
+        match self.declaration_index.resolve_type(&annotation.name) {
+            Some(ty) if ty != self.declaration_index.any_type_index() => ty,
+            _ => {
+                self.add_diagnostic(
+                    format!(
+                        "unsupported return type `{}`; expected `string`, `bool`, or `()`",
+                        annotation.name
+                    ),
+                    annotation.span.clone(),
+                    "unsupported return type",
+                );
+                TypeIndex::unresolved()
+            }
+        }
     }
 
     fn resolve_function_parameter_types(

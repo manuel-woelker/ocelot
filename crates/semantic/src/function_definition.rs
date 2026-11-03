@@ -2,6 +2,7 @@ use ocelot_ast::effect_index::EffectIndex;
 use ocelot_ast::function_index::FunctionIndex;
 use ocelot_ast::function_item::FunctionItem;
 use ocelot_ast::function_parameter::FunctionParameter;
+use ocelot_ast::type_index::TypeIndex;
 use ocelot_base::shared_string::SharedString;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
@@ -18,6 +19,8 @@ pub struct FunctionDefinition {
     pub module_name: SharedString,
     /// Declared parameter labels, omission policy, types, and source spans.
     pub parameters: Vec<FunctionParameter>,
+    /// The declared result type, including unit for an omitted annotation.
+    pub return_type: TypeIndex,
     pub can_effects: BTreeSet<EffectIndex>,
     pub cannot_effects: BTreeSet<EffectIndex>,
     pub direct_effects: BTreeSet<EffectIndex>,
@@ -35,6 +38,7 @@ impl FunctionDefinition {
         module_name: impl Into<SharedString>,
         qualified_name: impl Into<SharedString>,
         parameters: Vec<FunctionParameter>,
+        return_type: TypeIndex,
         native_function: Box<dyn NativeFunction>,
         can_effects: BTreeSet<EffectIndex>,
         cannot_effects: BTreeSet<EffectIndex>,
@@ -43,6 +47,7 @@ impl FunctionDefinition {
             name: qualified_name.into(),
             module_name: module_name.into(),
             parameters,
+            return_type,
             can_effects: can_effects.clone(),
             cannot_effects,
             direct_effects: can_effects.clone(),
@@ -68,6 +73,7 @@ impl FunctionDefinition {
             name: qualified_name.into(),
             module_name: module_name.into(),
             parameters: function.parameters.clone(),
+            return_type: function.return_type,
             direct_effects: can_effects.clone(),
             direct_effect_sources: BTreeMap::new(),
             inferred_effects: can_effects.clone(),

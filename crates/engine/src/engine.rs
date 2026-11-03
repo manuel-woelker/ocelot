@@ -138,6 +138,218 @@ mod tests {
     use ocelot_semantic::source_file_kind::SourceFileKind;
 
     #[test]
+    fn typed_calls_compose_across_imports_and_return_before_later_effects() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/helper.ocelot",
+            r#"
+fun greeting(positional name: string) -> string {
+    return "Hello ${name}!";
+    println("unreachable");
+}
+fun invert(value: bool) -> bool { return not value; }
+"#,
+        );
+        pal.set_file(
+            "examples/main.ocelot-script",
+            r#"
+use helper::greeting;
+println(greeting("Ada"));
+assert(helper::invert(value: false));
+assert_eq(expected: "Hello Grace!", actual: greeting(name: "Grace"));
+fun forward() -> string { return later(); }
+fun later() -> string { return "forward"; }
+fun recursive() -> bool { return recursive(); }
+println(forward());
+fun finish() -> () { return; println("unreachable"); }
+fun via_native() { return println("native unit"); }
+finish();
+via_native();
+println("caller continues");
+"#,
+        );
+        Engine::new(PalHandle::new(pal.clone()))
+            .run_file("examples/main.ocelot-script")
+            .unwrap();
+        assert_eq!(
+            pal.take_printed_output(),
+            "Hello Ada!\nforward\nnative unit\ncaller continues\n"
+        );
+    }
+
+    #[test]
+    fn returned_argument_values_keep_source_order_and_do_not_exit_the_caller() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/main.ocelot-script",
+            r#"
+fun mark(positional value: string) -> string { println(value); return value; }
+fun combine(left: string, right: string) -> string { return "${left} ${right}"; }
+println(combine(left: mark("first"), right: mark("second")));
+println("after");
+"#,
+        );
+        Engine::new(PalHandle::new(pal.clone()))
+            .run_file("examples/main.ocelot-script")
+            .unwrap();
+        assert_eq!(
+            pal.take_printed_output(),
+            "first\nsecond\nfirst second\nafter\n"
+        );
+    }
+
+    #[test]
+    fn invalid_returns_and_typed_call_uses_fail_before_effects() {
+        let cases = [
+            ("fun f() -> string {}", "function `f` must return string"),
+            ("fun f() -> bool { true; }", "function `f` must return bool"),
+            (
+                "fun f() -> string { return true; }",
+                "return type mismatch: expected string, got bool",
+            ),
+            (
+                "fun f() -> bool { return; }",
+                "return type mismatch: expected bool, got ()",
+            ),
+            (
+                "fun f() { return \"value\"; }",
+                "return type mismatch: expected (), got string",
+            ),
+            (
+                "fun f() -> () { return false; }",
+                "return type mismatch: expected (), got bool",
+            ),
+            (
+                "fun f() -> number { return true; }",
+                "unsupported return type `number`",
+            ),
+            (
+                "fun f() -> any { return true; }",
+                "unsupported return type `any`",
+            ),
+            ("return;", "return is only allowed in function bodies"),
+            (
+                "test \"f\" { return true; }",
+                "return is only allowed in function bodies",
+            ),
+            (
+                "fun f() -> string { return missing; }",
+                "unresolved identifier `missing`",
+            ),
+            (
+                "fun f() -> string { return \"ok\"; missing; }",
+                "unresolved identifier `missing`",
+            ),
+            (
+                "fun f() -> bool { return true; return \"bad\"; }",
+                "return type mismatch: expected bool, got string",
+            ),
+            (
+                "fun f() -> string { return \"bad\"; } assert(f());",
+                "expects a bool argument",
+            ),
+            (
+                "fun f() -> string { return \"bad\"; } not f();",
+                "operator `not` expects a bool operand",
+            ),
+            (
+                "fun unit() {} fun f() -> bool { return unit(); }",
+                "return type mismatch: expected bool, got ()",
+            ),
+        ];
+        for (source, expected) in cases {
+            let pal = PalMock::new();
+            pal.set_file(
+                "examples/main.ocelot-script",
+                format!("println(\"must not run\"); {source}"),
+            );
+            let error = Engine::new(PalHandle::new(pal.clone()))
+                .run_file("examples/main.ocelot-script")
+                .unwrap_err();
+            assert!(
+                matches!(
+                    error.kind(),
+                    ErrorKind::CompilationError(CompilationStage::Resolver)
+                ),
+                "{source}"
+            );
+            let rendered = ocelot_base::cli::format_cli_error("failed", &error);
+            assert!(rendered.contains(expected), "{source}\n{rendered}");
+            assert_eq!(pal.take_printed_output(), "", "{source}");
+        }
+    }
+
+    #[test]
+    fn returned_calls_and_unreachable_statements_still_contribute_effects() {
+        for body in ["return println(\"bad\");", "return; println(\"bad\");"] {
+            let pal = PalMock::new();
+            pal.set_file(
+                "examples/main.ocelot-script",
+                format!("fun f() -> () cannot write_stdout {{ {body} }} f();"),
+            );
+            let error = Engine::new(PalHandle::new(pal.clone()))
+                .run_file("examples/main.ocelot-script")
+                .unwrap_err();
+            assert!(
+                error
+                    .to_test_string()
+                    .contains("cannot perform effect `write_stdout`")
+            );
+            assert_eq!(pal.take_printed_output(), "");
+        }
+        let pal = PalMock::new();
+        pal.set_file("examples/main.ocelot-script", "fun noisy() -> bool can write_stdout { return true; } fun caller() -> bool cannot write_stdout { return noisy(); }");
+        let error = Engine::new(PalHandle::new(pal))
+            .run_file("examples/main.ocelot-script")
+            .unwrap_err();
+        assert!(
+            error
+                .to_test_string()
+                .contains("cannot perform effect `write_stdout`")
+        );
+    }
+
+    #[test]
+    fn native_result_annotations_match_registered_signatures() {
+        let core = include_str!("../resources/builtin/core.ocelot");
+        for (result, valid) in [("()", true), ("string", false)] {
+            let pal = PalMock::new();
+            pal.set_file("examples/main.ocelot-script", "println(\"ok\");");
+            let mut engine = Engine::new(PalHandle::new(pal.clone()));
+            engine.register_builtin_module(
+                "core",
+                core.replace(
+                    ") can write_stdout",
+                    &format!(") -> {result} can write_stdout"),
+                ),
+            );
+            let outcome = engine.run_file("examples/main.ocelot-script");
+            if valid {
+                outcome.unwrap();
+                assert_eq!(pal.take_printed_output(), "ok\n");
+            } else {
+                assert!(
+                    outcome
+                        .unwrap_err()
+                        .to_test_string()
+                        .contains("return type does not match its registered signature")
+                );
+                assert_eq!(pal.take_printed_output(), "");
+            }
+        }
+    }
+
+    #[test]
+    fn direct_module_execution_discards_its_return_value_and_stops_at_return() {
+        let pal = PalMock::new();
+        pal.set_file("examples/main.ocelot", "fun main() -> string { println(\"before\"); return \"ignored\"; println(\"unreachable\"); }");
+        Engine::new(PalHandle::new(pal.clone()))
+            .run_file("examples/main.ocelot")
+            .unwrap();
+        assert_eq!(pal.take_printed_output(), "before\n");
+    }
+
+    #[test]
     fn unknown_values_fail_during_resolution_before_any_effects() {
         for snippet in [
             "missing;",

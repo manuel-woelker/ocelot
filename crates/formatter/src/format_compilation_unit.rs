@@ -104,6 +104,11 @@ fn write_function_item(output: &mut String, function_item: &FunctionItem, indent
 
     output.push(')');
 
+    if let Some(return_type) = &function_item.return_type_name {
+        output.push_str(" -> ");
+        output.push_str(return_type.name.as_str());
+    }
+
     if let Some(can_clause) = &function_item.can_clause {
         output.push(' ');
         write_function_effect_clause(output, "can", can_clause);
@@ -202,6 +207,15 @@ fn write_statement_list(output: &mut String, statements: &[Statement], indent_le
 
 fn write_statement(output: &mut String, statement: &Statement, indent_level: usize) {
     match &statement.kind {
+        StatementKind::Return(return_statement) => {
+            write_indent(output, indent_level);
+            output.push_str("return");
+            if let Some(expression) = &return_statement.expression {
+                output.push(' ');
+                write_expression(output, expression);
+            }
+            output.push(';');
+        }
         StatementKind::Expression(ExpressionStatement { expression }) => {
             write_indent(output, indent_level);
             write_expression(output, expression);
@@ -344,6 +358,15 @@ mod tests {
             source_diagnostics.diagnostics
         );
         compilation_unit
+    }
+
+    #[test]
+    fn formats_return_types_and_statements_without_losing_comments() {
+        let source = "fun greet(positional name:string)->string can write_stdout{\n// result\nreturn helper::greet(name:name); // done\n}\nfun done()->( ){return;}\nnative fun check()->bool;";
+        let expected = "fun greet(positional name: string) -> string can write_stdout {\n    // result\n    return helper::greet(name: name); // done\n}\nfun done() -> () {\n    return;\n}\nnative fun check() -> bool;";
+        let formatted = format_compilation_unit(&parse(source));
+        assert_eq!(formatted, expected);
+        assert_eq!(format_compilation_unit(&parse(&formatted)), formatted);
     }
 
     #[test]
