@@ -138,6 +138,103 @@ mod tests {
     use ocelot_semantic::source_file_kind::SourceFileKind;
 
     #[test]
+    fn nested_blocks_keep_value_order_across_imported_calls() {
+        let pal = PalMock::new();
+        pal.set_file("examples/helper.ocelot", "fun mark(positional value: string) -> string { println(value); { value } } fun combine(first: string, second: string) -> string { \"${first} ${second}\" }");
+        pal.set_file(
+            "examples/main.ocelot-script",
+            r#"
+use helper::mark;
+println(helper::combine(first: { mark("first") }, second: { mark("second") }));
+fun flag() -> bool { { true } }
+assert(flag());
+assert_eq(expected: {}, actual: { false; });
+"#,
+        );
+        Engine::new(PalHandle::new(pal.clone()))
+            .run_file("examples/main.ocelot-script")
+            .unwrap();
+        assert_eq!(pal.take_printed_output(), "first\nsecond\nfirst second\n");
+    }
+
+    #[test]
+    fn returns_propagate_through_every_expression_context_and_stop_later_effects() {
+        let pal = PalMock::new();
+        pal.set_file("examples/main.ocelot-script", r#"
+fun from_argument() -> string { assert_eq(expected: { return "argument"; }, actual: println("bad")); "bad" }
+fun from_assert() -> string { assert({ return "assert"; }); "bad" }
+fun sink(value: bool) { println("bad"); }
+fun from_user_argument() -> string { sink(value: { return "user argument"; }); "bad" }
+fun from_not() -> bool { not { return false; } }
+fun from_template() -> string { "prefix ${{ return "template"; }} ${println("bad")}" }
+fun from_return() -> string { return { return "inner"; }; }
+fun inner() -> string { return "called"; }
+fun caller() -> string { { inner(); }; "caller" }
+println(from_argument());
+println(from_assert());
+println(from_user_argument());
+assert_eq(expected: false, actual: from_not());
+println(from_template());
+println(from_return());
+fun consumes() -> string { { return "nested"; }; println("bad"); }
+println(consumes());
+println(caller());
+"#);
+        Engine::new(PalHandle::new(pal.clone()))
+            .run_file("examples/main.ocelot-script")
+            .unwrap();
+        assert_eq!(
+            pal.take_printed_output(),
+            "argument\nassert\nuser argument\ntemplate\ninner\nnested\ncaller\n"
+        );
+    }
+
+    #[test]
+    fn block_results_do_not_weaken_type_name_or_effect_checks() {
+        let cases = [
+            ("fun f() { \"value\" }", "block result type mismatch"),
+            (
+                "fun f() -> bool { \"value\" }",
+                "block result type mismatch",
+            ),
+            (
+                "fun f() -> string { \"discarded\"; }",
+                "block result type mismatch",
+            ),
+            ("assert({ \"value\" });", "expects a bool argument"),
+            (
+                "fun f() -> bool { { return \"wrong\"; } }",
+                "return type mismatch",
+            ),
+            (
+                "fun f() -> bool { { return true; }; missing; }",
+                "unresolved identifier",
+            ),
+            (
+                "fun f() -> bool cannot write_stdout { { return true; }; println(\"bad\"); }",
+                "cannot perform effect",
+            ),
+            ("test \"value\" { true }", "test bodies must produce unit"),
+            ("{ return; };", "return is only allowed"),
+        ];
+        for (source, expected) in cases {
+            let pal = PalMock::new();
+            pal.set_file(
+                "examples/main.ocelot-script",
+                format!("println(\"must not run\"); {source}"),
+            );
+            let error = Engine::new(PalHandle::new(pal.clone()))
+                .run_file("examples/main.ocelot-script")
+                .unwrap_err();
+            assert!(
+                error.to_test_string().contains(expected),
+                "{source}\n{error:?}"
+            );
+            assert_eq!(pal.take_printed_output(), "", "{source}");
+        }
+    }
+
+    #[test]
     fn typed_calls_compose_across_imports_and_return_before_later_effects() {
         let pal = PalMock::new();
         pal.set_file(
@@ -201,8 +298,14 @@ println("after");
     #[test]
     fn invalid_returns_and_typed_call_uses_fail_before_effects() {
         let cases = [
-            ("fun f() -> string {}", "function `f` must return string"),
-            ("fun f() -> bool { true; }", "function `f` must return bool"),
+            (
+                "fun f() -> string {}",
+                "block result type mismatch: expected string, got ()",
+            ),
+            (
+                "fun f() -> bool { true; }",
+                "block result type mismatch: expected bool, got ()",
+            ),
             (
                 "fun f() -> string { return true; }",
                 "return type mismatch: expected string, got bool",

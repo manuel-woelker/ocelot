@@ -1,7 +1,8 @@
 # DR-014: Use explicit typed function returns
 
-- Status: Accepted
-- Date: 2026-11-03
+- Status: Superseded
+- Date: 2026-11-04
+- Superseded by: [DR-015](<DR-015 Use block values before expression conditionals.md>), which adds tail values while retaining explicit signatures and early returns.
 
 ## What is the decision?
 

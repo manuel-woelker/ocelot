@@ -46,6 +46,49 @@ mod tests {
     use ocelot_base::span::Span;
 
     #[test]
+    fn block_tails_preserve_semicolon_choices_and_comment_ownership() {
+        let file = SourceFile::new(
+            "main.ocelot-script",
+            "fun result() -> string {\n // before\n { \"value\"; \"tail\" } // after\n}",
+        );
+        let unit = parse_compilation_unit(&file, &mut SourceDiagnostics::default()).unwrap();
+        let ItemKind::Function(function) = &unit.items[0].kind else {
+            panic!("expected function")
+        };
+        let statement = &function.body[0];
+        let StatementKind::Expression(value) = &statement.kind else {
+            panic!("expected expression")
+        };
+        assert!(!value.has_semicolon);
+        assert!(statement.trivia.has_comments());
+        let ExpressionKind::Block(block) = &value.expression.kind else {
+            panic!("expected block")
+        };
+        assert!(
+            matches!(&block.statements[0].kind, StatementKind::Expression(value) if value.has_semicolon)
+        );
+        assert!(
+            matches!(&block.statements[1].kind, StatementKind::Expression(value) if !value.has_semicolon)
+        );
+        for source in [
+            "fun f() { true false }",
+            "println({ true);",
+            "{ true }",
+            "fun f() { { true } false }",
+            "fun f() { { true }",
+        ] {
+            assert!(
+                parse_compilation_unit(
+                    &SourceFile::new("main.ocelot-script", source),
+                    &mut SourceDiagnostics::default()
+                )
+                .is_err(),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
     fn parses_typed_returns_unit_annotations_and_effect_clause_order() {
         let source = "fun greeting(name: string) -> string can write_stdout { return name; } fun done() -> () { return; }";
         let file = SourceFile::new("main.ocelot-script", source);
@@ -110,7 +153,8 @@ mod tests {
         let ItemKind::Statement(statement) = &parsed.items[1].kind else {
             panic!("expected statement")
         };
-        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind else {
+        let StatementKind::Expression(ExpressionStatement { expression, .. }) = &statement.kind
+        else {
             panic!("expected expression statement")
         };
         let ExpressionKind::Call(call) = &expression.kind else {
@@ -158,7 +202,7 @@ mod tests {
 
         match &script.items[0].kind {
             ItemKind::Statement(statement) => match &statement.kind {
-                StatementKind::Expression(ExpressionStatement { expression }) => {
+                StatementKind::Expression(ExpressionStatement { expression, .. }) => {
                     match &expression.kind {
                         ExpressionKind::Call(CallExpression {
                             callee, arguments, ..
@@ -216,7 +260,7 @@ mod tests {
 
         match &script.items[0].kind {
             ItemKind::Statement(statement) => match &statement.kind {
-                StatementKind::Expression(ExpressionStatement { expression }) => {
+                StatementKind::Expression(ExpressionStatement { expression, .. }) => {
                     assert_eq!(
                         expression.kind,
                         ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(true))
@@ -240,7 +284,7 @@ mod tests {
 
         match &script.items[0].kind {
             ItemKind::Statement(statement) => match &statement.kind {
-                StatementKind::Expression(ExpressionStatement { expression }) => {
+                StatementKind::Expression(ExpressionStatement { expression, .. }) => {
                     assert_eq!(
                         expression.kind,
                         ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(false))
@@ -262,7 +306,8 @@ mod tests {
         let ItemKind::Statement(statement) = &script.items[0].kind else {
             panic!("expected statement item");
         };
-        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind else {
+        let StatementKind::Expression(ExpressionStatement { expression, .. }) = &statement.kind
+        else {
             panic!("expected expression statement")
         };
         let ExpressionKind::Not(NotExpression { operand }) = &expression.kind else {
@@ -288,7 +333,7 @@ mod tests {
 
         match &script.items[0].kind {
             ItemKind::Statement(statement) => match &statement.kind {
-                StatementKind::Expression(ExpressionStatement { expression }) => {
+                StatementKind::Expression(ExpressionStatement { expression, .. }) => {
                     let ExpressionKind::Call(CallExpression { arguments, .. }) = &expression.kind
                     else {
                         panic!("expected call expression, got {:?}", expression.kind);
@@ -321,7 +366,7 @@ mod tests {
 
         match &script.items[0].kind {
             ItemKind::Statement(statement) => match &statement.kind {
-                StatementKind::Expression(ExpressionStatement { expression }) => {
+                StatementKind::Expression(ExpressionStatement { expression, .. }) => {
                     assert_eq!(
                         expression.kind,
                         ExpressionKind::Not(NotExpression::new(Expression::new(
@@ -348,7 +393,7 @@ mod tests {
 
         match &script.items[0].kind {
             ItemKind::Statement(statement) => match &statement.kind {
-                StatementKind::Expression(ExpressionStatement { expression }) => {
+                StatementKind::Expression(ExpressionStatement { expression, .. }) => {
                     assert_eq!(
                         expression.kind,
                         ExpressionKind::Not(NotExpression::new(Expression::new(
@@ -378,7 +423,8 @@ mod tests {
         let ItemKind::Statement(statement) = &script.items[0].kind else {
             panic!("expected statement item");
         };
-        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind else {
+        let StatementKind::Expression(ExpressionStatement { expression, .. }) = &statement.kind
+        else {
             panic!("expected expression statement")
         };
 
@@ -422,7 +468,8 @@ mod tests {
         let ItemKind::Statement(statement) = &script.items[0].kind else {
             panic!("expected statement item");
         };
-        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind else {
+        let StatementKind::Expression(ExpressionStatement { expression, .. }) = &statement.kind
+        else {
             panic!("expected expression statement")
         };
         let ExpressionKind::TemplateString(template_string) = &expression.kind else {
@@ -499,7 +546,7 @@ mod tests {
 
         match &script.items[0].kind {
             ItemKind::Statement(statement) => match &statement.kind {
-                StatementKind::Expression(ExpressionStatement { expression }) => {
+                StatementKind::Expression(ExpressionStatement { expression, .. }) => {
                     let ExpressionKind::Not(NotExpression { operand }) = &expression.kind else {
                         panic!("expected not expression, got {:?}", expression.kind);
                     };
@@ -536,7 +583,7 @@ mod tests {
 
         match &script.items[0].kind {
             ItemKind::Statement(statement) => match &statement.kind {
-                StatementKind::Expression(ExpressionStatement { expression }) => {
+                StatementKind::Expression(ExpressionStatement { expression, .. }) => {
                     let ExpressionKind::Call(CallExpression { arguments, .. }) = &expression.kind
                     else {
                         panic!("expected call expression, got {:?}", expression.kind);

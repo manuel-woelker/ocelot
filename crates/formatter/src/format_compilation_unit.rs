@@ -212,27 +212,43 @@ fn write_statement(output: &mut String, statement: &Statement, indent_level: usi
             output.push_str("return");
             if let Some(expression) = &return_statement.expression {
                 output.push(' ');
-                write_expression(output, expression);
+                write_expression(output, expression, indent_level);
             }
             output.push(';');
         }
-        StatementKind::Expression(ExpressionStatement { expression }) => {
+        StatementKind::Expression(ExpressionStatement {
+            expression,
+            has_semicolon: statement_has_semicolon,
+        }) => {
             write_indent(output, indent_level);
-            write_expression(output, expression);
-            output.push(';');
+            write_expression(output, expression, indent_level);
+            if *statement_has_semicolon {
+                output.push(';');
+            }
         }
     }
 }
 
-fn write_expression(output: &mut String, expression: &Expression) {
+fn write_expression(output: &mut String, expression: &Expression, indent_level: usize) {
     match &expression.kind {
+        ExpressionKind::Block(block) => {
+            if block.statements.is_empty() {
+                output.push_str("{}");
+            } else {
+                output.push_str("{\n");
+                write_statement_list(output, &block.statements, indent_level + 1);
+                output.push('\n');
+                write_indent(output, indent_level);
+                output.push('}');
+            }
+        }
         ExpressionKind::BooleanLiteral(BooleanLiteralExpression { value }) => {
             output.push_str(if *value { "true" } else { "false" });
         }
         ExpressionKind::Call(CallExpression {
             callee, arguments, ..
         }) => {
-            write_expression(output, callee);
+            write_expression(output, callee, indent_level);
             output.push('(');
             for (index, argument) in arguments.iter().enumerate() {
                 if index > 0 {
@@ -242,7 +258,7 @@ fn write_expression(output: &mut String, expression: &Expression) {
                     output.push_str(label.name.as_str());
                     output.push_str(": ");
                 }
-                write_expression(output, &argument.value);
+                write_expression(output, &argument.value, indent_level);
             }
             output.push(')');
         }
@@ -251,7 +267,7 @@ fn write_expression(output: &mut String, expression: &Expression) {
         }
         ExpressionKind::Not(NotExpression { operand }) => {
             output.push_str("not ");
-            write_expression(output, operand);
+            write_expression(output, operand, indent_level);
         }
         ExpressionKind::QualifiedIdentifier(QualifiedIdentifier { segments }) => {
             for (index, segment) in segments.iter().enumerate() {
@@ -272,7 +288,7 @@ fn write_expression(output: &mut String, expression: &Expression) {
                 match part {
                     TemplateStringPart::Interpolation(expression) => {
                         output.push_str("${");
-                        write_expression(output, expression);
+                        write_expression(output, expression, indent_level);
                         output.push('}');
                     }
                     TemplateStringPart::Text(text) => output.push_str(text.as_str()),
@@ -358,6 +374,22 @@ mod tests {
             source_diagnostics.diagnostics
         );
         compilation_unit
+    }
+
+    #[test]
+    fn formats_blocks_and_tail_comments_without_changing_their_values() {
+        let source = "fun value()->string{\n// before\n{println(value:\"before\");\"tail\"} // after\n}\nprintln({true;});";
+        let expected = "fun value() -> string {\n    // before\n    {\n        println(value: \"before\");\n        \"tail\"\n    } // after\n}\nprintln({\n    true;\n});";
+        let formatted = format_compilation_unit(&parse(source));
+        assert_eq!(formatted, expected);
+        assert_eq!(format_compilation_unit(&parse(&formatted)), formatted);
+    }
+
+    #[test]
+    fn formatting_block_interpolations_keeps_template_boundaries_parseable() {
+        let formatted = format_compilation_unit(&parse("println(\"value ${{ true }}\");"));
+        assert_eq!(formatted, "println(\"value ${{\n    true\n}}\");");
+        assert_eq!(format_compilation_unit(&parse(&formatted)), formatted);
     }
 
     #[test]

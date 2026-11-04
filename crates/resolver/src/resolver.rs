@@ -76,25 +76,24 @@ impl<'a> Resolver<'a> {
                 .insert(parameter.identifier.name.clone(), parameter.ty);
         }
 
-        for statement in &mut function_item.body {
-            self.resolve_statement(statement);
-        }
-
+        let actual_type = self.resolve_block(&mut function_item.body);
         if !function_item.return_type.is_unresolved()
-            && function_item.return_type != self.symbol_table.unit_type_index()
-            && !function_item
-                .body
-                .iter()
-                .any(|statement| matches!(statement.kind, StatementKind::Return(_)))
+            && !actual_type.is_unresolved()
+            && actual_type != self.symbol_table.never_type_index()
+            && actual_type != function_item.return_type
         {
             self.add_diagnostic(
                 format!(
-                    "function `{}` must return {}",
-                    function_item.identifier.name,
-                    self.type_label(function_item.return_type)
+                    "block result type mismatch: expected {}, got {}",
+                    self.type_label(function_item.return_type),
+                    self.type_label(actual_type)
                 ),
-                function_item.identifier.span.clone(),
-                "add an explicit return statement",
+                function_item
+                    .body
+                    .last()
+                    .map(|s| s.span.clone())
+                    .unwrap_or_else(|| function_item.identifier.span.clone()),
+                "add a matching result expression or return statement",
             );
         }
 
@@ -102,9 +101,39 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_test_item(&mut self, test_item: &mut TestItem) {
-        for statement in &mut test_item.body {
-            self.resolve_statement(statement);
+        let ty = self.resolve_block(&mut test_item.body);
+        if !ty.is_unresolved()
+            && ty != self.symbol_table.unit_type_index()
+            && ty != self.symbol_table.never_type_index()
+        {
+            self.add_diagnostic(
+                "test bodies must produce unit",
+                test_item.span.clone(),
+                "discard the result with `;`",
+            );
         }
+    }
+
+    fn resolve_block(&mut self, statements: &mut [Statement]) -> TypeIndex {
+        let unit = self.symbol_table.unit_type_index();
+        let never = self.symbol_table.never_type_index();
+        let mut result = unit;
+        let mut returns = false;
+        for statement in statements {
+            self.resolve_statement(statement);
+            match &statement.kind {
+                StatementKind::Return(_) => returns = true,
+                StatementKind::Expression(value) => {
+                    returns |= value.expression.ty == never;
+                    result = if value.has_semicolon {
+                        unit
+                    } else {
+                        value.expression.ty
+                    };
+                }
+            }
+        }
+        if returns { never } else { result }
     }
 
     fn resolve_statement(&mut self, statement: &mut Statement) {
@@ -136,6 +165,7 @@ impl<'a> Resolver<'a> {
                     .return_type;
                 if !expected_type.is_unresolved()
                     && !actual_type.is_unresolved()
+                    && actual_type != self.symbol_table.never_type_index()
                     && expected_type != actual_type
                 {
                     self.add_diagnostic(
@@ -153,7 +183,7 @@ impl<'a> Resolver<'a> {
                     );
                 }
             }
-            StatementKind::Expression(ExpressionStatement { expression }) => {
+            StatementKind::Expression(ExpressionStatement { expression, .. }) => {
                 self.resolve_expression(expression);
             }
         }
@@ -161,6 +191,9 @@ impl<'a> Resolver<'a> {
 
     fn resolve_expression(&mut self, expression: &mut Expression) {
         match &mut expression.kind {
+            ExpressionKind::Block(block) => {
+                expression.ty = self.resolve_block(&mut block.statements);
+            }
             ExpressionKind::BooleanLiteral(_) | ExpressionKind::StringLiteral(_) => {}
             ExpressionKind::Identifier(identifier) => {
                 if !self
@@ -441,7 +474,10 @@ impl<'a> Resolver<'a> {
             .enumerate()
         {
             let expected_type = parameter.ty;
-            if argument.value.ty.is_unresolved() || expected_type == any_type_index {
+            if argument.value.ty.is_unresolved()
+                || argument.value.ty == self.symbol_table.never_type_index()
+                || expected_type == any_type_index
+            {
                 continue;
             }
 
@@ -490,6 +526,7 @@ impl<'a> Resolver<'a> {
         let string_type_index = self.symbol_table.string_type_index();
 
         match &expression.kind {
+            ExpressionKind::Block(_) => {}
             ExpressionKind::BooleanLiteral(_) => expression.ty = boolean_type_index,
             ExpressionKind::Identifier(identifier) => {
                 expression.ty = self
@@ -498,10 +535,21 @@ impl<'a> Resolver<'a> {
                     .copied()
                     .unwrap_or_else(TypeIndex::unresolved);
             }
-            ExpressionKind::StringLiteral(_) | ExpressionKind::TemplateString(_) => {
-                expression.ty = string_type_index
+            ExpressionKind::StringLiteral(_) => expression.ty = string_type_index,
+            ExpressionKind::TemplateString(template) => {
+                expression.ty = if template.parts.iter().any(|part| matches!(part, TemplateStringPart::Interpolation(value) if value.ty == self.symbol_table.never_type_index())) {
+                    self.symbol_table.never_type_index()
+                } else { string_type_index };
             }
             ExpressionKind::Call(call) => {
+                if call
+                    .arguments
+                    .iter()
+                    .any(|a| a.value.ty == self.symbol_table.never_type_index())
+                {
+                    expression.ty = self.symbol_table.never_type_index();
+                    return;
+                }
                 expression.ty = call
                     .function_index()
                     .ok()
@@ -513,6 +561,10 @@ impl<'a> Resolver<'a> {
                 expression.ty = TypeIndex::unresolved();
             }
             ExpressionKind::Not(not_expression) => {
+                if not_expression.operand.ty == self.symbol_table.never_type_index() {
+                    expression.ty = self.symbol_table.never_type_index();
+                    return;
+                }
                 if not_expression.operand.ty == boolean_type_index {
                     expression.ty = boolean_type_index;
                     return;

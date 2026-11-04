@@ -9,9 +9,10 @@ in the language rules.
 | --- | --- |
 | [Comments](./01.01%20Lexical%20structure%20-%20Comments.md) | Placement, nesting, and unterminated comments |
 | [Strings](./01.02%20Lexical%20structure%20-%20Strings.md) | Literal delimiters and unterminated strings |
-| [Function calls](./02.01%20Expressions%20-%20Function%20calls.md) | Argument counts, types, and unit results |
+| [Function calls](./02.01%20Expressions%20-%20Function%20calls.md) | Argument counts, types, and call results |
 | [Prefix negation](./02.02%20Expressions%20-%20Prefix%20negation.md) | Boolean negation and precedence |
 | [Template strings](./02.03%20Expressions%20-%20Template%20strings.md) | Interpolation and evaluation order |
+| [Blocks](./02.04%20Expressions%20-%20Blocks.md) | Tail values, semicolons, and nested returns |
 | [Booleans](./10.01%20Types%20-%20Booleans.md) | Boolean literals |
 | [Any](./10.02%20Types%20-%20Any.md) | Native signature escape hatch |
 | [Tests](./15.01%20Declarations%20-%20Test%20items.md) | Declarations and behavior during normal execution |

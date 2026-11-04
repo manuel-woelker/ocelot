@@ -1,8 +1,8 @@
+use crate::evaluation_flow::EvaluationFlow;
 use ocelot_ast::boolean_literal_expression::BooleanLiteralExpression;
 use ocelot_ast::call_expression::CallExpression;
 use ocelot_ast::expression::Expression;
 use ocelot_ast::expression_kind::ExpressionKind;
-use ocelot_ast::expression_statement::ExpressionStatement;
 use ocelot_ast::function_item::FunctionItem;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_ast::not_expression::NotExpression;
@@ -27,6 +27,7 @@ use ocelot_semantic::native_function::NativeFunctionContext;
 use ocelot_semantic::runtime_value::RuntimeValue;
 use ocelot_semantic::symbol_table::SymbolTable;
 use std::collections::HashMap;
+use std::ops::ControlFlow;
 
 /// Stateful AST-walking interpreter context.
 pub struct Interpreter<'a> {
@@ -77,14 +78,36 @@ impl<'a> Interpreter<'a> {
         self.interpret_function_body(statements).map(|_| ())
     }
 
-    /// Executes a function body, stopping at its first return or producing unit on fallthrough.
+    /// Executes a function body, consuming explicit returns or producing its block result.
     pub fn interpret_function_body(&self, statements: &[Statement]) -> OcelotResult<RuntimeValue> {
+        match self.evaluate_block(statements)? {
+            ControlFlow::Continue(value) | ControlFlow::Break(value) => Ok(value),
+        }
+    }
+
+    fn evaluate_block(&self, statements: &[Statement]) -> OcelotResult<EvaluationFlow> {
+        let mut result = RuntimeValue::unit();
         for statement in statements {
-            if let Some(value) = self.interpret_statement(statement)? {
-                return Ok(value);
+            match &statement.kind {
+                StatementKind::Return(value) => {
+                    let flow = match &value.expression {
+                        Some(expression) => self.evaluate_expression_flow(expression)?,
+                        None => ControlFlow::Continue(RuntimeValue::unit()),
+                    };
+                    return Ok(ControlFlow::Break(match flow {
+                        ControlFlow::Continue(value) | ControlFlow::Break(value) => value,
+                    }));
+                }
+                StatementKind::Expression(value) => {
+                    result = match self.evaluate_expression_flow(&value.expression)? {
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                        ControlFlow::Continue(result) if !value.has_semicolon => result,
+                        ControlFlow::Continue(_) => RuntimeValue::unit(),
+                    };
+                }
             }
         }
-        Ok(RuntimeValue::unit())
+        Ok(ControlFlow::Continue(result))
     }
 
     fn interpret_item(&self, item: &ocelot_ast::item::Item) -> OcelotResult<()> {
@@ -99,128 +122,121 @@ impl<'a> Interpreter<'a> {
         }
     }
 
-    fn interpret_statement(&self, statement: &Statement) -> OcelotResult<Option<RuntimeValue>> {
-        match &statement.kind {
-            StatementKind::Return(return_statement) => {
-                let value = match &return_statement.expression {
-                    Some(expression) => self.evaluate_expression(expression)?,
-                    None => RuntimeValue::unit(),
-                };
-                Ok(Some(value))
-            }
-            StatementKind::Expression(ExpressionStatement { expression }) => {
-                self.evaluate_expression(expression)?;
-                Ok(None)
-            }
+    /// Evaluates one resolved expression and returns its runtime value.
+    pub fn evaluate_expression(&self, expression: &Expression) -> OcelotResult<RuntimeValue> {
+        match self.evaluate_expression_flow(expression)? {
+            ControlFlow::Continue(value) => Ok(value),
+            ControlFlow::Break(_) => self.runtime_source_error(
+                "return outside function",
+                expression.span.clone(),
+                "not inside a function",
+            ),
         }
     }
 
-    /// Evaluates one resolved expression and returns its runtime value.
-    pub fn evaluate_expression(&self, expression: &Expression) -> OcelotResult<RuntimeValue> {
-        match &expression.kind {
+    fn evaluate_expression_flow(&self, expression: &Expression) -> OcelotResult<EvaluationFlow> {
+        let value = match &expression.kind {
+            ExpressionKind::Block(block) => return self.evaluate_block(&block.statements),
             ExpressionKind::BooleanLiteral(BooleanLiteralExpression { value }) => {
-                Ok(RuntimeValue::boolean(*value))
+                RuntimeValue::boolean(*value)
             }
-            ExpressionKind::Call(call_expression) => {
-                self.evaluate_call_expression(expression, call_expression)
+            ExpressionKind::StringLiteral(value) => RuntimeValue::string(value.value.clone()),
+            ExpressionKind::Call(call) => return self.evaluate_call_expression(expression, call),
+            ExpressionKind::Not(value) => return self.evaluate_not_expression(value),
+            ExpressionKind::TemplateString(value) => {
+                return self.evaluate_template_string_expression(value);
             }
-            ExpressionKind::Not(not_expression) => self.evaluate_not_expression(not_expression),
-            ExpressionKind::StringLiteral(string_literal) => {
-                Ok(RuntimeValue::string(string_literal.value.clone()))
+            ExpressionKind::QualifiedIdentifier(value) => {
+                return self.unresolved_qualified_identifier_error(expression, value);
             }
-            ExpressionKind::TemplateString(template_string) => {
-                self.evaluate_template_string_expression(template_string)
-            }
-            ExpressionKind::QualifiedIdentifier(identifier) => {
-                self.unresolved_qualified_identifier_error(expression, identifier)
-            }
-            ExpressionKind::Identifier(identifier) => self
-                .local_bindings
-                .get(identifier.name.as_str())
-                .cloned()
-                .map_or_else(
-                    || {
-                        self.runtime_source_error(
+            ExpressionKind::Identifier(identifier) => {
+                match self.local_bindings.get(identifier.name.as_str()) {
+                    Some(value) => value.clone(),
+                    None => {
+                        return self.runtime_source_error(
                             format!("unresolved identifier `{}`", identifier.name),
                             expression.span.clone(),
                             "not found",
-                        )
-                    },
-                    Ok,
-                ),
-        }
+                        );
+                    }
+                }
+            }
+        };
+        Ok(ControlFlow::Continue(value))
     }
 
     fn evaluate_call_expression(
         &self,
         expression: &Expression,
         call_expression: &CallExpression,
-    ) -> OcelotResult<RuntimeValue> {
+    ) -> OcelotResult<EvaluationFlow> {
         let function_index = call_expression.function_index()?;
         let function = self.symbol_table.function_definition(function_index)?;
-
-        match &function.kind {
+        let mut arguments = Vec::with_capacity(call_expression.arguments.len());
+        for argument in &call_expression.arguments {
+            match self.evaluate_expression_flow(&argument.value)? {
+                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                ControlFlow::Continue(value) => arguments.push(value),
+            }
+        }
+        let result = match &function.kind {
             FunctionKind::NativeFunction { native_function } => {
-                let arguments = call_expression
-                    .arguments
-                    .iter()
-                    .map(|argument| self.evaluate_expression(&argument.value))
-                    .collect::<OcelotResult<Vec<_>>>()?;
                 let context =
                     NativeFunctionContext::new(self.pal, self.source_file, expression.span.clone());
-                native_function.apply(&arguments, &context)
+                native_function.apply(&arguments, &context)?
             }
             FunctionKind::UserDefined {
                 function,
                 source_file,
-            } => self.evaluate_user_defined_call(call_expression, function, source_file),
-        }
+            } => self.evaluate_user_defined_call(&arguments, function, source_file)?,
+        };
+        Ok(ControlFlow::Continue(result))
     }
 
     fn evaluate_not_expression(
         &self,
         not_expression: &NotExpression,
-    ) -> OcelotResult<RuntimeValue> {
-        let operand = self.evaluate_expression(&not_expression.operand)?;
+    ) -> OcelotResult<EvaluationFlow> {
+        let operand = match self.evaluate_expression_flow(&not_expression.operand)? {
+            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+            ControlFlow::Continue(value) => value,
+        };
         let operand = operand.expect_boolean("type error: `not` expects a bool operand")?;
-        Ok(RuntimeValue::boolean(!operand))
+        Ok(ControlFlow::Continue(RuntimeValue::boolean(!operand)))
     }
 
     fn evaluate_template_string_expression(
         &self,
         template_string: &TemplateStringExpression,
-    ) -> OcelotResult<RuntimeValue> {
+    ) -> OcelotResult<EvaluationFlow> {
         let mut output = String::new();
 
         for part in &template_string.parts {
             match part {
                 TemplateStringPart::Interpolation(expression) => {
-                    output.push_str(
-                        self.evaluate_expression(expression)?
-                            .render_for_display()
-                            .as_str(),
-                    );
+                    let value = match self.evaluate_expression_flow(expression)? {
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                        ControlFlow::Continue(value) => value,
+                    };
+                    output.push_str(value.render_for_display().as_str());
                 }
                 TemplateStringPart::Text(text) => output.push_str(text.as_str()),
             }
         }
 
-        Ok(RuntimeValue::string(output))
+        Ok(ControlFlow::Continue(RuntimeValue::string(output)))
     }
 
     fn evaluate_user_defined_call(
         &self,
-        call_expression: &CallExpression,
+        arguments: &[RuntimeValue],
         function: &FunctionItem,
         source_file: &SourceFile,
     ) -> OcelotResult<RuntimeValue> {
         let mut local_bindings = HashMap::new();
 
-        for (parameter, argument) in function.parameters.iter().zip(&call_expression.arguments) {
-            local_bindings.insert(
-                parameter.identifier.name.clone(),
-                self.evaluate_expression(&argument.value)?,
-            );
+        for (parameter, argument) in function.parameters.iter().zip(arguments) {
+            local_bindings.insert(parameter.identifier.name.clone(), argument.clone());
         }
 
         Interpreter::new_with_bindings(self.pal, source_file, self.symbol_table, local_bindings)

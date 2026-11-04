@@ -54,6 +54,7 @@ impl SymbolTable {
         self.add_type(Ty::new("string", TypeKind::String));
         self.add_type(Ty::new("bool", TypeKind::Boolean));
         self.add_type(Ty::new("()", TypeKind::Unit));
+        self.add_type(Ty::new("!", TypeKind::Never));
     }
 
     /// Resolves one effect name to its table handle.
@@ -131,6 +132,12 @@ impl SymbolTable {
     pub fn unit_type_index(&self) -> TypeIndex {
         self.resolve_type("()")
             .expect("unit type should always be seeded")
+    }
+
+    /// Returns the internal type of expressions that cannot fall through.
+    pub fn never_type_index(&self) -> TypeIndex {
+        self.resolve_type("!")
+            .expect("non-fallthrough type should always be seeded")
     }
 
     /// Returns the canonical unresolved type handle.

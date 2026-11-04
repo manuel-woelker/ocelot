@@ -10,6 +10,7 @@ use ocelot_ast::function_parameter::FunctionParameter;
 use ocelot_ast::identifier::Identifier;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_ast::type_index::TypeIndex;
+use ocelot_ast::type_kind::TypeKind;
 use ocelot_ast::use_item::UseItem;
 use ocelot_base::result::OcelotResult;
 use ocelot_base::shared_string::SharedString;
@@ -509,7 +510,19 @@ impl<'a, D: DeclarationIndex> DeclarationIndexer<'a, D> {
                 .expect("unit type should be seeded");
         };
         match self.declaration_index.resolve_type(&annotation.name) {
-            Some(ty) if ty != self.declaration_index.any_type_index() => ty,
+            Some(ty)
+                if self
+                    .declaration_index
+                    .type_definition(ty)
+                    .is_ok_and(|definition| {
+                        matches!(
+                            definition.kind,
+                            TypeKind::Boolean | TypeKind::String | TypeKind::Unit
+                        )
+                    }) =>
+            {
+                ty
+            }
             _ => {
                 self.add_diagnostic(
                     format!(

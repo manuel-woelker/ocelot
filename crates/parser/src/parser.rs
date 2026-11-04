@@ -1,6 +1,7 @@
 use crate::lexer::lex::lex;
 use crate::lexer::token::Token;
 use crate::lexer::token_type::TokenType;
+use ocelot_ast::block_expression::BlockExpression;
 use ocelot_ast::boolean_literal_expression::BooleanLiteralExpression;
 use ocelot_ast::call_argument::CallArgument;
 use ocelot_ast::call_expression::CallExpression;
@@ -389,6 +390,10 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_statement(&mut self) -> OcelotResult<Statement> {
+        self.parse_statement_with_tail(false)
+    }
+
+    fn parse_statement_with_tail(&mut self, allow_tail: bool) -> OcelotResult<Statement> {
         let leading_trivia = self.take_current_leading_trivia();
         if self.at(TokenType::Return) {
             let keyword = self.expect(TokenType::Return, "expected `return`")?;
@@ -405,11 +410,21 @@ impl<'a> Parser<'a> {
             ));
         }
         let expression = self.parse_expression()?;
-        let semicolon = self.expect(TokenType::Semicolon, "expected `;` after statement")?;
-        let statement_span = Span::new(expression.span.start(), semicolon.span.end());
+        let has_semicolon = !(allow_tail && self.at(TokenType::RightBrace));
+        let end = if has_semicolon {
+            self.expect(TokenType::Semicolon, "expected `;` after statement")?
+                .span
+                .end()
+        } else {
+            expression.span.end()
+        };
+        let statement_span = Span::new(expression.span.start(), end);
 
         Ok(Statement::with_trivia(
-            StatementKind::Expression(ExpressionStatement::new(expression)),
+            StatementKind::Expression(ExpressionStatement {
+                expression,
+                has_semicolon,
+            }),
             Trivia::new(leading_trivia, Vec::new()),
             statement_span,
         ))
@@ -440,11 +455,11 @@ impl<'a> Parser<'a> {
         let mut expression = self.parse_primary_expression()?;
 
         loop {
-            self.reject_comments_before_current_token()?;
-
             if !self.at(TokenType::LeftParen) {
                 break;
             }
+
+            self.reject_comments_before_current_token()?;
 
             expression = self.parse_call_expression_suffix(expression)?;
         }
@@ -457,6 +472,16 @@ impl<'a> Parser<'a> {
         let token = self.current().clone();
 
         match token.token_type {
+            TokenType::LeftBrace => {
+                let start = self.expect(TokenType::LeftBrace, "expected `{`")?;
+                let statements =
+                    self.parse_statement_block("expected `}` to close block", "block ends here")?;
+                let end = self.expect(TokenType::RightBrace, "expected `}` after block")?;
+                Ok(Expression::new(
+                    ExpressionKind::Block(BlockExpression { statements }),
+                    Span::new(start.span.start(), end.span.end()),
+                ))
+            }
             TokenType::False => {
                 self.position += 1;
                 Ok(Expression::new(
@@ -708,7 +733,7 @@ impl<'a> Parser<'a> {
                 );
             }
 
-            let mut statement = self.parse_statement()?;
+            let mut statement = self.parse_statement_with_tail(true)?;
             self.attach_same_line_trailing_comments(
                 statement.span.end(),
                 &mut statement.trivia.trailing,
@@ -805,7 +830,8 @@ mod tests {
         let ItemKind::Statement(statement) = &script.items[0].kind else {
             panic!("expected statement");
         };
-        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind else {
+        let StatementKind::Expression(ExpressionStatement { expression, .. }) = &statement.kind
+        else {
             panic!("expected expression statement")
         };
         let ExpressionKind::Call(call_expression) = &expression.kind else {

@@ -18,7 +18,7 @@ pub fn lex(source_file: &SourceFile, source_diagnostics: &mut SourceDiagnostics)
     let bytes = source.as_bytes();
     let mut index = 0;
     let mut mode = LexMode::Normal;
-    let mut template_resume_depth = 0usize;
+    let mut template_resume_depth = Vec::<usize>::new();
 
     while index < bytes.len() {
         let leading_trivia = match mode {
@@ -114,6 +114,9 @@ pub fn lex(source_file: &SourceFile, source_diagnostics: &mut SourceDiagnostics)
                     index += 1;
                 }
                 b'{' => {
+                    if let Some(depth) = template_resume_depth.last_mut() {
+                        *depth += 1;
+                    }
                     tokens.push(Token::with_leading_trivia(
                         TokenType::LeftBrace,
                         Trivia::new(leading_trivia, Vec::new()),
@@ -130,9 +133,13 @@ pub fn lex(source_file: &SourceFile, source_diagnostics: &mut SourceDiagnostics)
                         index + 1,
                     ));
                     index += 1;
-                    if template_resume_depth > 0 {
-                        mode = LexMode::TemplateString;
-                        template_resume_depth -= 1;
+                    if let Some(depth) = template_resume_depth.last_mut() {
+                        if *depth == 0 {
+                            template_resume_depth.pop();
+                            mode = LexMode::TemplateString;
+                        } else {
+                            *depth -= 1;
+                        }
                     }
                 }
                 b';' => {
@@ -256,7 +263,7 @@ fn lex_template_string_part(
     source_file: &SourceFile,
     index: &mut usize,
     mode: &mut LexMode,
-    template_resume_depth: &mut usize,
+    template_resume_depth: &mut Vec<usize>,
 ) -> Result<Option<Token>, SourceDiagnostic> {
     let bytes = source_file.source().as_bytes();
     let segment_start = *index;
@@ -296,7 +303,7 @@ fn lex_template_string_part(
                 let token = Token::new(TokenType::InterpolationStart, *index, *index + 2);
                 *index += 2;
                 *mode = LexMode::Normal;
-                *template_resume_depth += 1;
+                template_resume_depth.push(0);
                 return Ok(Some(token));
             }
             _ => *index += 1,

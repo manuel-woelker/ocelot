@@ -6,5 +6,7 @@ pub enum TypeKind {
     String,
     /// The result of a function that returns no value.
     Unit,
+    /// Internal type of an expression that always returns from its enclosing function.
+    Never,
     Unresolved,
 }

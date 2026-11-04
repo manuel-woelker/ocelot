@@ -22,20 +22,20 @@ currently supported item/statement positions, including around tail expressions.
 
 # What work and verification are required?
 
-- [ ] Represent block expressions and distinguish tail expressions from discarded statements.
-- [ ] Parse blocks in expression positions and tail expressions in bodies, preserving
+- [x] Represent block expressions and distinguish tail expressions from discarded statements.
+- [x] Parse blocks in expression positions and tail expressions in bodies, preserving
   source spans, comments, and nested template interpolation delimiters.
-- [ ] Reuse block result typing for functions, tests, and standalone expressions;
+- [x] Reuse block result typing for functions, tests, and standalone expressions;
   validate implicit results and preserve explicit return checking.
-- [ ] Propagate normal function returns through nested expression evaluation while
+- [x] Propagate normal function returns through nested expression evaluation while
   preserving evaluation order and skipping subsequent effects after a return.
-- [ ] Format nested blocks and preserve semicolon choices and supported comments.
-- [ ] Add source-driven tests for values, unit, annotations, discarded values,
+- [x] Format nested blocks and preserve semicolon choices and supported comments.
+- [x] Add source-driven tests for values, unit, annotations, discarded values,
   nested returns, unreachable checks, type errors, templates, evaluation order,
   imported calls, embedded eval, malformed input, and formatter round trips.
-- [ ] Update executable specs and overview; supersede DR-014 with a bidirectionally
+- [x] Update executable specs and overview; supersede DR-014 with a bidirectionally
   linked decision that establishes block results as the basis for future if expressions.
-- [ ] Run `nao check`, inspect diagnostics, record verification, and move the plan
+- [x] Run `nao check`, inspect diagnostics, record verification, and move the plan
   to `completed` before committing the feature.
 
 # What risks need attention?
@@ -46,3 +46,27 @@ control must travel through expressions without masquerading as a runtime error.
 Template lexing must distinguish a block's closing brace from an interpolation's
 closing brace. Future conditional branches will need result unification and
 path analysis, but should consume these same block values and return signals.
+
+# What was implemented and verified?
+
+Block expressions and function/test bodies reuse one statement-sequence result
+rule. The AST preserves whether an expression has a semicolon; tail trivia stays
+attached to its statement. An internal non-fallthrough type models nested explicit
+returns without treating them as unit values. Expression evaluation propagates
+normal return control through calls, arguments, negation, and templates, consuming
+it only at function boundaries.
+
+The interpolation lexer now retains brace depth per active interpolation. Its
+reusable finding is recorded in development learnings. DR-015 supersedes DR-014's
+explicit-return-only restriction while retaining declared result types.
+
+Colocated regressions cover values and unit, semicolons, imported calls, annotation
+errors, nested returns through each expression form, evaluation order, skipped
+effects, unreachable name/type/effect checks, native and user call arguments,
+template nesting, malformed blocks, comments, and formatter idempotence.
+
+`nao check` passed, including Rust tests and all 70 executable examples across
+19 spec chapters. `git diff --check` and local documentation link checks passed.
+An isolated REPL smoke test evaluated a block with an effect and called a retained
+function with a tail result. Conditional syntax remains the subsequent feature;
+all planned block-foundation work is complete.

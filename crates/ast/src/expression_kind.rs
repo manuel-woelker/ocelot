@@ -1,3 +1,4 @@
+use crate::block_expression::BlockExpression;
 use crate::boolean_literal_expression::BooleanLiteralExpression;
 use crate::call_expression::CallExpression;
 use crate::identifier::Identifier;
@@ -9,6 +10,7 @@ use crate::template_string_expression::TemplateStringExpression;
 /// Variants of expressions supported by the current AST scaffold.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExpressionKind {
+    Block(BlockExpression),
     BooleanLiteral(BooleanLiteralExpression),
     Call(CallExpression),
     Identifier(Identifier),

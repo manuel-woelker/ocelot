@@ -1,5 +1,6 @@
 //! Abstract syntax tree types for `ocelot`.
 
+pub mod block_expression;
 pub mod boolean_literal_expression;
 pub mod call_argument;
 pub mod call_expression;

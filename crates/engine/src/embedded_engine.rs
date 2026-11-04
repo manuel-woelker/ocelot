@@ -125,7 +125,8 @@ impl EmbeddedEngine {
             .statements()
             .find(|statement| statement.span.start() >= new_item_offset)
             .context("internal error: eval did not produce a statement")?;
-        let StatementKind::Expression(ExpressionStatement { expression }) = &statement.kind else {
+        let StatementKind::Expression(ExpressionStatement { expression, .. }) = &statement.kind
+        else {
             ocelot_base::bail!("internal error: eval requires an expression statement");
         };
 
@@ -196,6 +197,47 @@ mod tests {
     use ocelot_pal::pal::PalHandle;
     use ocelot_pal::pal_mock::PalMock;
     use ocelot_semantic::runtime_value::RuntimeValue;
+
+    #[test]
+    fn eval_returns_block_values_and_semicolons_discard_them() {
+        let pal = PalMock::new();
+        let mut engine = EmbeddedEngine::new(PalHandle::new(pal.clone()), "examples");
+        for (source, expected) in [
+            ("{}", RuntimeValue::unit()),
+            ("{ true }", RuntimeValue::boolean(true)),
+            ("{ true; }", RuntimeValue::unit()),
+            ("{{ \"nested\" }}", RuntimeValue::string("nested")),
+            ("not { false }", RuntimeValue::boolean(true)),
+            (
+                "\"value ${{ { true } }}\"",
+                RuntimeValue::string("value true"),
+            ),
+            (
+                "\"${{ \"inner ${ { false } }\" }}\"",
+                RuntimeValue::string("inner false"),
+            ),
+        ] {
+            assert_eq!(engine.eval(source).unwrap(), expected, "{source}");
+        }
+        assert_eq!(
+            engine.eval("{ println(\"once\"); \"result\" }").unwrap(),
+            RuntimeValue::string("result")
+        );
+        assert_eq!(pal.take_printed_output(), "once\n");
+        engine
+            .execute("fun greeting(name: string) -> string { \"Hello ${name}!\" }")
+            .unwrap();
+        assert_eq!(
+            engine.eval("greeting(name: \"Ada\")").unwrap(),
+            RuntimeValue::string("Hello Ada!")
+        );
+        assert!(engine.execute("fun bad() { \"not unit\" }").is_err());
+        assert!(engine.eval("{ return true; }").is_err());
+        assert_eq!(
+            engine.eval("greeting(name: \"Grace\")").unwrap(),
+            RuntimeValue::string("Hello Grace!")
+        );
+    }
 
     #[test]
     fn eval_returns_typed_values_and_failed_returns_do_not_replace_session_source() {

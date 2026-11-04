@@ -4,8 +4,9 @@
 The current interpreter supports strings, booleans, template strings, typed function
 parameters, required argument labels with explicit positional opt-in, nominal effects,
 file modules, imports, and test declarations.
-Functions support explicit string, boolean, and unit return types with checked
-`return` statements. An omitted result type means unit; return types are not inferred.
+Functions support declared string, boolean, and unit return types, block result
+expressions, and explicit `return` statements. A final expression without a semicolon
+supplies a block's value. An omitted function result annotation still means unit.
 
 # How is the implementation organized?
 
@@ -39,8 +40,8 @@ Start with the decisions on the [PAL](<decisions/DR-001 Isolate platform interac
 and [embedded sessions](<decisions/DR-009 Reuse source backed embedded sessions for the REPL.md>).
 The [argument-label decision](<decisions/DR-011 Require argument labels with explicit positional opt in.md>)
 records the latest public calling-convention tradeoffs.
-The [typed-return decision](<decisions/DR-014 Use explicit typed function returns.md>)
-explains explicit result annotations and early-return semantics.
+The [block-value decision](<decisions/DR-015 Use block values before expression conditionals.md>)
+explains body results, declared types, and early-return semantics.
 
 # What principles guide the project?
 
