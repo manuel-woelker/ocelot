@@ -7,6 +7,8 @@ use ocelot_ast::call_argument::CallArgument;
 use ocelot_ast::call_expression::CallExpression;
 use ocelot_ast::compilation_unit::CompilationUnit;
 use ocelot_ast::effect_item::EffectItem;
+use ocelot_ast::equality_expression::EqualityExpression;
+use ocelot_ast::equality_operator::EqualityOperator;
 use ocelot_ast::expression::Expression;
 use ocelot_ast::expression_kind::ExpressionKind;
 use ocelot_ast::expression_statement::ExpressionStatement;
@@ -468,7 +470,31 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expression(&mut self) -> OcelotResult<Expression> {
-        self.parse_prefix_expression()
+        let left = self.parse_prefix_expression()?;
+        let operator = match self.current().token_type {
+            TokenType::EqualEqual => EqualityOperator::Equal,
+            TokenType::NotEqual => EqualityOperator::NotEqual,
+            _ => return Ok(left),
+        };
+        self.reject_comments_before_current_token()?;
+        self.position += 1;
+        let right = self.parse_prefix_expression()?;
+        if self.at(TokenType::EqualEqual) || self.at(TokenType::NotEqual) {
+            return self.emit_fatal_diagnostic(
+                "equality comparisons cannot be chained",
+                self.current().span.clone(),
+                "group a comparison with a block",
+            );
+        }
+        let span = Span::new(left.span.start(), right.span.end());
+        Ok(Expression::new(
+            ExpressionKind::Equality(EqualityExpression {
+                left: Box::new(left),
+                operator,
+                right: Box::new(right),
+            }),
+            span,
+        ))
     }
 
     fn parse_prefix_expression(&mut self) -> OcelotResult<Expression> {

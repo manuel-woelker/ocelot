@@ -8,6 +8,8 @@ pub mod compilation_unit;
 pub mod effect;
 pub mod effect_index;
 pub mod effect_item;
+pub mod equality_expression;
+pub mod equality_operator;
 pub mod expression;
 pub mod expression_kind;
 pub mod expression_statement;

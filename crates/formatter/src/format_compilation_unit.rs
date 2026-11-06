@@ -243,6 +243,13 @@ fn write_statement(output: &mut String, statement: &Statement, indent_level: usi
 
 fn write_expression(output: &mut String, expression: &Expression, indent_level: usize) {
     match &expression.kind {
+        ExpressionKind::Equality(equality) => {
+            write_expression(output, &equality.left, indent_level);
+            output.push(' ');
+            output.push_str(equality.operator.as_str());
+            output.push(' ');
+            write_expression(output, &equality.right, indent_level);
+        }
         ExpressionKind::If(conditional) => {
             output.push_str("if ");
             write_expression(output, &conditional.condition, indent_level);
@@ -396,6 +403,15 @@ mod tests {
             source_diagnostics.diagnostics
         );
         compilation_unit
+    }
+
+    #[test]
+    fn formats_equality_and_preserves_explicit_block_grouping() {
+        let source = "// comparison\nlet same=not false==enabled(); // after\nassert({true!=false}==true);\nif same!=false{println(\"${same==true}\");};";
+        let expected = "// comparison\nlet same = not false == enabled(); // after\nassert({\n    true != false\n} == true);\nif same != false {\n    println(\"${same == true}\");\n};";
+        let formatted = format_compilation_unit(&parse(source));
+        assert_eq!(formatted, expected);
+        assert_eq!(format_compilation_unit(&parse(&formatted)), formatted);
     }
 
     #[test]

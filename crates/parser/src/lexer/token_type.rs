@@ -7,6 +7,8 @@ pub enum TokenType {
     Effect,
     Else,
     Equal,
+    EqualEqual,
+    NotEqual,
     If,
     Identifier,
     InterpolationStart,

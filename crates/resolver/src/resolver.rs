@@ -343,6 +343,10 @@ impl<'a> Resolver<'a> {
 
     fn resolve_expression(&mut self, expression: &mut Expression) {
         match &mut expression.kind {
+            ExpressionKind::Equality(equality) => {
+                self.resolve_expression(&mut equality.left);
+                self.resolve_expression(&mut equality.right);
+            }
             ExpressionKind::If(conditional) => {
                 expression.ty = self.resolve_if_expression(conditional);
             }
@@ -675,6 +679,30 @@ impl<'a> Resolver<'a> {
         let string_type_index = self.symbol_table.string_type_index();
 
         match &expression.kind {
+            ExpressionKind::Equality(equality) => {
+                let left = equality.left.ty;
+                let right = equality.right.ty;
+                let never = self.symbol_table.never_type_index();
+                expression.ty = if left.is_unresolved() || right.is_unresolved() {
+                    TypeIndex::unresolved()
+                } else if left == never || right == never {
+                    never
+                } else if left == right {
+                    boolean_type_index
+                } else {
+                    self.add_diagnostic(
+                        format!(
+                            "operator `{}` expects matching operand types: got {} and {}",
+                            equality.operator.as_str(),
+                            self.type_label(left),
+                            self.type_label(right)
+                        ),
+                        expression.span.clone(),
+                        "operand types differ",
+                    );
+                    TypeIndex::unresolved()
+                };
+            }
             ExpressionKind::Block(_) | ExpressionKind::If(_) => {}
             ExpressionKind::BooleanLiteral(_) => expression.ty = boolean_type_index,
             ExpressionKind::Identifier(identifier) => {

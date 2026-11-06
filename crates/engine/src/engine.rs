@@ -138,6 +138,110 @@ mod tests {
     use ocelot_semantic::source_file_kind::SourceFileKind;
 
     #[test]
+    fn equality_evaluates_operands_once_in_order_and_propagates_returns() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/main.ocelot-script",
+            r#"
+fun early_left() -> string {
+    { return "left return"; } == { println("unreachable right"); false };
+    "unreachable"
+}
+fun early_right() -> string {
+    { println("before return"); true } != { return "right return"; };
+    "unreachable"
+}
+fun both_return() -> string {
+    { return "first return"; } == { return "second return"; }
+}
+println({ println("left"); "same" } == { println("right"); "same" });
+println(early_left());
+println(early_right());
+println(both_return());
+assert(println("unit left") == println("unit right"));
+"#,
+        );
+        Engine::new(PalHandle::new(pal.clone()))
+            .run_file("examples/main.ocelot-script")
+            .unwrap();
+        assert_eq!(
+            pal.take_printed_output(),
+            "left\nright\ntrue\nleft return\nbefore return\nright return\nfirst return\nunit left\nunit right\n"
+        );
+    }
+
+    #[test]
+    fn invalid_equality_operands_and_effects_are_checked_before_execution() {
+        for (source, expected) in [
+            (
+                "true == \"true\";",
+                "expects matching operand types: got bool and string",
+            ),
+            (
+                "\"x\" != {};",
+                "expects matching operand types: got string and ()",
+            ),
+            (
+                "{} == false;",
+                "expects matching operand types: got () and bool",
+            ),
+            ("true == missing;", "unresolved identifier `missing`"),
+            (
+                "fun bad() { { return; } == missing; }",
+                "unresolved identifier `missing`",
+            ),
+            (
+                "if false { true == \"wrong\"; };",
+                "expects matching operand types",
+            ),
+            (
+                "fun bad() cannot write_stdout { println(\"left\") == {}; }",
+                "cannot perform effect",
+            ),
+            (
+                "fun bad() cannot write_stdout { {} != println(\"right\"); }",
+                "cannot perform effect",
+            ),
+        ] {
+            let pal = PalMock::new();
+            pal.set_file(
+                "examples/main.ocelot-script",
+                format!("println(\"must not run\"); {source}"),
+            );
+            let error = Engine::new(PalHandle::new(pal.clone()))
+                .run_file("examples/main.ocelot-script")
+                .unwrap_err();
+            assert!(
+                matches!(
+                    error.kind(),
+                    ErrorKind::CompilationError(CompilationStage::Resolver)
+                ),
+                "{source}"
+            );
+            assert!(
+                error.to_test_string().contains(expected),
+                "{source}\n{error:?}"
+            );
+            assert_eq!(pal.take_printed_output(), "", "{source}");
+        }
+    }
+
+    #[test]
+    fn equality_stops_after_a_failing_operand() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/main.ocelot-script",
+            "{ assert(false); true } == { println(\"unreachable\"); false };",
+        );
+        assert!(
+            Engine::new(PalHandle::new(pal.clone()))
+                .run_file("examples/main.ocelot-script")
+                .is_err()
+        );
+        assert_eq!(pal.take_printed_output(), "");
+    }
+
+    #[test]
     fn bindings_infer_types_and_restore_outer_names_after_blocks_and_branches() {
         let pal = PalMock::new();
         pal.set_file(

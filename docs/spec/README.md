@@ -14,6 +14,7 @@ in the language rules.
 | [Template strings](./02.03%20Expressions%20-%20Template%20strings.md) | Interpolation and evaluation order |
 | [Blocks](./02.04%20Expressions%20-%20Blocks.md) | Tail values, semicolons, and nested returns |
 | [Conditionals](./02.05%20Expressions%20-%20Conditionals.md) | Boolean conditions, branch values, and expression statements |
+| [Equality](<02.06 Expressions - Equality.md>) | Matching value types, comparison operators, precedence, and evaluation order |
 | [Local bindings](<05.01 Statements - Local bindings.md>) | Immutable values, annotations, lexical scope, and shadowing |
 | [Booleans](./10.01%20Types%20-%20Booleans.md) | Boolean literals |
 | [Any](./10.02%20Types%20-%20Any.md) | Native signature escape hatch |

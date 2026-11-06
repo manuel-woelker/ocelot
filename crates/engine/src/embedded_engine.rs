@@ -206,6 +206,47 @@ mod tests {
     use ocelot_semantic::runtime_value::RuntimeValue;
 
     #[test]
+    fn equality_compares_matching_values_and_composes_with_expressions() {
+        let pal = PalMock::new();
+        let mut engine = EmbeddedEngine::new(PalHandle::new(pal), "examples");
+        engine
+            .execute("let name = \"Ada\"; fun enabled() -> bool { true }")
+            .unwrap();
+        for (source, expected) in [
+            ("true == true", true),
+            ("true == false", false),
+            ("false != true", true),
+            ("false != false", false),
+            ("name == \"Ada\"", true),
+            ("name != \"Grace\"", true),
+            ("\"\" == \"\"", true),
+            ("\"é\" != \"e\"", true),
+            ("\"é\" == \"é\"", true),
+            ("{} == {}", true),
+            ("{} != {}", false),
+            ("not false == enabled()", true),
+            ("enabled() != not true", true),
+            ("{ true == false } == false", true),
+            ("true == { false != true }", true),
+            ("if name == \"Ada\" { true } else { false }", true),
+            ("if true { name } else { \"other\" } == \"Ada\"", true),
+            ("name == if false { \"other\" } else { \"Ada\" }", true),
+        ] {
+            assert_eq!(
+                engine.eval(source).unwrap(),
+                RuntimeValue::boolean(expected),
+                "{source}"
+            );
+        }
+        engine.execute("let same: bool = name == \"Ada\";").unwrap();
+        assert_eq!(engine.eval("same").unwrap(), RuntimeValue::boolean(true));
+        assert_eq!(
+            engine.eval("\"same: ${name == \"Ada\"}\"").unwrap(),
+            RuntimeValue::string("same: true")
+        );
+    }
+
+    #[test]
     fn execute_retains_bindings_without_replay_and_rolls_back_failed_candidates() {
         let pal = PalMock::new();
         let mut engine = EmbeddedEngine::new(PalHandle::new(pal.clone()), "examples");

@@ -1,6 +1,7 @@
 use crate::block_expression::BlockExpression;
 use crate::boolean_literal_expression::BooleanLiteralExpression;
 use crate::call_expression::CallExpression;
+use crate::equality_expression::EqualityExpression;
 use crate::identifier::Identifier;
 use crate::if_expression::IfExpression;
 use crate::not_expression::NotExpression;
@@ -14,6 +15,7 @@ pub enum ExpressionKind {
     Block(BlockExpression),
     BooleanLiteral(BooleanLiteralExpression),
     Call(CallExpression),
+    Equality(EqualityExpression),
     Identifier(Identifier),
     If(IfExpression),
     Not(NotExpression),

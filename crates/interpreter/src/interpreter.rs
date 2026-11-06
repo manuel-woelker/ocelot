@@ -161,6 +161,21 @@ impl<'a> Interpreter<'a> {
 
     fn evaluate_expression_flow(&self, expression: &Expression) -> OcelotResult<EvaluationFlow> {
         let value = match &expression.kind {
+            ExpressionKind::Equality(equality) => {
+                let left = match self.evaluate_expression_flow(&equality.left)? {
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    ControlFlow::Continue(value) => value,
+                };
+                let right = match self.evaluate_expression_flow(&equality.right)? {
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    ControlFlow::Continue(value) => value,
+                };
+                let equal = left.equals(&right);
+                RuntimeValue::boolean(match equality.operator {
+                    ocelot_ast::equality_operator::EqualityOperator::Equal => equal,
+                    ocelot_ast::equality_operator::EqualityOperator::NotEqual => !equal,
+                })
+            }
             ExpressionKind::If(conditional) => {
                 let condition = match self.evaluate_expression_flow(&conditional.condition)? {
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),

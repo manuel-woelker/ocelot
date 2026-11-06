@@ -46,6 +46,62 @@ mod tests {
     use ocelot_base::span::Span;
 
     #[test]
+    fn equality_has_lower_precedence_than_negation_and_calls_and_keeps_spans() {
+        let source = "not enabled()==not false;";
+        let unit = parse_compilation_unit(
+            &SourceFile::new("main.ocelot-script", source),
+            &mut SourceDiagnostics::default(),
+        )
+        .unwrap();
+        let ItemKind::Statement(statement) = &unit.items[0].kind else {
+            panic!("statement")
+        };
+        let StatementKind::Expression(value) = &statement.kind else {
+            panic!("expression")
+        };
+        assert_eq!(value.expression.span, Span::new(0, source.len() - 1));
+        let ExpressionKind::Equality(equality) = &value.expression.kind else {
+            panic!("equality")
+        };
+        assert_eq!(equality.left.span, Span::new(0, 13));
+        assert_eq!(equality.right.span, Span::new(15, 24));
+        assert!(
+            matches!(&equality.left.kind, ExpressionKind::Not(value) if matches!(value.operand.kind, ExpressionKind::Call(_)))
+        );
+        assert!(matches!(equality.right.kind, ExpressionKind::Not(_)));
+    }
+
+    #[test]
+    fn malformed_and_chained_equality_are_rejected() {
+        for source in [
+            "true ==;",
+            "!= false;",
+            "true ! false;",
+            "true === false;",
+            "true !== false;",
+            "true == false == true;",
+            "true != false == true;",
+            "true == false != true;",
+            "true != false != true;",
+        ] {
+            let error = parse_compilation_unit(
+                &SourceFile::new("main.ocelot-script", source),
+                &mut SourceDiagnostics::default(),
+            )
+            .unwrap_err();
+            if source.matches("==").count() + source.matches("!=").count() == 2
+                && !source.contains("===")
+                && !source.contains("!==")
+            {
+                assert!(
+                    error.to_test_string().contains("cannot be chained"),
+                    "{source}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn parses_inferred_annotated_and_unit_bindings_with_source_spans() {
         let source = "let name: string = \"Ada\"; let enabled = true; let empty: () = {};";
         let unit = parse_compilation_unit(
