@@ -26,13 +26,14 @@ use ocelot_semantic::function_kind::FunctionKind;
 use ocelot_semantic::native_function::NativeFunctionContext;
 use ocelot_semantic::runtime_value::RuntimeValue;
 use ocelot_semantic::symbol_table::SymbolTable;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::ControlFlow;
 
 /// Stateful AST-walking interpreter context.
 pub struct Interpreter<'a> {
     symbol_table: &'a SymbolTable,
-    local_bindings: HashMap<SharedString, RuntimeValue>,
+    binding_scopes: RefCell<Vec<HashMap<SharedString, RuntimeValue>>>,
     pal: &'a dyn Pal,
     source_file: &'a SourceFile,
 }
@@ -56,7 +57,7 @@ impl<'a> Interpreter<'a> {
     ) -> Self {
         Self {
             symbol_table,
-            local_bindings,
+            binding_scopes: RefCell::new(vec![local_bindings]),
             pal,
             source_file,
         }
@@ -73,6 +74,11 @@ impl<'a> Interpreter<'a> {
         Ok(())
     }
 
+    /// Returns the current root bindings for a successful embedded session snapshot.
+    pub fn root_bindings(&self) -> HashMap<SharedString, RuntimeValue> {
+        self.binding_scopes.borrow()[0].clone()
+    }
+
     /// Executes statements, stopping at a return and discarding its result.
     pub fn interpret_statements(&self, statements: &[Statement]) -> OcelotResult<()> {
         self.interpret_function_body(statements).map(|_| ())
@@ -80,15 +86,34 @@ impl<'a> Interpreter<'a> {
 
     /// Executes a function body, consuming explicit returns or producing its block result.
     pub fn interpret_function_body(&self, statements: &[Statement]) -> OcelotResult<RuntimeValue> {
-        match self.evaluate_block(statements)? {
+        match self.evaluate_statements(statements)? {
             ControlFlow::Continue(value) | ControlFlow::Break(value) => Ok(value),
         }
     }
 
     fn evaluate_block(&self, statements: &[Statement]) -> OcelotResult<EvaluationFlow> {
+        self.binding_scopes.borrow_mut().push(HashMap::new());
+        let result = self.evaluate_statements(statements);
+        self.binding_scopes.borrow_mut().pop();
+        result
+    }
+
+    fn evaluate_statements(&self, statements: &[Statement]) -> OcelotResult<EvaluationFlow> {
         let mut result = RuntimeValue::unit();
         for statement in statements {
             match &statement.kind {
+                StatementKind::Let(binding) => {
+                    let value = match self.evaluate_expression_flow(&binding.initializer)? {
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                        ControlFlow::Continue(value) => value,
+                    };
+                    self.binding_scopes
+                        .borrow_mut()
+                        .last_mut()
+                        .expect("binding scope should exist")
+                        .insert(binding.identifier.name.clone(), value);
+                    result = RuntimeValue::unit();
+                }
                 StatementKind::Return(value) => {
                     let flow = match &value.expression {
                         Some(expression) => self.evaluate_expression_flow(expression)?,
@@ -165,8 +190,14 @@ impl<'a> Interpreter<'a> {
                 return self.unresolved_qualified_identifier_error(expression, value);
             }
             ExpressionKind::Identifier(identifier) => {
-                match self.local_bindings.get(identifier.name.as_str()) {
-                    Some(value) => value.clone(),
+                match self
+                    .binding_scopes
+                    .borrow()
+                    .iter()
+                    .rev()
+                    .find_map(|scope| scope.get(identifier.name.as_str()).cloned())
+                {
+                    Some(value) => value,
                     None => {
                         return self.runtime_source_error(
                             format!("unresolved identifier `{}`", identifier.name),
@@ -317,6 +348,51 @@ mod tests {
     use ocelot_semantic::runtime_value::RuntimeValue;
     use ocelot_semantic::symbol_table::SymbolTable;
     use std::collections::HashMap;
+
+    #[test]
+    fn nested_scopes_are_removed_after_runtime_errors_and_returns() {
+        for (ending, fails) in [("assert(false);", true), ("return;", false)] {
+            let source = SourceFile::new(
+                "scope.ocelot-script",
+                format!(
+                    "fun run() {{ let name = \"outer\"; {{ let name = \"inner\"; {ending} }}; }}"
+                ),
+            );
+            let mut unit = ocelot_parser::parse_compilation_unit::parse_compilation_unit(
+                &source,
+                &mut ocelot_base::source_diagnostics::SourceDiagnostics::default(),
+            )
+            .unwrap();
+            let mut symbols = SymbolTable::new();
+            ocelot_resolver::resolution::resolve(
+                &mut unit, &source, &mut ocelot_semantic::compilation_context::CompilationContext::default(),
+                &mut symbols, &ocelot_semantic::compilation_inputs::CompilationInputs::with_default_native_functions(),
+            ).unwrap();
+            let definition = symbols
+                .function_definition(symbols.resolve_function_exact("scope::run").unwrap())
+                .unwrap();
+            let ocelot_semantic::function_kind::FunctionKind::UserDefined { function, .. } =
+                &definition.kind
+            else {
+                panic!("expected function")
+            };
+            let pal = PalMock::new();
+            let interpreter = Interpreter::new(&pal, &source, &symbols);
+            assert_eq!(
+                interpreter.interpret_function_body(&function.body).is_err(),
+                fails
+            );
+            let reference = Expression::new(
+                ExpressionKind::Identifier(Identifier::new("name", Span::new(0, 0))),
+                Span::new(0, 0),
+            );
+            assert_eq!(
+                interpreter.evaluate_expression(&reference).unwrap(),
+                RuntimeValue::string("outer")
+            );
+            assert_eq!(interpreter.root_bindings().len(), 1);
+        }
+    }
 
     #[test]
     fn evaluate_expression_returns_runtime_values() {

@@ -3,7 +3,8 @@
 `ocelot` is an experimental statically typed programming language implemented in Rust.
 The current interpreter supports strings, booleans, template strings, typed function
 parameters, required argument labels with explicit positional opt-in, nominal effects,
-file modules, imports, test declarations, and conditional expressions.
+file modules, imports, test declarations, conditional expressions, and immutable
+local `let` bindings with lexical scopes and optional type annotations.
 Functions support declared string, boolean, and unit return types, block result
 expressions, and explicit `return` statements. A final expression without a semicolon
 supplies a block's value. An omitted function result annotation still means unit.

@@ -17,6 +17,7 @@ use ocelot_ast::identifier::Identifier;
 use ocelot_ast::if_expression::IfExpression;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
+use ocelot_ast::let_statement::LetStatement;
 use ocelot_ast::not_expression::NotExpression;
 use ocelot_ast::qualified_identifier::QualifiedIdentifier;
 use ocelot_ast::return_statement::ReturnStatement;
@@ -28,6 +29,7 @@ use ocelot_ast::template_string_part::TemplateStringPart;
 use ocelot_ast::test_item::TestItem;
 use ocelot_ast::trivia::Trivia;
 use ocelot_ast::trivia_piece::TriviaPiece;
+use ocelot_ast::type_index::TypeIndex;
 use ocelot_ast::use_item::UseItem;
 use ocelot_base::compilation_stage::CompilationStage;
 use ocelot_base::diagnostic_level::DiagnosticLevel;
@@ -166,16 +168,7 @@ impl<'a> Parser<'a> {
         self.expect(TokenType::RightParen, "expected `)` after parameter list")?;
         let return_type_name = if self.at(TokenType::Arrow) {
             self.expect(TokenType::Arrow, "expected `->` before return type")?;
-            if self.at(TokenType::LeftParen) {
-                let start = self.expect(TokenType::LeftParen, "expected `()` result type")?;
-                let end = self.expect(TokenType::RightParen, "expected `)` in unit result type")?;
-                Some(Identifier::new(
-                    "()",
-                    Span::new(start.span.start(), end.span.end()),
-                ))
-            } else {
-                Some(self.parse_identifier_token("expected return type after `->`")?)
-            }
+            Some(self.parse_type_name("expected return type after `->`")?)
         } else {
             None
         };
@@ -248,6 +241,19 @@ impl<'a> Parser<'a> {
             Trivia::default(),
             span,
         ))
+    }
+
+    fn parse_type_name(&mut self, message: &str) -> OcelotResult<Identifier> {
+        if self.at(TokenType::LeftParen) {
+            let start = self.expect(TokenType::LeftParen, "expected `()` type")?;
+            let end = self.expect(TokenType::RightParen, "expected `)` in unit type")?;
+            Ok(Identifier::new(
+                "()",
+                Span::new(start.span.start(), end.span.end()),
+            ))
+        } else {
+            self.parse_identifier_token(message)
+        }
     }
 
     fn parse_function_effect_clause(
@@ -396,6 +402,29 @@ impl<'a> Parser<'a> {
 
     fn parse_statement_with_tail(&mut self, allow_tail: bool) -> OcelotResult<Statement> {
         let leading_trivia = self.take_current_leading_trivia();
+        if self.at(TokenType::Let) {
+            let keyword = self.expect(TokenType::Let, "expected `let`")?;
+            let identifier = self.parse_identifier_token("expected binding name")?;
+            let type_name = if self.at(TokenType::Colon) {
+                self.expect(TokenType::Colon, "expected `:` before binding type")?;
+                Some(self.parse_type_name("expected binding type")?)
+            } else {
+                None
+            };
+            self.expect(TokenType::Equal, "expected `=` before binding initializer")?;
+            let initializer = self.parse_expression()?;
+            let end = self.expect(TokenType::Semicolon, "expected `;` after binding")?;
+            return Ok(Statement::with_trivia(
+                StatementKind::Let(LetStatement {
+                    identifier,
+                    type_name,
+                    initializer,
+                    ty: TypeIndex::unresolved(),
+                }),
+                Trivia::new(leading_trivia, Vec::new()),
+                Span::new(keyword.span.start(), end.span.end()),
+            ));
+        }
         if self.at(TokenType::Return) {
             let keyword = self.expect(TokenType::Return, "expected `return`")?;
             let expression = if self.at(TokenType::Semicolon) {
@@ -411,6 +440,13 @@ impl<'a> Parser<'a> {
             ));
         }
         let expression = self.parse_expression()?;
+        if self.at(TokenType::Equal) {
+            return self.emit_fatal_diagnostic(
+                "bindings are immutable; reassignment is not supported",
+                self.current().span.clone(),
+                "use a new name or an inner block to shadow this binding",
+            );
+        }
         let has_semicolon = !(allow_tail && self.at(TokenType::RightBrace));
         let end = if has_semicolon {
             self.expect(TokenType::Semicolon, "expected `;` after statement")?

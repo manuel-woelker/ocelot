@@ -138,6 +138,160 @@ mod tests {
     use ocelot_semantic::source_file_kind::SourceFileKind;
 
     #[test]
+    fn bindings_infer_types_and_restore_outer_names_after_blocks_and_branches() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/main.ocelot-script",
+            r#"
+let name = "outer";
+let saved = { println("initialized once"); "saved" };
+println(saved);
+println(saved);
+{
+    let name = "${name} inner";
+    let enabled: bool = true;
+    let message: string = if enabled { name } else { "wrong" };
+    println(message);
+};
+if true { let name = "branch"; println(name); };
+println(name);
+let empty: () = {};
+assert_eq(expected: empty, actual: { true; });
+fun greeting(name: string) -> string { let message = "Hello ${name}!"; message }
+println(greeting(name: "Ada"));
+println(greeting(name: "Grace"));
+let println = false;
+core::println("qualified");
+"#,
+        );
+        Engine::new(PalHandle::new(pal.clone()))
+            .run_file("examples/main.ocelot-script")
+            .unwrap();
+        assert_eq!(
+            pal.take_printed_output(),
+            "initialized once\nsaved\nsaved\nouter inner\nbranch\nouter\nHello Ada!\nHello Grace!\nqualified\n"
+        );
+    }
+
+    #[test]
+    fn bindings_do_not_leak_across_calls_tests_or_initializer_blocks() {
+        let pal = PalMock::new();
+        pal.set_file("examples/helper.ocelot", "fun greet(name: string) -> string { let result = { let name = \"${name}!\"; name }; result }");
+        pal.set_file(
+            "examples/main.ocelot-script",
+            r#"
+use helper::greet;
+let root = "script";
+println(greet(name: root));
+println(greet(name: "second"));
+test "first" { let root = "test one"; assert_eq(expected: "test one", actual: root); }
+test "second" { let root = "test two"; assert_eq(expected: "test two", actual: root); }
+"#,
+        );
+        let engine = Engine::new(PalHandle::new(pal.clone()));
+        engine.run_file("examples/main.ocelot-script").unwrap();
+        assert_eq!(pal.take_printed_output(), "script!\nsecond!\n");
+        let summary = engine.run_tests("examples/main.ocelot-script").unwrap();
+        assert_eq!(summary.passed.len(), 2);
+        assert!(summary.failed.is_empty());
+        assert_eq!(pal.take_printed_output(), "");
+    }
+
+    #[test]
+    fn invalid_bindings_fail_before_running_any_effects() {
+        for (source, expected) in [
+            (
+                "println(later); let later = true;",
+                "unresolved identifier `later`",
+            ),
+            ("let value = value;", "unresolved identifier `value`"),
+            (
+                "let value = true; let value = false;",
+                "duplicate binding `value`",
+            ),
+            (
+                "fun f(name: string) { let name = \"duplicate\"; }",
+                "duplicate binding `name`",
+            ),
+            (
+                "{ let local = true; }; assert(local);",
+                "unresolved identifier `local`",
+            ),
+            (
+                "if true { let local = true; }; assert(local);",
+                "unresolved identifier `local`",
+            ),
+            (
+                "let value = { let inside = true; inside }; assert(inside);",
+                "unresolved identifier `inside`",
+            ),
+            (
+                "if { let condition = true; condition } { assert(condition); };",
+                "unresolved identifier `condition`",
+            ),
+            ("let flag: bool = \"bad\";", "binding type mismatch"),
+            (
+                "let flag: number = true;",
+                "unsupported binding type `number`",
+            ),
+            ("let flag: any = true;", "unsupported binding type `any`"),
+            ("let flag: () = false;", "binding type mismatch"),
+            ("let value = false; value();", "is a value, not a function"),
+            (
+                "let println = false; println(\"bad\");",
+                "is a value, not a function",
+            ),
+            (
+                "let script = \"value\"; fun f() { println(script); }",
+                "unresolved identifier `script`",
+            ),
+            (
+                "let script = true; test \"isolated\" { assert(script); }",
+                "unresolved identifier `script`",
+            ),
+            (
+                "test \"one\" { let local = true; } test \"two\" { assert(local); }",
+                "unresolved identifier `local`",
+            ),
+            (
+                "fun f() cannot write_stdout { let output = println(\"bad\"); }",
+                "cannot perform effect",
+            ),
+        ] {
+            let pal = PalMock::new();
+            pal.set_file(
+                "examples/main.ocelot-script",
+                format!("println(\"must not run\"); {source}"),
+            );
+            let error = Engine::new(PalHandle::new(pal.clone()))
+                .run_file("examples/main.ocelot-script")
+                .unwrap_err();
+            assert!(
+                matches!(
+                    error.kind(),
+                    ErrorKind::CompilationError(CompilationStage::Resolver)
+                ),
+                "{source}"
+            );
+            assert!(
+                error.to_test_string().contains(expected),
+                "{source}\n{error:?}"
+            );
+            assert_eq!(pal.take_printed_output(), "", "{source}");
+        }
+    }
+
+    #[test]
+    fn a_returning_initializer_exits_before_binding_or_subsequent_effects() {
+        let pal = PalMock::new();
+        pal.set_file("examples/main.ocelot-script", "fun early() -> string { let impossible: bool = { return \"early\"; }; println(\"wrong\"); } println(early());");
+        Engine::new(PalHandle::new(pal.clone()))
+            .run_file("examples/main.ocelot-script")
+            .unwrap();
+        assert_eq!(pal.take_printed_output(), "early\n");
+    }
+
+    #[test]
     fn conditionals_select_only_one_branch_and_work_as_discarded_statements() {
         let pal = PalMock::new();
         pal.set_file(

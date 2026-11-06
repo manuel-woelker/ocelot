@@ -821,6 +821,21 @@ mod tests {
     }
 
     #[test]
+    fn repl_retains_bindings_and_recovers_after_failed_submissions() {
+        let pal = PalMock::new();
+        let mut input = std::io::Cursor::new(
+            "let name = { println(\"once\"); \"Ada\" };\nname\nlet candidate = \"failed\"; assert(false);\nlet candidate = name;\ncandidate\n.exit\n",
+        );
+        let mut output = Vec::new();
+        run_repl_session(&PalHandle::new(pal.clone()), "", &mut input, &mut output).unwrap();
+        let output = String::from_utf8(output).unwrap();
+        assert!(output.contains("> > \"Ada\"\n> "));
+        assert!(output.contains("assertion failed"));
+        assert!(output.ends_with("> > \"Ada\"\n> "));
+        assert_eq!(pal.take_printed_output(), "once\n");
+    }
+
+    #[test]
     fn repl_prints_expression_results() {
         let pal = PalMock::new();
         let mut input = std::io::Cursor::new("not false\n.exit\n");

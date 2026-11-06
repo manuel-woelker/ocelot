@@ -207,6 +207,18 @@ fn write_statement_list(output: &mut String, statements: &[Statement], indent_le
 
 fn write_statement(output: &mut String, statement: &Statement, indent_level: usize) {
     match &statement.kind {
+        StatementKind::Let(binding) => {
+            write_indent(output, indent_level);
+            output.push_str("let ");
+            output.push_str(&binding.identifier.name);
+            if let Some(annotation) = &binding.type_name {
+                output.push_str(": ");
+                output.push_str(&annotation.name);
+            }
+            output.push_str(" = ");
+            write_expression(output, &binding.initializer, indent_level);
+            output.push(';');
+        }
         StatementKind::Return(return_statement) => {
             write_indent(output, indent_level);
             output.push_str("return");
@@ -384,6 +396,15 @@ mod tests {
             source_diagnostics.diagnostics
         );
         compilation_unit
+    }
+
+    #[test]
+    fn formats_binding_annotations_and_initializers_with_comments() {
+        let source = "// before\nlet name:string=\"Ada\"; // after\nlet result=if true{let name=\"inner\";name}else{name};\nlet empty:( )={};";
+        let expected = "// before\nlet name: string = \"Ada\"; // after\nlet result = if true {\n    let name = \"inner\";\n    name\n} else {\n    name\n};\nlet empty: () = {};";
+        let formatted = format_compilation_unit(&parse(source));
+        assert_eq!(formatted, expected);
+        assert_eq!(format_compilation_unit(&parse(&formatted)), formatted);
     }
 
     #[test]

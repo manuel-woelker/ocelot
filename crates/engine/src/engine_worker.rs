@@ -205,11 +205,6 @@ impl EngineWorker {
     ) -> OcelotResult<TestRunSummary> {
         let entry_module = self.entry_module()?;
         let symbol_table = self.symbol_table();
-        let interpreter = ocelot_interpreter::interpreter::Interpreter::new(
-            &*self.pal,
-            &entry_module.source_file,
-            symbol_table,
-        );
         let mut summary = TestRunSummary::new();
 
         for item in &entry_module.compilation_unit.items {
@@ -225,7 +220,13 @@ impl EngineWorker {
                 continue;
             }
 
-            match interpreter.interpret_statements(&test_item.body) {
+            match ocelot_interpreter::interpreter::Interpreter::new(
+                &*self.pal,
+                &entry_module.source_file,
+                symbol_table,
+            )
+            .interpret_statements(&test_item.body)
+            {
                 Ok(()) => summary.passed.push(PassedTestResult::new(
                     entry_module.source_file.path.clone(),
                     test_item.name.clone(),

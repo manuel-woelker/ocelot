@@ -46,6 +46,53 @@ mod tests {
     use ocelot_base::span::Span;
 
     #[test]
+    fn parses_inferred_annotated_and_unit_bindings_with_source_spans() {
+        let source = "let name: string = \"Ada\"; let enabled = true; let empty: () = {};";
+        let unit = parse_compilation_unit(
+            &SourceFile::new("main.ocelot-script", source),
+            &mut SourceDiagnostics::default(),
+        )
+        .unwrap();
+        let ItemKind::Statement(statement) = &unit.items[0].kind else {
+            panic!("expected statement")
+        };
+        let StatementKind::Let(binding) = &statement.kind else {
+            panic!("expected binding")
+        };
+        assert_eq!(binding.identifier.name, "name");
+        assert_eq!(binding.type_name.as_ref().unwrap().name, "string");
+        assert_eq!(
+            &source[binding.identifier.span.start()..binding.identifier.span.end()],
+            "name"
+        );
+        assert_eq!(
+            &source[statement.span.start()..statement.span.end()],
+            "let name: string = \"Ada\";"
+        );
+        assert!(binding.ty.is_unresolved());
+        for source in [
+            "let name;",
+            "let = true;",
+            "let name: = true;",
+            "let name =;",
+            "let name = true",
+            "let name: (bool) = true;",
+            "fun f() { let name = true }",
+            "let name = true; name = false;",
+            "fun let() {}",
+        ] {
+            assert!(
+                parse_compilation_unit(
+                    &SourceFile::new("main.ocelot-script", source),
+                    &mut SourceDiagnostics::default()
+                )
+                .is_err(),
+                "{source}"
+            );
+        }
+    }
+
+    #[test]
     fn parses_conditional_tails_else_if_and_discarded_expression_statements() {
         let source = "fun pick() -> bool { if true { true } else if false { false } else { true } } if true {} ;";
         let unit = parse_compilation_unit(
@@ -277,7 +324,9 @@ mod tests {
                         other => panic!("expected call expression, got {other:?}"),
                     }
                 }
-                StatementKind::Return(_) => panic!("expected expression statement"),
+                StatementKind::Return(_) | StatementKind::Let(_) => {
+                    panic!("expected expression statement")
+                }
             },
             other => panic!("expected statement item, got {other:?}"),
         }
@@ -317,7 +366,9 @@ mod tests {
                         ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(true))
                     );
                 }
-                StatementKind::Return(_) => panic!("expected expression statement"),
+                StatementKind::Return(_) | StatementKind::Let(_) => {
+                    panic!("expected expression statement")
+                }
             },
             other => panic!("expected statement item, got {other:?}"),
         }
@@ -341,7 +392,9 @@ mod tests {
                         ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(false))
                     );
                 }
-                StatementKind::Return(_) => panic!("expected expression statement"),
+                StatementKind::Return(_) | StatementKind::Let(_) => {
+                    panic!("expected expression statement")
+                }
             },
             other => panic!("expected statement item, got {other:?}"),
         }
@@ -399,7 +452,9 @@ mod tests {
                         ExpressionKind::BooleanLiteral(BooleanLiteralExpression::new(false))
                     );
                 }
-                StatementKind::Return(_) => panic!("expected expression statement"),
+                StatementKind::Return(_) | StatementKind::Let(_) => {
+                    panic!("expected expression statement")
+                }
             },
             other => panic!("expected statement item, got {other:?}"),
         }
@@ -426,7 +481,9 @@ mod tests {
                         )))
                     );
                 }
-                StatementKind::Return(_) => panic!("expected expression statement"),
+                StatementKind::Return(_) | StatementKind::Let(_) => {
+                    panic!("expected expression statement")
+                }
             },
             other => panic!("expected statement item, got {other:?}"),
         }
@@ -458,7 +515,9 @@ mod tests {
                         )))
                     );
                 }
-                StatementKind::Return(_) => panic!("expected expression statement"),
+                StatementKind::Return(_) | StatementKind::Let(_) => {
+                    panic!("expected expression statement")
+                }
             },
             other => panic!("expected statement item, got {other:?}"),
         }
@@ -616,7 +675,9 @@ mod tests {
                     };
                     assert_eq!(identifier.name, "foo");
                 }
-                StatementKind::Return(_) => panic!("expected expression statement"),
+                StatementKind::Return(_) | StatementKind::Let(_) => {
+                    panic!("expected expression statement")
+                }
             },
             other => panic!("expected statement item, got {other:?}"),
         }
@@ -648,7 +709,9 @@ mod tests {
                         )))
                     );
                 }
-                StatementKind::Return(_) => panic!("expected expression statement"),
+                StatementKind::Return(_) | StatementKind::Let(_) => {
+                    panic!("expected expression statement")
+                }
             },
             other => panic!("expected statement item, got {other:?}"),
         }

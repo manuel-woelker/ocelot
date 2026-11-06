@@ -26,6 +26,7 @@ unused identifier; IDs remain stable even when a decision is rejected or superse
 | [DR-014](<DR-014 Use explicit typed function returns.md>) | Use explicit typed function returns | Superseded by DR-015 |
 | [DR-015](<DR-015 Use block values before expression conditionals.md>) | Use block values before expression conditionals | Accepted |
 | [DR-016](<DR-016 Implement conditionals as expressions with compatible branch results.md>) | Implement conditionals as expressions with compatible branch results | Accepted |
+| [DR-017](<DR-017 Use immutable local bindings and lexical scopes.md>) | Use immutable local bindings and lexical scopes | Accepted |
 
 DR-001 through DR-013 retrospectively document implemented choices and existing
 project policy. Their dates record acceptance of these accounts on 2026-11-03,

@@ -8,6 +8,7 @@ use ocelot_ast::function_item::FunctionItem;
 use ocelot_ast::if_expression::IfExpression;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
+use ocelot_ast::let_statement::LetStatement;
 use ocelot_ast::qualified_identifier::QualifiedIdentifier;
 use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
@@ -15,6 +16,7 @@ use ocelot_ast::template_string_expression::TemplateStringExpression;
 use ocelot_ast::template_string_part::TemplateStringPart;
 use ocelot_ast::test_item::TestItem;
 use ocelot_ast::type_index::TypeIndex;
+use ocelot_ast::type_kind::TypeKind;
 use ocelot_base::shared_string::SharedString;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
@@ -32,7 +34,7 @@ pub(crate) struct Resolver<'a> {
     symbol_table: &'a SymbolTable,
     module_imports: &'a ModuleImports,
     resolved_function: Option<&'a mut ResolvedFunction>,
-    local_value_types: HashMap<SharedString, TypeIndex>,
+    local_value_types: Vec<HashMap<SharedString, TypeIndex>>,
 }
 
 impl<'a> Resolver<'a> {
@@ -51,7 +53,7 @@ impl<'a> Resolver<'a> {
             symbol_table,
             module_imports,
             resolved_function,
-            local_value_types: HashMap::new(),
+            local_value_types: vec![HashMap::new()],
         }
     }
 
@@ -70,14 +72,16 @@ impl<'a> Resolver<'a> {
     }
 
     pub(crate) fn resolve_function_item(&mut self, function_item: &mut FunctionItem) {
-        self.local_value_types.clear();
+        self.local_value_types = vec![HashMap::new()];
 
         for parameter in &function_item.parameters {
             self.local_value_types
+                .last_mut()
+                .expect("function scope should exist")
                 .insert(parameter.identifier.name.clone(), parameter.ty);
         }
 
-        let actual_type = self.resolve_block(&mut function_item.body);
+        let actual_type = self.resolve_statements(&mut function_item.body);
         if !function_item.return_type.is_unresolved()
             && !actual_type.is_unresolved()
             && actual_type != self.symbol_table.never_type_index()
@@ -98,11 +102,13 @@ impl<'a> Resolver<'a> {
             );
         }
 
-        self.local_value_types.clear();
+        self.local_value_types = vec![HashMap::new()];
     }
 
     fn resolve_test_item(&mut self, test_item: &mut TestItem) {
-        let ty = self.resolve_block(&mut test_item.body);
+        let outer_scopes = std::mem::replace(&mut self.local_value_types, vec![HashMap::new()]);
+        let ty = self.resolve_statements(&mut test_item.body);
+        self.local_value_types = outer_scopes;
         if !ty.is_unresolved()
             && ty != self.symbol_table.unit_type_index()
             && ty != self.symbol_table.never_type_index()
@@ -116,6 +122,13 @@ impl<'a> Resolver<'a> {
     }
 
     fn resolve_block(&mut self, statements: &mut [Statement]) -> TypeIndex {
+        self.local_value_types.push(HashMap::new());
+        let result = self.resolve_statements(statements);
+        self.local_value_types.pop();
+        result
+    }
+
+    fn resolve_statements(&mut self, statements: &mut [Statement]) -> TypeIndex {
         let unit = self.symbol_table.unit_type_index();
         let never = self.symbol_table.never_type_index();
         let mut result = unit;
@@ -123,6 +136,10 @@ impl<'a> Resolver<'a> {
         for statement in statements {
             self.resolve_statement(statement);
             match &statement.kind {
+                StatementKind::Let(binding) => {
+                    returns |= binding.initializer.ty == never;
+                    result = unit;
+                }
                 StatementKind::Return(_) => returns = true,
                 StatementKind::Expression(value) => {
                     returns |= value.expression.ty == never;
@@ -139,6 +156,7 @@ impl<'a> Resolver<'a> {
 
     fn resolve_statement(&mut self, statement: &mut Statement) {
         match &mut statement.kind {
+            StatementKind::Let(binding) => self.resolve_let(binding),
             StatementKind::Return(return_statement) => {
                 let actual_type = if let Some(expression) = &mut return_statement.expression {
                     self.resolve_expression(expression);
@@ -187,6 +205,78 @@ impl<'a> Resolver<'a> {
             StatementKind::Expression(ExpressionStatement { expression, .. }) => {
                 self.resolve_expression(expression);
             }
+        }
+    }
+
+    fn value_type(&self, name: &str) -> Option<TypeIndex> {
+        self.local_value_types
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name).copied())
+    }
+
+    fn resolve_let(&mut self, binding: &mut LetStatement) {
+        self.resolve_expression(&mut binding.initializer);
+        let actual = binding.initializer.ty;
+        binding.ty = if let Some(annotation) = &binding.type_name {
+            let expected = self
+                .symbol_table
+                .resolve_type(&annotation.name)
+                .filter(|ty| {
+                    self.symbol_table
+                        .type_definition(*ty)
+                        .is_ok_and(|definition| {
+                            matches!(
+                                definition.kind,
+                                TypeKind::Boolean | TypeKind::String | TypeKind::Unit
+                            )
+                        })
+                });
+            if let Some(expected) = expected {
+                if !actual.is_unresolved()
+                    && actual != self.symbol_table.never_type_index()
+                    && actual != expected
+                {
+                    self.add_diagnostic(
+                        format!(
+                            "binding type mismatch: expected {}, got {}",
+                            self.type_label(expected),
+                            self.type_label(actual)
+                        ),
+                        binding.initializer.span.clone(),
+                        "initializer has the wrong type",
+                    );
+                }
+                expected
+            } else {
+                self.add_diagnostic(
+                    format!(
+                        "unsupported binding type `{}`; expected `string`, `bool`, or `()`",
+                        annotation.name
+                    ),
+                    annotation.span.clone(),
+                    "unsupported binding type",
+                );
+                TypeIndex::unresolved()
+            }
+        } else {
+            actual
+        };
+        let scope = self
+            .local_value_types
+            .last()
+            .expect("binding scope should exist");
+        if scope.contains_key(binding.identifier.name.as_str()) {
+            self.add_diagnostic(
+                format!("duplicate binding `{}`", binding.identifier.name),
+                binding.identifier.span.clone(),
+                "already declared in this scope",
+            );
+        } else {
+            self.local_value_types
+                .last_mut()
+                .expect("binding scope should exist")
+                .insert(binding.identifier.name.clone(), binding.ty);
         }
     }
 
@@ -261,10 +351,7 @@ impl<'a> Resolver<'a> {
             }
             ExpressionKind::BooleanLiteral(_) | ExpressionKind::StringLiteral(_) => {}
             ExpressionKind::Identifier(identifier) => {
-                if !self
-                    .local_value_types
-                    .contains_key(identifier.name.as_str())
-                {
+                if self.value_type(identifier.name.as_str()).is_none() {
                     self.add_diagnostic(
                         format!("unresolved identifier `{}`", identifier.name),
                         identifier.span.clone(),
@@ -304,10 +391,7 @@ impl<'a> Resolver<'a> {
 
         let resolved = match &call_expression.callee.kind {
             ExpressionKind::Identifier(identifier) => {
-                if self
-                    .local_value_types
-                    .contains_key(identifier.name.as_str())
-                {
+                if self.value_type(identifier.name.as_str()).is_some() {
                     self.add_diagnostic(
                         format!("`{}` is a value, not a function", identifier.name),
                         identifier.span.clone(),
@@ -595,9 +679,7 @@ impl<'a> Resolver<'a> {
             ExpressionKind::BooleanLiteral(_) => expression.ty = boolean_type_index,
             ExpressionKind::Identifier(identifier) => {
                 expression.ty = self
-                    .local_value_types
-                    .get(identifier.name.as_str())
-                    .copied()
+                    .value_type(identifier.name.as_str())
                     .unwrap_or_else(TypeIndex::unresolved);
             }
             ExpressionKind::StringLiteral(_) => expression.ty = string_type_index,

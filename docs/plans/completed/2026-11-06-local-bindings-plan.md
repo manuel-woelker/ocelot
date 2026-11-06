@@ -22,18 +22,18 @@ checked against the initializer. Bindings are visible only after initialization.
 
 # What will be implemented and verified?
 
-- [ ] Add binding AST, lexer tokens, parser syntax, annotations, and formatting.
-- [ ] Replace parameter-only resolution with lexical scopes, inference, duplicate
+- [x] Add binding AST, lexer tokens, parser syntax, annotations, and formatting.
+- [x] Replace parameter-only resolution with lexical scopes, inference, duplicate
   detection, declaration ordering, and annotated-type validation.
-- [ ] Execute initializers once, manage runtime scopes, and propagate returns from
+- [x] Execute initializers once, manage runtime scopes, and propagate returns from
   initializers without inserting an uninitialized value.
-- [ ] Preserve script bindings, isolate function/test calls, and transactionally
+- [x] Preserve script bindings, isolate function/test calls, and transactionally
   retain embedded top-level values without replaying prior effects.
-- [ ] Add source-driven regressions for scope restoration, shadowing, duplicates,
+- [x] Add source-driven regressions for scope restoration, shadowing, duplicates,
   use-before-binding, annotations, branch-local names, early returns, errors,
   function boundaries, test isolation, effects, embedding, and parser/formatter behavior.
-- [ ] Add canonical spec examples, overview updates, and a decision record.
-- [ ] Run `nao check`, inspect diagnostics and a REPL smoke test, verify links,
+- [x] Add canonical spec examples, overview updates, and a decision record.
+- [x] Run `nao check`, inspect diagnostics and a REPL smoke test, verify links,
   record results, and move this plan to `completed` before committing the feature.
 
 # What assumptions and risks apply?
@@ -56,3 +56,14 @@ before effects, return and error cleanup, isolated calls/tests, persistent REPL
 values, failed-session rollback, and absence of initializer replay. Validate source
 spans, malformed declarations, semicolon rules, formatter idempotence, and executable
 spec diagnostics. Run the complete `nao check` graph before feature commit.
+
+# What was verified?
+
+Implemented the planned syntax, lexical resolution, runtime scope cleanup, and
+transactional embedded value snapshots. Colocated parser, formatter, interpreter,
+engine, embedded-session, and REPL tests pass. `cargo test --workspace` and
+`nao check` pass; executable validation passes all 84 examples in 21 chapters.
+A real CLI REPL smoke test retained two bindings and printed the initializer
+once. Diagnostic examples cover duplicate names, annotation mismatch, and
+use before declaration. Changed documentation links and `git diff --check`
+were checked. DR-017 records the implemented decisions. No planned work remains.

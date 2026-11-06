@@ -77,6 +77,15 @@ pub fn lex(source_file: &SourceFile, source_diagnostics: &mut SourceDiagnostics)
                     ));
                     index += 2;
                 }
+                b'=' => {
+                    tokens.push(Token::with_leading_trivia(
+                        TokenType::Equal,
+                        Trivia::new(leading_trivia, Vec::new()),
+                        index,
+                        index + 1,
+                    ));
+                    index += 1;
+                }
                 b',' => {
                     tokens.push(Token::with_leading_trivia(
                         TokenType::Comma,
@@ -176,6 +185,7 @@ pub fn lex(source_file: &SourceFile, source_diagnostics: &mut SourceDiagnostics)
                         "effect" => TokenType::Effect,
                         "else" => TokenType::Else,
                         "if" => TokenType::If,
+                        "let" => TokenType::Let,
                         "false" => TokenType::False,
                         "fun" => TokenType::Fun,
                         "native" => TokenType::Native,

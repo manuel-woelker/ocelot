@@ -12,6 +12,7 @@ use ocelot_base::source_diagnostics::SourceDiagnostics;
 use ocelot_base::source_file::SourceFile;
 use ocelot_pal::pal::PalHandle;
 use ocelot_semantic::runtime_value::RuntimeValue;
+use std::collections::HashMap;
 
 /// Persistent embedding-oriented execution session rooted at one base path.
 #[derive(Debug, Clone)]
@@ -20,6 +21,8 @@ pub struct EmbeddedEngine {
     base_path: FilePath,
     builtin_modules: Vec<BuiltinModule>,
     embedded_source: String,
+    /// Successful top-level values retained without replaying their initializers.
+    runtime_bindings: HashMap<SharedString, RuntimeValue>,
     source_diagnostics: SourceDiagnostics,
 }
 
@@ -31,6 +34,7 @@ impl EmbeddedEngine {
             base_path: base_path.into(),
             builtin_modules: vec![default_core_module()],
             embedded_source: String::new(),
+            runtime_bindings: HashMap::new(),
             source_diagnostics: SourceDiagnostics::default(),
         }
     }
@@ -69,13 +73,15 @@ impl EmbeddedEngine {
             .cloned()
             .collect::<Vec<_>>();
 
-        ocelot_interpreter::interpreter::Interpreter::new(
+        let interpreter = ocelot_interpreter::interpreter::Interpreter::new_with_bindings(
             &*self.pal,
             &entry_module.source_file,
             &resolved_program.symbol_table,
-        )
-        .interpret_statements(&statements)?;
+            self.runtime_bindings.clone(),
+        );
+        interpreter.interpret_statements(&statements)?;
 
+        self.runtime_bindings = interpreter.root_bindings();
         self.embedded_source = entry_module.source_file.source().to_owned();
         Ok(())
     }
@@ -130,10 +136,11 @@ impl EmbeddedEngine {
             ocelot_base::bail!("internal error: eval requires an expression statement");
         };
 
-        ocelot_interpreter::interpreter::Interpreter::new(
+        ocelot_interpreter::interpreter::Interpreter::new_with_bindings(
             &*self.pal,
             &entry_module.source_file,
             &resolved_program.symbol_table,
+            self.runtime_bindings.clone(),
         )
         .evaluate_expression(expression)
     }
@@ -197,6 +204,40 @@ mod tests {
     use ocelot_pal::pal::PalHandle;
     use ocelot_pal::pal_mock::PalMock;
     use ocelot_semantic::runtime_value::RuntimeValue;
+
+    #[test]
+    fn execute_retains_bindings_without_replay_and_rolls_back_failed_candidates() {
+        let pal = PalMock::new();
+        let mut engine = EmbeddedEngine::new(PalHandle::new(pal.clone()), "examples");
+        engine
+            .execute("let name = { println(\"once\"); \"Ada\" };")
+            .unwrap();
+        assert_eq!(engine.eval("name").unwrap(), RuntimeValue::string("Ada"));
+        engine.execute("let enabled: bool = true;").unwrap();
+        assert_eq!(
+            engine.eval("if enabled { name } else { \"no\" }").unwrap(),
+            RuntimeValue::string("Ada")
+        );
+        assert_eq!(
+            engine.eval("{ let name = \"inner\"; name }").unwrap(),
+            RuntimeValue::string("inner")
+        );
+        assert_eq!(engine.eval("name").unwrap(), RuntimeValue::string("Ada"));
+        assert!(engine.execute("let name = \"duplicate\";").is_err());
+        assert!(
+            engine
+                .execute("let candidate = \"not committed\"; assert(false);")
+                .is_err()
+        );
+        assert!(engine.eval("candidate").is_err());
+        engine.execute("let candidate = \"successful\";").unwrap();
+        assert_eq!(
+            engine.eval("candidate").unwrap(),
+            RuntimeValue::string("successful")
+        );
+        assert_eq!(engine.eval("name").unwrap(), RuntimeValue::string("Ada"));
+        assert_eq!(pal.take_printed_output(), "once\n");
+    }
 
     #[test]
     fn conditional_expressions_return_values_or_unit_in_persistent_sessions() {

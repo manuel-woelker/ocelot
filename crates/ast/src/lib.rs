@@ -20,6 +20,7 @@ pub mod if_expression;
 pub mod imported_function_symbols;
 pub mod item;
 pub mod item_kind;
+pub mod let_statement;
 pub mod not_expression;
 pub mod qualified_identifier;
 pub mod return_statement;
