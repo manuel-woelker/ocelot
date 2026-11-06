@@ -136,6 +136,21 @@ impl<'a> Interpreter<'a> {
 
     fn evaluate_expression_flow(&self, expression: &Expression) -> OcelotResult<EvaluationFlow> {
         let value = match &expression.kind {
+            ExpressionKind::If(conditional) => {
+                let condition = match self.evaluate_expression_flow(&conditional.condition)? {
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    ControlFlow::Continue(value) => {
+                        value.expect_boolean("if condition must be bool")?
+                    }
+                };
+                if condition {
+                    return self.evaluate_expression_flow(&conditional.then_branch);
+                }
+                if let Some(branch) = &conditional.else_branch {
+                    return self.evaluate_expression_flow(branch);
+                }
+                RuntimeValue::unit()
+            }
             ExpressionKind::Block(block) => return self.evaluate_block(&block.statements),
             ExpressionKind::BooleanLiteral(BooleanLiteralExpression { value }) => {
                 RuntimeValue::boolean(*value)

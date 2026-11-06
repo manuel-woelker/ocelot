@@ -46,6 +46,57 @@ mod tests {
     use ocelot_base::span::Span;
 
     #[test]
+    fn parses_conditional_tails_else_if_and_discarded_expression_statements() {
+        let source = "fun pick() -> bool { if true { true } else if false { false } else { true } } if true {} ;";
+        let unit = parse_compilation_unit(
+            &SourceFile::new("main.ocelot-script", source),
+            &mut SourceDiagnostics::default(),
+        )
+        .unwrap();
+        let ItemKind::Function(function) = &unit.items[0].kind else {
+            panic!("expected function")
+        };
+        let StatementKind::Expression(tail) = &function.body[0].kind else {
+            panic!("expected tail")
+        };
+        assert!(!tail.has_semicolon);
+        let ExpressionKind::If(conditional) = &tail.expression.kind else {
+            panic!("expected if")
+        };
+        assert!(matches!(
+            conditional.else_branch.as_ref().unwrap().kind,
+            ExpressionKind::If(_)
+        ));
+        assert_eq!(
+            &source[tail.expression.span.start()..tail.expression.span.end()],
+            "if true { true } else if false { false } else { true }"
+        );
+        let ItemKind::Statement(statement) = &unit.items[1].kind else {
+            panic!("expected statement")
+        };
+        assert!(matches!(&statement.kind, StatementKind::Expression(value) if value.has_semicolon));
+        for invalid in [
+            "if {} ;",
+            "if true false;",
+            "if true {} else true;",
+            "if true {} else;",
+            "if true {}",
+            "if true {} ; else {};",
+            "fun if() {}",
+            "fun f(else: bool) {}",
+        ] {
+            assert!(
+                parse_compilation_unit(
+                    &SourceFile::new("main.ocelot-script", invalid),
+                    &mut SourceDiagnostics::default()
+                )
+                .is_err(),
+                "{invalid}"
+            );
+        }
+    }
+
+    #[test]
     fn block_tails_preserve_semicolon_choices_and_comment_ownership() {
         let file = SourceFile::new(
             "main.ocelot-script",

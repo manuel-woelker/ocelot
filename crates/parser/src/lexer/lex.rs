@@ -174,6 +174,8 @@ pub fn lex(source_file: &SourceFile, source_diagnostics: &mut SourceDiagnostics)
                         "can" => TokenType::Can,
                         "cannot" => TokenType::Cannot,
                         "effect" => TokenType::Effect,
+                        "else" => TokenType::Else,
+                        "if" => TokenType::If,
                         "false" => TokenType::False,
                         "fun" => TokenType::Fun,
                         "native" => TokenType::Native,

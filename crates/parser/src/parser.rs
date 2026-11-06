@@ -14,6 +14,7 @@ use ocelot_ast::function_effect_clause::FunctionEffectClause;
 use ocelot_ast::function_item::FunctionItem;
 use ocelot_ast::function_parameter::FunctionParameter;
 use ocelot_ast::identifier::Identifier;
+use ocelot_ast::if_expression::IfExpression;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_ast::not_expression::NotExpression;
@@ -472,6 +473,7 @@ impl<'a> Parser<'a> {
         let token = self.current().clone();
 
         match token.token_type {
+            TokenType::If => self.parse_if_expression(),
             TokenType::LeftBrace => {
                 let start = self.expect(TokenType::LeftBrace, "expected `{`")?;
                 let statements =
@@ -521,6 +523,44 @@ impl<'a> Parser<'a> {
                 "expression expected here",
             ),
         }
+    }
+
+    fn parse_if_expression(&mut self) -> OcelotResult<Expression> {
+        let start = self.expect(TokenType::If, "expected `if`")?;
+        let condition = self.parse_expression()?;
+        if !self.at(TokenType::LeftBrace) {
+            return self.emit_fatal_diagnostic(
+                "expected `{` after if condition",
+                self.current().span.clone(),
+                "branch block required",
+            );
+        }
+        let then_branch = self.parse_primary_expression()?;
+        let else_branch = if self.at(TokenType::Else) {
+            self.expect(TokenType::Else, "expected `else`")?;
+            if !self.at(TokenType::LeftBrace) && !self.at(TokenType::If) {
+                return self.emit_fatal_diagnostic(
+                    "expected block or `if` after `else`",
+                    self.current().span.clone(),
+                    "else branch required",
+                );
+            }
+            Some(Box::new(self.parse_primary_expression()?))
+        } else {
+            None
+        };
+        let end = else_branch
+            .as_ref()
+            .map(|branch| branch.span.end())
+            .unwrap_or_else(|| then_branch.span.end());
+        Ok(Expression::new(
+            ExpressionKind::If(IfExpression {
+                condition: Box::new(condition),
+                then_branch: Box::new(then_branch),
+                else_branch,
+            }),
+            Span::new(start.span.start(), end),
+        ))
     }
 
     fn parse_identifier_expression(&mut self) -> OcelotResult<Expression> {

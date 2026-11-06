@@ -231,6 +231,16 @@ fn write_statement(output: &mut String, statement: &Statement, indent_level: usi
 
 fn write_expression(output: &mut String, expression: &Expression, indent_level: usize) {
     match &expression.kind {
+        ExpressionKind::If(conditional) => {
+            output.push_str("if ");
+            write_expression(output, &conditional.condition, indent_level);
+            output.push(' ');
+            write_expression(output, &conditional.then_branch, indent_level);
+            if let Some(branch) = &conditional.else_branch {
+                output.push_str(" else ");
+                write_expression(output, branch, indent_level);
+            }
+        }
         ExpressionKind::Block(block) => {
             if block.statements.is_empty() {
                 output.push_str("{}");
@@ -374,6 +384,22 @@ mod tests {
             source_diagnostics.diagnostics
         );
         compilation_unit
+    }
+
+    #[test]
+    fn formats_conditional_expressions_and_keeps_discarding_semicolons() {
+        let source = "fun pick(flag:bool)->string{if flag{\"yes\"}else if not flag{\"no\"}else{\"other\"}}\nif true{println(\"effect\");}; // discarded";
+        let expected = "fun pick(flag: bool) -> string {\n    if flag {\n        \"yes\"\n    } else if not flag {\n        \"no\"\n    } else {\n        \"other\"\n    }\n}\nif true {\n    println(\"effect\");\n}; // discarded";
+        let formatted = format_compilation_unit(&parse(source));
+        assert_eq!(formatted, expected);
+        assert_eq!(format_compilation_unit(&parse(&formatted)), formatted);
+        let interpolation = format_compilation_unit(&parse(
+            "println(\"${if false { \"no\" } else { \"yes\" }}\");",
+        ));
+        assert_eq!(
+            format_compilation_unit(&parse(&interpolation)),
+            interpolation
+        );
     }
 
     #[test]

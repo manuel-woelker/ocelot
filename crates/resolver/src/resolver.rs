@@ -5,6 +5,7 @@ use ocelot_ast::expression_kind::ExpressionKind;
 use ocelot_ast::expression_statement::ExpressionStatement;
 use ocelot_ast::function_index::FunctionIndex;
 use ocelot_ast::function_item::FunctionItem;
+use ocelot_ast::if_expression::IfExpression;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_ast::qualified_identifier::QualifiedIdentifier;
@@ -189,8 +190,72 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    fn resolve_if_expression(&mut self, conditional: &mut IfExpression) -> TypeIndex {
+        self.resolve_expression(&mut conditional.condition);
+        self.resolve_expression(&mut conditional.then_branch);
+        if let Some(branch) = &mut conditional.else_branch {
+            self.resolve_expression(branch);
+        }
+        let condition = conditional.condition.ty;
+        let never = self.symbol_table.never_type_index();
+        if !condition.is_unresolved()
+            && condition != never
+            && condition != self.symbol_table.boolean_type_index()
+        {
+            self.add_diagnostic(
+                "if condition must be bool",
+                conditional.condition.span.clone(),
+                "bool condition required",
+            );
+        }
+        let then_type = conditional.then_branch.ty;
+        let else_type = conditional
+            .else_branch
+            .as_ref()
+            .map(|branch| branch.ty)
+            .unwrap_or_else(|| self.symbol_table.unit_type_index());
+        let joined = if then_type.is_unresolved() || else_type.is_unresolved() {
+            TypeIndex::unresolved()
+        } else if then_type == never {
+            else_type
+        } else if else_type == never || then_type == else_type {
+            then_type
+        } else {
+            let branch = conditional
+                .else_branch
+                .as_deref()
+                .unwrap_or(&conditional.then_branch);
+            let result_span = match &branch.kind {
+                ExpressionKind::Block(block) => block
+                    .statements
+                    .last()
+                    .map(|statement| statement.span.clone())
+                    .unwrap_or_else(|| branch.span.clone()),
+                _ => branch.span.clone(),
+            };
+            self.add_diagnostic(
+                format!(
+                    "if branches must have matching types: got {} and {}",
+                    self.type_label(then_type),
+                    self.type_label(else_type)
+                ),
+                result_span,
+                if conditional.else_branch.is_none() {
+                    "add an else branch or discard the then result with `;`".to_owned()
+                } else {
+                    "branch result types differ".to_owned()
+                },
+            );
+            TypeIndex::unresolved()
+        };
+        if condition == never { never } else { joined }
+    }
+
     fn resolve_expression(&mut self, expression: &mut Expression) {
         match &mut expression.kind {
+            ExpressionKind::If(conditional) => {
+                expression.ty = self.resolve_if_expression(conditional);
+            }
             ExpressionKind::Block(block) => {
                 expression.ty = self.resolve_block(&mut block.statements);
             }
@@ -526,7 +591,7 @@ impl<'a> Resolver<'a> {
         let string_type_index = self.symbol_table.string_type_index();
 
         match &expression.kind {
-            ExpressionKind::Block(_) => {}
+            ExpressionKind::Block(_) | ExpressionKind::If(_) => {}
             ExpressionKind::BooleanLiteral(_) => expression.ty = boolean_type_index,
             ExpressionKind::Identifier(identifier) => {
                 expression.ty = self

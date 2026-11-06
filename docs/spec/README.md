@@ -13,6 +13,7 @@ in the language rules.
 | [Prefix negation](./02.02%20Expressions%20-%20Prefix%20negation.md) | Boolean negation and precedence |
 | [Template strings](./02.03%20Expressions%20-%20Template%20strings.md) | Interpolation and evaluation order |
 | [Blocks](./02.04%20Expressions%20-%20Blocks.md) | Tail values, semicolons, and nested returns |
+| [Conditionals](./02.05%20Expressions%20-%20Conditionals.md) | Boolean conditions, branch values, and expression statements |
 | [Booleans](./10.01%20Types%20-%20Booleans.md) | Boolean literals |
 | [Any](./10.02%20Types%20-%20Any.md) | Native signature escape hatch |
 | [Tests](./15.01%20Declarations%20-%20Test%20items.md) | Declarations and behavior during normal execution |

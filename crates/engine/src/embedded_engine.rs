@@ -199,6 +199,64 @@ mod tests {
     use ocelot_semantic::runtime_value::RuntimeValue;
 
     #[test]
+    fn conditional_expressions_return_values_or_unit_in_persistent_sessions() {
+        let pal = PalMock::new();
+        let mut engine = EmbeddedEngine::new(PalHandle::new(pal.clone()), "examples");
+        for (source, expected) in [
+            (
+                "if true { \"yes\" } else { \"no\" }",
+                RuntimeValue::string("yes"),
+            ),
+            (
+                "if false { true } else { false }",
+                RuntimeValue::boolean(false),
+            ),
+            ("if false {}", RuntimeValue::unit()),
+            (
+                "if false { \"first\" } else if true { \"second\" } else { \"third\" }",
+                RuntimeValue::string("second"),
+            ),
+            (
+                "not if true { false } else { true }",
+                RuntimeValue::boolean(true),
+            ),
+            (
+                "\"${if false { \"no\" } else { \"yes\" }}\"",
+                RuntimeValue::string("yes"),
+            ),
+            (
+                "if { true } { \"block condition\" } else { \"no\" }",
+                RuntimeValue::string("block condition"),
+            ),
+        ] {
+            assert_eq!(engine.eval(source).unwrap(), expected, "{source}");
+        }
+        engine
+            .execute("fun pick(enabled: bool) -> string { if enabled { \"yes\" } else { \"no\" } }")
+            .unwrap();
+        assert_eq!(
+            engine.eval("pick(enabled: false)").unwrap(),
+            RuntimeValue::string("no")
+        );
+        engine
+            .execute("if true { println(\"statement\"); };")
+            .unwrap();
+        engine
+            .execute("if true { \"discarded\" } else { \"also discarded\" };")
+            .unwrap();
+        assert!(
+            engine
+                .execute("fun invalid() -> string { if true {} }")
+                .is_err()
+        );
+        assert_eq!(
+            engine.eval("pick(enabled: true)").unwrap(),
+            RuntimeValue::string("yes")
+        );
+        assert_eq!(pal.take_printed_output(), "statement\n");
+    }
+
+    #[test]
     fn eval_returns_block_values_and_semicolons_discard_them() {
         let pal = PalMock::new();
         let mut engine = EmbeddedEngine::new(PalHandle::new(pal.clone()), "examples");

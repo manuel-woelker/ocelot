@@ -5,6 +5,8 @@ pub enum TokenType {
     Arrow,
     Cannot,
     Effect,
+    Else,
+    If,
     Identifier,
     InterpolationStart,
     String,

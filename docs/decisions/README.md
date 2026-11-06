@@ -25,6 +25,7 @@ unused identifier; IDs remain stable even when a decision is rejected or superse
 | [DR-013](./DR-013%20Commit%20verified%20logical%20units%20using%20message%20files.md) | Commit verified logical units using message files | Accepted |
 | [DR-014](<DR-014 Use explicit typed function returns.md>) | Use explicit typed function returns | Superseded by DR-015 |
 | [DR-015](<DR-015 Use block values before expression conditionals.md>) | Use block values before expression conditionals | Accepted |
+| [DR-016](<DR-016 Implement conditionals as expressions with compatible branch results.md>) | Implement conditionals as expressions with compatible branch results | Accepted |
 
 DR-001 through DR-013 retrospectively document implemented choices and existing
 project policy. Their dates record acceptance of these accounts on 2026-11-03,

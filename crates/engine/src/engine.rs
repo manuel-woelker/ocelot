@@ -138,6 +138,117 @@ mod tests {
     use ocelot_semantic::source_file_kind::SourceFileKind;
 
     #[test]
+    fn conditionals_select_only_one_branch_and_work_as_discarded_statements() {
+        let pal = PalMock::new();
+        pal.set_file(
+            "examples/helper.ocelot",
+            "fun select(enabled: bool) -> string { if enabled { \"yes\" } else { \"no\" } }",
+        );
+        pal.set_file("examples/main.ocelot-script", r#"
+use helper::select;
+fun condition() -> bool { println("condition"); true }
+println(if condition() { println("then"); select(enabled: true) } else { println("wrong"); "wrong" });
+if false { assert(false); } else { println("else"); };
+if true { "discarded" } else { "discarded too" };
+println("after");
+assert(if false { true } else { true });
+"#);
+        Engine::new(PalHandle::new(pal.clone()))
+            .run_file("examples/main.ocelot-script")
+            .unwrap();
+        assert_eq!(
+            pal.take_printed_output(),
+            "condition\nthen\nyes\nelse\nafter\n"
+        );
+    }
+
+    #[test]
+    fn conditional_returns_cover_both_paths_and_propagate_from_conditions() {
+        let pal = PalMock::new();
+        pal.set_file("examples/main.ocelot-script", r#"
+fun both(flag: bool) -> string { if flag { return "then"; } else { return "else"; }; println("wrong"); }
+fun mixed(flag: bool) -> string { if flag { return "returned"; } else { "tail" } }
+fun fallback(flag: bool) -> string { if flag { return "early"; }; "later" }
+fun from_condition() -> string { if { return "condition return"; } {} else {}; println("wrong"); }
+fun argument() -> string { assert_eq(expected: if false { return "wrong"; } else { return "argument return"; }, actual: println("wrong")); }
+println(both(flag: true));
+println(both(flag: false));
+println(mixed(flag: true));
+println(mixed(flag: false));
+println(fallback(flag: true));
+println(fallback(flag: false));
+println(from_condition());
+println(argument());
+"#);
+        Engine::new(PalHandle::new(pal.clone()))
+            .run_file("examples/main.ocelot-script")
+            .unwrap();
+        assert_eq!(
+            pal.take_printed_output(),
+            "then\nelse\nreturned\ntail\nearly\nlater\ncondition return\nargument return\n"
+        );
+    }
+
+    #[test]
+    fn invalid_conditionals_check_all_paths_before_running_effects() {
+        for (source, expected) in [
+            ("if \"truthy\" {} ;", "if condition must be bool"),
+            ("if println(\"wrong\") {};", "if condition must be bool"),
+            (
+                "if true { true } else { \"no\" };",
+                "if branches must have matching types",
+            ),
+            (
+                "if true { \"value\" };",
+                "if branches must have matching types",
+            ),
+            (
+                "if true {} else if false { false };",
+                "if branches must have matching types",
+            ),
+            (
+                "fun f(flag: bool) -> bool { if flag { return true; }; }",
+                "block result type mismatch",
+            ),
+            (
+                "fun f() -> bool { if true { return true; }; }",
+                "block result type mismatch",
+            ),
+            ("if true {} else { missing; };", "unresolved identifier"),
+            (
+                "fun f() -> bool { if false { return \"bad\"; } else { true } }",
+                "return type mismatch",
+            ),
+            (
+                "fun f() cannot write_stdout { if false { println(\"never\"); }; }",
+                "cannot perform effect",
+            ),
+            ("if false { return; };", "return is only allowed"),
+        ] {
+            let pal = PalMock::new();
+            pal.set_file(
+                "examples/main.ocelot-script",
+                format!("println(\"must not run\"); {source}"),
+            );
+            let error = Engine::new(PalHandle::new(pal.clone()))
+                .run_file("examples/main.ocelot-script")
+                .unwrap_err();
+            assert!(
+                matches!(
+                    error.kind(),
+                    ErrorKind::CompilationError(CompilationStage::Resolver)
+                ),
+                "{source}"
+            );
+            assert!(
+                error.to_test_string().contains(expected),
+                "{source}\n{error:?}"
+            );
+            assert_eq!(pal.take_printed_output(), "", "{source}");
+        }
+    }
+
+    #[test]
     fn nested_blocks_keep_value_order_across_imported_calls() {
         let pal = PalMock::new();
         pal.set_file("examples/helper.ocelot", "fun mark(positional value: string) -> string { println(value); { value } } fun combine(first: string, second: string) -> string { \"${first} ${second}\" }");

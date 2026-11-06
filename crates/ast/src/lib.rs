@@ -16,6 +16,7 @@ pub mod function_index;
 pub mod function_item;
 pub mod function_parameter;
 pub mod identifier;
+pub mod if_expression;
 pub mod imported_function_symbols;
 pub mod item;
 pub mod item_kind;
