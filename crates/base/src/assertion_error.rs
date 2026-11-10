@@ -29,7 +29,10 @@ impl AssertionError {
         let line_bounds = LineBounds::new(source_file.source(), span.start());
         let source_line = &source_file.source()[line_bounds.line_start..line_bounds.line_end];
         let relative_start = span.start().saturating_sub(line_bounds.line_start);
-        let relative_end = span.end().saturating_sub(line_bounds.line_start);
+        let relative_end = span
+            .end()
+            .saturating_sub(line_bounds.line_start)
+            .min(source_line.len());
         let summary = summary.into();
         let diagnostic = SourceDiagnostic::new(DiagnosticLevel::Error, &source_file.path, summary)
             .with_excerpt(
@@ -56,7 +59,10 @@ impl AssertionError {
         let line_bounds = LineBounds::new(source_file.source(), span.start());
         let source_line = &source_file.source()[line_bounds.line_start..line_bounds.line_end];
         let relative_start = span.start().saturating_sub(line_bounds.line_start);
-        let relative_end = span.end().saturating_sub(line_bounds.line_start);
+        let relative_end = span
+            .end()
+            .saturating_sub(line_bounds.line_start)
+            .min(source_line.len());
         let summary = summary.into();
         let diagnostic = SourceDiagnostic::new(DiagnosticLevel::Error, &source_file.path, summary)
             .with_excerpt(
@@ -142,6 +148,23 @@ mod tests {
     use crate::span::Span;
     use crate::unansi;
     use expect_test::expect;
+
+    #[test]
+    fn multiline_assertions_highlight_only_the_available_first_line() {
+        let source = SourceFile::new(
+            "multi.ocelot",
+            "assert_eq(\n    expected: true,\n    actual: false\n);",
+        );
+        let error = AssertionError::new_without_diff(
+            &source,
+            Span::new(0, source.source().len() - 1),
+            "mismatch",
+        );
+        let rendered = unansi(&render_assertion_error(&error));
+        assert!(rendered.contains("assert_eq("));
+        assert!(rendered.contains("assertion failed here"));
+        assert!(rendered.contains("at multi.ocelot:1:1"));
+    }
 
     #[test]
     fn renders_assertion_errors_with_a_source_diagnostic_and_diff() {
