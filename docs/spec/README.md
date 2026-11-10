@@ -85,3 +85,10 @@ cargo run --package ocelot-spec-validation --bin ocelot-spec-validation
 ```
 
 Run `nao check` for formatting, build, lint, tests, and spec validation together.
+
+`nao check` also compiles and executes these same examples through the C/TCC
+backend. Use `--backend=all`, `--backend=interpreter`, or `--backend=c-tcc` with
+the harness to select a pass. Frontend-invalid examples must fail compilation;
+runtime-error examples must build and fail during execution. Embedded examples
+use compiled scenario drivers, not an interpreter fallback. See
+[native testing setup](../NATIVE.md#how-is-the-complete-specification-verified).

@@ -39,7 +39,7 @@ embedded examples rather than testing only the convenient file examples.
 
 The earlier [DR-019](<DR-019 Compile native executables with Cranelift and a C ABI runtime.md>)
 proposed Cranelift but was never accepted or implemented. The user subsequently
-selected C/TCC. The [revised implementation plan](../plans/2026-11-10-native-binaries-plan.md)
+selected C/TCC. The [revised implementation plan](../plans/completed/2026-11-10-native-binaries-plan.md)
 defines lowering, runtime feasibility, toolchain isolation, and full spec coverage.
 This adds a backend without replacing the canonical semantic model in
 [DR-003](<DR-003 Resolve programs into one canonical semantic model.md>) or the
@@ -71,3 +71,19 @@ platform boundary in [DR-001](<DR-001 Isolate platform interactions behind the P
   and embedded diagnostics; fails the requested full-spec verification scope.
 - **Replay accumulated source for every eval:** Repeats initializer effects and
   can mask earlier runtime failures; use compiled ordered scenario steps instead.
+
+## What did implementation establish?
+
+The implemented adapter compiles with tool-tool-pinned TCC and links explicitly
+with GNU-compatible system cc. It uses a Rust ABI v1 static runtime with unboxed
+tag/payload primitives and reference-counted string handles. Generated frames
+own temporaries and release them on normal completion and early returns.
+Neither compiler-process Rust layouts nor trait objects cross the ABI.
+
+The linker omits the optional unwind lookup header for the pinned TCC objects;
+the [linking learning](<../learnings/2026-11-10 TCC objects need an explicit Rust runtime linking policy.md>)
+records the observed compatibility issue and limits of the evidence. The complete
+90-example spec passes independently in interpreter and C/TCC modes, including
+compiled embedded scenarios. [Native usage](../NATIVE.md) documents prerequisites
+and remaining scope limits. This section records implementation results without
+changing the original accepted direction or claiming alternate toolchain support.

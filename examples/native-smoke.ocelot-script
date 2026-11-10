@@ -1,0 +1,19 @@
+fun identity(name: string) -> string {
+    name
+}
+
+fun greeting(enabled: bool) -> string {
+    if enabled {
+        identity(name: "hello")
+    } else {
+        "goodbye"
+    }
+}
+
+let message = greeting(enabled: true);
+{
+    let message = "${message} native";
+    println(message);
+};
+println(message);
+assert(message == "hello");

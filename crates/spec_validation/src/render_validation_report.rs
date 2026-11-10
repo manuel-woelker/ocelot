@@ -16,6 +16,7 @@ pub fn render_validation_report(report: &ValidationReport) -> String {
 
     for failure in &report.failures {
         let kind = match failure.kind {
+            ValidationFailureKind::BackendFailure => "backend failure",
             ValidationFailureKind::MalformedExample => "malformed example",
             ValidationFailureKind::OutputMismatch => "output mismatch",
             ValidationFailureKind::EvalResultMismatch => "eval result mismatch",

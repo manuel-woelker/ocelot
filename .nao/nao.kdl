@@ -81,11 +81,20 @@ recipe "default" {
     """
   }
 
+  task "validate-native" description="Compile and execute every spec example with C/TCC" {
+    depends-on "build"
+    run shell="""
+      ./t tcc -v
+      cargo run --package ocelot-spec-validation --bin ocelot-spec-validation -- --backend=c-tcc
+    """
+  }
+
   task "check" description="Run all repository verification tasks" {
     depends-on "fmt"
     depends-on "clippy"
     depends-on "test"
     depends-on "validate"
+    depends-on "validate-native"
     run shell="""
       printf 'All repository verification tasks completed.\n'
     """

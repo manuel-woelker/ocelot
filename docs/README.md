@@ -3,6 +3,7 @@
 - [Overview](OVERVIEW.md): implemented language features and workspace organization.
 - [Language specification](spec/README.md): language rules and executable examples.
 - [Testing](TESTING.md): test organization, platform boundaries, and verification.
+- [Native compilation](NATIVE.md): C/TCC builds, runtime ABI, prerequisites, and spec verification.
 - [Planning](PLANS.md): plan format and completion workflow.
 - [Decision records](decisions/README.md): significant choices, rationale,
   consequences, and alternatives; follow [DR-000](<decisions/DR-000 Record decisions in the repository.md>).

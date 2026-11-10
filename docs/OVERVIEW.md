@@ -10,6 +10,10 @@ Functions support declared string, boolean, and unit return types, block result
 expressions, and explicit `return` statements. A final expression without a semicolon
 supplies a block's value. An omitted function result annotation still means unit.
 
+File programs also compile to x86-64 Linux executables through the C backend,
+TCC compiler, and system linker. [Native compilation](NATIVE.md) describes setup
+and full native/interpreter spec verification.
+
 # How is the implementation organized?
 
 - `crates/base` provides shared utilities, source locations, and diagnostics.
@@ -18,6 +22,8 @@ supplies a block's value. An omitted function result annotation still means unit
 - `crates/semantic` holds symbols, types, runtime values, and native functions.
 - `crates/resolver` resolves declarations, checks arguments, and propagates effects.
 - `crates/interpreter` executes resolved syntax trees.
+- `crates/codegen_c` lowers resolved programs to portable C99.
+- `crates/native_runtime` supplies the standalone C ABI runtime and string ownership.
 - `crates/engine` loads module trees and coordinates execution, tests, and persistent embedded sessions.
 - `crates/formatter` formats parsed source.
 - `crates/cli` exposes file execution, test filtering, formatting, and a REPL.

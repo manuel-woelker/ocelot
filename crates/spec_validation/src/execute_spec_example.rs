@@ -94,7 +94,7 @@ fn execute_embedded_example(
     )))
 }
 
-fn validate_example_formatting(example: &SpecExample) -> OcelotResult<()> {
+pub(crate) fn validate_example_formatting(example: &SpecExample) -> OcelotResult<()> {
     let mut misformatted_files = Vec::new();
 
     for source_file in &example.source_files {
@@ -163,7 +163,7 @@ fn validate_formatted_compilation_unit(
     }
 }
 
-fn main_example_path(
+pub(crate) fn main_example_path(
     execution_root: &std::path::Path,
     example: &SpecExample,
 ) -> OcelotResult<FilePath> {
@@ -198,7 +198,7 @@ fn is_ocelot_source_file(source_file: &SpecExampleFile) -> bool {
         || source_file.path.as_str().ends_with(".ocelot-script")
 }
 
-fn normalize_example_text(text: &str, execution_root: &std::path::Path) -> String {
+pub(crate) fn normalize_example_text(text: &str, execution_root: &std::path::Path) -> String {
     let execution_root = execution_root.to_string_lossy();
     let prefix = if execution_root.ends_with(std::path::MAIN_SEPARATOR) {
         execution_root.into_owned()

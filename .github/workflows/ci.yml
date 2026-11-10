@@ -10,7 +10,7 @@ env:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         build:
@@ -37,6 +37,10 @@ jobs:
       - name: Install musl toolchain
         if: ${{ matrix.build.install_musl_tools }}
         run: sudo apt-get update && sudo apt-get install --yes musl-tools
+
+      - name: Provision pinned native toolchain
+        if: ${{ matrix.build.name == 'default' }}
+        run: ./t tcc -v
 
       - name: Cache cargo
         uses: actions/cache@v5
@@ -72,6 +76,14 @@ jobs:
       - name: Clippy
         if: ${{ matrix.build.name == 'default' }}
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+      - name: Interpreter and native specification
+        if: ${{ matrix.build.name == 'default' }}
+        run: cargo run -p ocelot-spec-validation -- --backend=all
+
+      - name: Portable C and string ownership
+        if: ${{ matrix.build.name == 'default' }}
+        run: bash scripts/check-native-portability.sh
 
       - name: Tests
         if: ${{ matrix.build.name == 'default' }}

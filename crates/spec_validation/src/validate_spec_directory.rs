@@ -3,6 +3,7 @@ use crate::execute_spec_example::execute_spec_example;
 use crate::expected_outcome::ExpectedOutcome;
 use crate::load_spec_chapters::load_spec_chapters;
 use crate::observed_outcome::ObservedOutcome;
+use crate::validation_backend::ValidationBackend;
 use crate::validation_failure::ValidationFailure;
 use crate::validation_failure_kind::ValidationFailureKind;
 use crate::validation_report::ValidationReport;
@@ -16,6 +17,33 @@ pub fn validate_spec_directory(
     spec_root: &FilePath,
     execution_root: &std::path::Path,
 ) -> OcelotResult<ValidationReport> {
+    validate_spec_directory_with_backend(
+        pal,
+        spec_root,
+        execution_root,
+        ValidationBackend::Interpreter,
+    )
+}
+
+/// Validates the same parsed specification against an explicit execution backend.
+pub fn validate_spec_directory_with_backend(
+    pal: &CapturingPal,
+    spec_root: &FilePath,
+    execution_root: &std::path::Path,
+    backend: ValidationBackend,
+) -> OcelotResult<ValidationReport> {
+    if backend == ValidationBackend::CTcc {
+        use ocelot_engine::native_toolchain::NativeToolchain;
+        ocelot_engine::tcc_toolchain::TccToolchain::repository().check(&*pal.underlying())?;
+        let runtime = ocelot_engine::build_native::runtime_archive()?;
+        if !pal.underlying().file_exists(&runtime)? {
+            ocelot_base::bail!(
+                "native spec setup requires the prebuilt ABI v1 runtime: {runtime}; run cargo build --workspace"
+            );
+        }
+        pal.underlying()
+            .create_directory_all(&FilePath::new(execution_root))?;
+    }
     let chapters = load_spec_chapters(pal, spec_root)?;
     let scanned_chapter_count = chapters.len();
     let example_count = chapters.iter().map(|chapter| chapter.examples.len()).sum();
@@ -27,7 +55,32 @@ pub fn validate_spec_directory(
 
     for chapter in &chapters {
         for example in &chapter.examples {
-            let observed_outcome = execute_spec_example(pal, execution_root, example)?;
+            let observed_outcome = match backend {
+                ValidationBackend::Interpreter => {
+                    execute_spec_example(pal, execution_root, example)
+                }
+                ValidationBackend::CTcc => crate::execute_native_example::execute_native_example(
+                    pal,
+                    execution_root,
+                    example,
+                ),
+            };
+            let observed_outcome = match observed_outcome {
+                Ok(value) => value,
+                Err(error) => {
+                    failures.push(ValidationFailure {
+                        chapter_path: example.chapter_path.clone(),
+                        example_name: example.name.clone(),
+                        kind: ValidationFailureKind::BackendFailure,
+                        message: crate::render_validation_error::render_validation_error(&error)
+                            .into(),
+                        expected_output: Some(example.expected_outcome.text().into()),
+                        actual_output: None,
+                        line_number: example.line_number,
+                    });
+                    continue;
+                }
+            };
 
             match (&example.expected_outcome, observed_outcome) {
                 (ExpectedOutcome::Output(expected), ObservedOutcome::Output(actual))

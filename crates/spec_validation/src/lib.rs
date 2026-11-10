@@ -1,4 +1,5 @@
 pub mod capturing_pal;
+pub mod execute_native_example;
 pub mod execute_spec_example;
 pub mod expected_outcome;
 pub mod load_spec_chapters;
@@ -13,6 +14,7 @@ pub mod spec_example_embedded_step;
 pub mod spec_example_embedded_step_kind;
 pub mod spec_example_file;
 pub mod validate_spec_directory;
+pub mod validation_backend;
 pub mod validation_failure;
 pub mod validation_failure_kind;
 pub mod validation_report;

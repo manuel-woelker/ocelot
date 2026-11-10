@@ -23,6 +23,10 @@ pub struct CapturingPal {
 }
 
 impl CapturingPal {
+    /// Returns the underlying PAL for materializing native process inputs.
+    pub fn underlying(&self) -> PalHandle {
+        self.inner.clone()
+    }
     /// Creates a capturing PAL around another PAL handle.
     pub fn new(inner: PalHandle) -> Self {
         Self {
@@ -46,6 +50,27 @@ impl CapturingPal {
 }
 
 impl Pal for CapturingPal {
+    fn absolute_path(&self, path: &FilePath) -> OcelotResult<FilePath> {
+        self.inner.absolute_path(path)
+    }
+    fn remove_directory_all(&self, path: &FilePath) -> OcelotResult<()> {
+        self.virtual_files
+            .write()
+            .retain(|key, _| !key.as_path().starts_with(path.as_path()));
+        self.virtual_directories
+            .write()
+            .retain(|key| !key.as_path().starts_with(path.as_path()));
+        self.inner.remove_directory_all(path)
+    }
+
+    fn run_process_with_timeout(
+        &self,
+        command: &ProcessCommand,
+        sink: &mut dyn ProcessEventSink,
+        timeout: Duration,
+    ) -> OcelotResult<ProcessResult> {
+        self.inner.run_process_with_timeout(command, sink, timeout)
+    }
     fn args(&self) -> Vec<OsString> {
         self.inner.args()
     }

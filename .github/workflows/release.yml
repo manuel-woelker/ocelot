@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build-release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -38,6 +38,15 @@ jobs:
       - name: Build release binary
         run: cargo build --release --target x86_64-unknown-linux-musl -p ocelot --locked
 
+      - name: Build GNU native runtime
+        run: cargo build --release --target x86_64-unknown-linux-gnu -p ocelot-native-runtime --locked
+
+      - name: Verify native compilation
+        run: |
+          ./t tcc -v
+          cargo build --workspace --locked
+          cargo run -p ocelot-spec-validation -- --backend=all
+
       - name: Package release artifacts
         env:
           TAG_NAME: ${{ github.ref_name }}
@@ -50,6 +59,12 @@ jobs:
           mkdir -p "${ARTIFACT_DIR}"
           cp "target/${TARGET_TRIPLE}/release/ocelot" "${ARTIFACT_DIR}/ocelot"
           cp README.md "${ARTIFACT_DIR}/README.md"
+          cp target/x86_64-unknown-linux-gnu/release/libocelot_native_runtime.a "${ARTIFACT_DIR}/libocelot_native_runtime.a"
+          cp docs/NATIVE.md "${ARTIFACT_DIR}/NATIVE.md"
+
+          "${ARTIFACT_DIR}/ocelot" build examples/native-smoke.ocelot-script -o "${ARTIFACT_DIR}/native-smoke"
+          "${ARTIFACT_DIR}/native-smoke"
+          rm -- "${ARTIFACT_DIR}/native-smoke"
 
           tar -C dist -czf "dist/${ARCHIVE_BASENAME}.tar.gz" "${ARCHIVE_BASENAME}"
           sha256sum "dist/${ARCHIVE_BASENAME}.tar.gz" > "dist/${ARCHIVE_BASENAME}.sha256"

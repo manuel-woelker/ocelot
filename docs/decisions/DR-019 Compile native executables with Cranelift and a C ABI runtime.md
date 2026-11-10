@@ -6,7 +6,7 @@
 The user selected a C backend with an initially external TCC toolchain instead.
 This proposal was never accepted or implemented. See
 [DR-020](<DR-020 Generate C with replaceable native toolchains.md>) and the
-[revised plan](../plans/2026-11-10-native-binaries-plan.md). The text below
+[revised plan](../plans/completed/2026-11-10-native-binaries-plan.md). The text below
 preserves the original Cranelift proposal; its earlier plan is available in
 commit `d6bb376`.
 
@@ -43,7 +43,7 @@ built-ins use Rust trait objects.
 [DR-003](<DR-003 Resolve programs into one canonical semantic model.md>) permits
 future backends without a parallel semantic environment;
 [DR-001](<DR-001 Isolate platform interactions behind the PAL.md>) governs platform
-operations. The [plan](../plans/2026-11-10-native-binaries-plan.md) contains the
+operations. The [plan](../plans/completed/2026-11-10-native-binaries-plan.md) contains the
 comparison, ABI assumptions, implementation milestones, verification, and sources.
 
 ## What would the consequences be?
