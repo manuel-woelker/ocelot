@@ -28,6 +28,7 @@ unused identifier; IDs remain stable even when a decision is rejected or superse
 | [DR-016](<DR-016 Implement conditionals as expressions with compatible branch results.md>) | Implement conditionals as expressions with compatible branch results | Accepted |
 | [DR-017](<DR-017 Use immutable local bindings and lexical scopes.md>) | Use immutable local bindings and lexical scopes | Accepted |
 | [DR-018](<DR-018 Compare matching value types with explicit equality operators.md>) | Compare matching value types with explicit equality operators | Accepted |
+| [DR-019](<DR-019 Compile native executables with Cranelift and a C ABI runtime.md>) | Compile native executables with Cranelift and a C ABI runtime | Proposed |
 
 DR-001 through DR-013 retrospectively document implemented choices and existing
 project policy. Their dates record acceptance of these accounts on 2026-11-03,
