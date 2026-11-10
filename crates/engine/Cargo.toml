@@ -9,6 +9,7 @@ repository = "https://github.com/manuel-woelker/ocelot"
 [dependencies]
 ocelot-ast = { path = "../ast", version = "0.1.2" }
 ocelot-base = { path = "../base", version = "0.1.2" }
+ocelot-codegen-c = { path = "../codegen_c", version = "0.1.2" }
 ocelot-interpreter = { path = "../interpreter", version = "0.1.2" }
 ocelot-pal = { path = "../pal", version = "0.1.2" }
 ocelot-parser = { path = "../parser", version = "0.1.2" }

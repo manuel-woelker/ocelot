@@ -1,0 +1,14 @@
+[package]
+name = "ocelot-native-runtime"
+version = "0.1.2"
+edition = "2024"
+description = "C ABI runtime for Ocelot native programs"
+license = "MIT"
+repository = "https://github.com/manuel-woelker/ocelot"
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+ocelot-base = { path = "../base", version = "0.1.2" }
+ocelot-pal = { path = "../pal", version = "0.1.2" }

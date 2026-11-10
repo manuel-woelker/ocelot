@@ -153,6 +153,41 @@ impl Default for PalMock {
 }
 
 impl Pal for PalMock {
+    fn absolute_path(&self, path: &FilePath) -> OcelotResult<FilePath> {
+        Ok(if path.is_absolute() {
+            path.clone()
+        } else {
+            FilePath::from("/workspace").join(path.as_path())
+        })
+    }
+    fn remove_directory_all(&self, path: &FilePath) -> OcelotResult<()> {
+        let mut inner = self.inner.write();
+        inner
+            .file_map
+            .retain(|key, _| !key.as_path().starts_with(path.as_path()));
+        inner
+            .directories
+            .retain(|key| !key.as_path().starts_with(path.as_path()));
+        Ok(())
+    }
+
+    fn run_process_with_timeout(
+        &self,
+        command: &ProcessCommand,
+        sink: &mut dyn ProcessEventSink,
+        timeout: Duration,
+    ) -> OcelotResult<ProcessResult> {
+        if self
+            .inner
+            .read()
+            .process_executions
+            .get(command)
+            .is_some_and(|(_, _, delay)| *delay > timeout)
+        {
+            ocelot_base::bail!("process '{}' timed out", command.executable);
+        }
+        self.run_process(command, sink)
+    }
     fn args(&self) -> Vec<OsString> {
         self.inner.read().args.clone()
     }

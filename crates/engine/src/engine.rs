@@ -46,6 +46,19 @@ impl Engine {
         self.run_worker(&mut worker)
     }
 
+    /// Resolves a native file build through the same frontend and entrypoint checks.
+    pub fn prepare_file(
+        &self,
+        path: impl Into<FilePath>,
+    ) -> OcelotResult<ocelot_semantic::resolved_program::ResolvedProgram> {
+        let command = EngineCommand::run_file(path.into())?;
+        let mut worker = EngineWorker::new(&self.pal, command, self.builtin_modules.clone());
+        worker
+            .prepare()
+            .map_err(|error| attach_compilation_diagnostics(error, &worker))?;
+        Ok(worker.prepared_program().clone())
+    }
+
     pub fn run_test(&self, path: impl Into<FilePath>, test_name: &str) -> OcelotResult<()> {
         let path = path.into();
         let command = EngineCommand::run_test(path, test_name)?;

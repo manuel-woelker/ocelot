@@ -51,6 +51,12 @@ impl EngineWorker {
     }
 
     pub fn run_command(&mut self) -> OcelotResult<()> {
+        self.prepare()?;
+        self.execute()
+    }
+
+    /// Resolves and validates without executing any user code.
+    pub(crate) fn prepare(&mut self) -> OcelotResult<()> {
         self.resolved_program = None;
         let resolved_program = compile_program(
             &*self.pal,
@@ -61,8 +67,11 @@ impl EngineWorker {
             &mut self.source_diagnostics,
         )?;
         self.resolved_program = Some(resolved_program);
-        self.validate_entrypoint()?;
-        self.execute()
+        self.validate_entrypoint()
+    }
+
+    pub(crate) fn prepared_program(&self) -> &ocelot_semantic::resolved_program::ResolvedProgram {
+        self.resolved_program.as_ref().expect("prepared program")
     }
 
     pub fn source_diagnostics(&self) -> &SourceDiagnostics {

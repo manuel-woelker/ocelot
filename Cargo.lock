@@ -400,12 +400,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ocelot-codegen-c"
+version = "0.1.2"
+dependencies = [
+ "ocelot-ast",
+ "ocelot-base",
+ "ocelot-semantic",
+]
+
+[[package]]
 name = "ocelot-engine"
 version = "0.1.2"
 dependencies = [
  "expect-test",
  "ocelot-ast",
  "ocelot-base",
+ "ocelot-codegen-c",
  "ocelot-interpreter",
  "ocelot-pal",
  "ocelot-parser",
@@ -435,11 +445,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ocelot-native-runtime"
+version = "0.1.2"
+dependencies = [
+ "ocelot-base",
+ "ocelot-pal",
+]
+
+[[package]]
 name = "ocelot-pal"
 version = "0.1.2"
 dependencies = [
  "expect-test",
  "ignore",
+ "libc",
  "notify-debouncer-full",
  "ocelot-base",
  "relative-path",

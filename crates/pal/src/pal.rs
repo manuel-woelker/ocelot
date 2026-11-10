@@ -23,6 +23,15 @@ pub trait Pal: Debug + Sync + Send + 'static {
     /// Does the file exist?
     fn file_exists(&self, path: &FilePath) -> OcelotResult<bool>;
 
+    /// Resolves a path against this PAL's filesystem root for external tools.
+    fn absolute_path(&self, path: &FilePath) -> OcelotResult<FilePath> {
+        if path.is_absolute() {
+            Ok(path.clone())
+        } else {
+            ocelot_base::bail!("absolute paths are not supported by this PAL")
+        }
+    }
+
     /// Read a file, the path is relative to the base directory
     fn read_file(&self, path: &FilePath) -> OcelotResult<Box<dyn ReadSeek + 'static>>;
 
@@ -66,6 +75,11 @@ pub trait Pal: Debug + Sync + Send + 'static {
     /// Rename or replace one file path with another path.
     fn rename(&self, from: &FilePath, to: &FilePath) -> OcelotResult<()>;
 
+    /// Removes an isolated build directory and its contents.
+    fn remove_directory_all(&self, _path: &FilePath) -> OcelotResult<()> {
+        ocelot_base::bail!("directory cleanup is not supported by this PAL")
+    }
+
     /// Append bytes to a file, creating it if it does not exist.
     fn append_file(&self, path: &FilePath, content: &[u8]) -> OcelotResult<()>;
 
@@ -84,6 +98,16 @@ pub trait Pal: Debug + Sync + Send + 'static {
         command: &ProcessCommand,
         sink: &mut dyn ProcessEventSink,
     ) -> OcelotResult<ProcessResult>;
+
+    /// Executes a process with a deadline, terminating and reaping it on timeout.
+    fn run_process_with_timeout(
+        &self,
+        _command: &ProcessCommand,
+        _sink: &mut dyn ProcessEventSink,
+        _timeout: Duration,
+    ) -> OcelotResult<ProcessResult> {
+        ocelot_base::bail!("process deadlines are not supported by this PAL")
+    }
 
     /// Returns a monotonic timestamp suitable for elapsed-time calculations and event ordering.
     fn now(&self) -> Timestamp;

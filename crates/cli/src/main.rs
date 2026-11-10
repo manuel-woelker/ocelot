@@ -22,10 +22,24 @@ use std::process::ExitCode;
 
 #[derive(Debug, PartialEq, Eq)]
 enum CliCommand {
+    Build {
+        path: SharedString,
+        output: SharedString,
+        emit_c: bool,
+        compiler: Option<SharedString>,
+        linker: Option<SharedString>,
+        runtime: Option<SharedString>,
+    },
     Fmt,
-    Repl { base_path: Option<String> },
-    Run { path: String },
-    Test { filter_expression: Option<String> },
+    Repl {
+        base_path: Option<String>,
+    },
+    Run {
+        path: String,
+    },
+    Test {
+        filter_expression: Option<String>,
+    },
 }
 
 fn main() -> ExitCode {
@@ -54,6 +68,7 @@ fn parse_command(args: Vec<OsString>) -> Option<CliCommand> {
     let first_arg = args.next()?;
 
     match first_arg.as_str() {
+        "build" => parse_build_command(args.collect()),
         "fmt" if args.next().is_none() => Some(CliCommand::Fmt),
         "fmt" => None,
         "repl" => parse_repl_command(args.collect()),
@@ -62,6 +77,38 @@ fn parse_command(args: Vec<OsString>) -> Option<CliCommand> {
             path: path.to_owned(),
         }),
     }
+}
+
+/// Parses explicit build artifacts and toolchain configuration without shell syntax.
+fn parse_build_command(args: Vec<String>) -> Option<CliCommand> {
+    let mut args = args.into_iter();
+    let path = args.next()?;
+    if path.starts_with('-') {
+        return None;
+    }
+    let mut output = None;
+    let mut emit_c = false;
+    let mut compiler = None;
+    let mut linker = None;
+    let mut runtime = None;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "-o" if output.is_none() => output = Some(args.next()?.into()),
+            "--emit=c" if !emit_c => emit_c = true,
+            "--tcc" if compiler.is_none() => compiler = Some(args.next()?.into()),
+            "--linker" if linker.is_none() => linker = Some(args.next()?.into()),
+            "--runtime" if runtime.is_none() => runtime = Some(args.next()?.into()),
+            _ => return None,
+        }
+    }
+    Some(CliCommand::Build {
+        path: path.into(),
+        output: output?,
+        emit_c,
+        compiler,
+        linker,
+        runtime,
+    })
 }
 
 fn parse_test_command(args: Vec<String>) -> Option<CliCommand> {
@@ -104,6 +151,51 @@ fn try_execute_command(pal: PalHandle, command: &CliCommand) -> OcelotResult<Exi
     let engine = Engine::new(pal.clone());
 
     match command {
+        CliCommand::Build {
+            path,
+            output,
+            emit_c,
+            compiler,
+            linker,
+            runtime,
+        } => {
+            use ocelot_engine::native_toolchain::NativeToolchain;
+            let unit = ocelot_engine::native_source::file_source(
+                pal.clone(),
+                &FilePath::from(path.as_str()),
+            )?;
+            let output = FilePath::from(output.as_str());
+            if *emit_c {
+                pal.write_file(&output, unit.source.as_bytes())?;
+            } else {
+                let mut toolchain = ocelot_engine::tcc_toolchain::TccToolchain::repository();
+                if let Some(compiler) = compiler {
+                    toolchain.compiler = compiler.clone();
+                    toolchain.compiler_arguments.clear();
+                    toolchain.compiler_directory = None;
+                } else if !pal.file_exists(&FilePath::from(toolchain.compiler.as_str()))? {
+                    toolchain.compiler = "tcc".into();
+                    toolchain.compiler_arguments.clear();
+                    toolchain.compiler_directory = None;
+                }
+                if let Some(linker) = linker {
+                    toolchain.linker = linker.clone();
+                }
+                toolchain.check(&*pal)?;
+                let runtime = match runtime {
+                    Some(path) => FilePath::from(path.as_str()),
+                    None => ocelot_engine::build_native::runtime_archive()?,
+                };
+                ocelot_engine::build_native::build_native(
+                    &*pal,
+                    &unit.source,
+                    &output,
+                    &runtime,
+                    &toolchain,
+                )?;
+            }
+            Ok(ExitCode::SUCCESS)
+        }
         CliCommand::Fmt => {
             format_current_directory(&pal)?;
             Ok(ExitCode::SUCCESS)
@@ -371,7 +463,7 @@ fn exit_code_for_test_summary(summary: &TestRunSummary) -> ExitCode {
 
 fn print_usage() {
     eprintln!(
-        "Usage:\n  ocelot fmt\n  ocelot repl [base-path]\n  ocelot <source-file>\n  ocelot test [filter-expression]"
+        "Usage:\n  ocelot build <source-file> -o <output> [--emit=c] [--tcc <path>] [--linker <path>] [--runtime <archive>]\n  ocelot fmt\n  ocelot repl [base-path]\n  ocelot <source-file>\n  ocelot test [filter-expression]"
     );
 }
 
@@ -437,6 +529,42 @@ mod tests {
     use ocelot_pal::pal_mock::PalMock;
     use std::ffi::OsString;
     use std::process::ExitCode;
+
+    #[test]
+    fn parses_native_build_options_without_splitting_executable_paths() {
+        let args = [
+            "build",
+            "source file.ocelot",
+            "-o",
+            "output file",
+            "--tcc",
+            "/tools/my tcc",
+            "--linker",
+            "cc",
+            "--runtime",
+            "runtime.a",
+        ];
+        assert_eq!(
+            parse_command(args.into_iter().map(OsString::from).collect()),
+            Some(CliCommand::Build {
+                path: "source file.ocelot".into(),
+                output: "output file".into(),
+                emit_c: false,
+                compiler: Some("/tools/my tcc".into()),
+                linker: Some("cc".into()),
+                runtime: Some("runtime.a".into()),
+            })
+        );
+        for invalid in [
+            vec!["build"],
+            vec!["build", "main.ocelot"],
+            vec!["build", "main.ocelot", "-o"],
+            vec!["build", "main.ocelot", "-o", "out", "--unknown"],
+            vec!["build", "main.ocelot", "-o", "out", "--tcc"],
+        ] {
+            assert!(parse_command(invalid.into_iter().map(OsString::from).collect()).is_none());
+        }
+    }
 
     #[test]
     fn parses_run_command() {

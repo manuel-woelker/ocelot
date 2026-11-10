@@ -90,11 +90,15 @@ impl PalReal {
         &self,
         command: &ProcessCommand,
         sink: &mut dyn ProcessEventSink,
+        timeout: Option<Duration>,
     ) -> OcelotResult<ProcessResult> {
         let mut child_command = Command::new(command.executable.as_str());
         child_command.args(command.arguments.iter().map(|argument| argument.as_str()));
         child_command.stdout(Stdio::piped());
         child_command.stderr(Stdio::piped());
+        child_command.kill_on_drop(true);
+        #[cfg(unix)]
+        child_command.process_group(0);
 
         if let Some(working_directory) = &command.working_directory {
             child_command.current_dir(self.resolve_working_directory(working_directory)?);
@@ -107,6 +111,8 @@ impl PalReal {
         let mut child = child_command.spawn().with_context(|| {
             format!("Unable to spawn process '{}'", command.executable.as_str())
         })?;
+        #[cfg(unix)]
+        let process_group = child.id();
         let reference_instant = self.reference_instant;
         let started_at = Self::timestamp_from(&reference_instant);
         sink.handle_event(ProcessEvent::Started(ProcessStartedEvent {
@@ -142,9 +148,24 @@ impl PalReal {
         let mut exit_code = None;
         let mut wait_future = Box::pin(child.wait());
         let mut exit_observed = false;
+        let deadline = tokio::time::sleep(timeout.unwrap_or(Duration::from_secs(86400 * 365)));
+        tokio::pin!(deadline);
 
         while !exit_observed || stream_closes < expected_stream_closes {
             tokio::select! {
+                _ = &mut deadline, if timeout.is_some() => {
+                    drop(wait_future);
+                    #[cfg(unix)]
+                    if let Some(pid) = process_group {
+                        // The child leads its own process group, including tool wrappers' children.
+                        unsafe { libc::kill(-(pid as i32), libc::SIGKILL); }
+                    }
+                    if !exit_observed {
+                        let _ = child.start_kill();
+                        child.wait().await.context("unable to reap timed out child")?;
+                    }
+                    ocelot_base::bail!("process '{}' timed out", command.executable.as_str());
+                }
                 maybe_event = rx.recv(), if stream_closes < expected_stream_closes => {
                     let event = maybe_event.context("Process output channel closed unexpectedly")?;
                     if let ProcessEvent::StreamClosed(_) = &event {
@@ -184,6 +205,26 @@ impl PalReal {
 }
 
 impl Pal for PalReal {
+    fn absolute_path(&self, path: &FilePath) -> OcelotResult<FilePath> {
+        Ok(FilePath::new(self.resolve_process_path(path)?))
+    }
+    fn remove_directory_all(&self, path: &FilePath) -> OcelotResult<()> {
+        let path = self.resolve_process_path(path)?;
+        if path.exists() {
+            std::fs::remove_dir_all(path)?;
+        }
+        Ok(())
+    }
+
+    fn run_process_with_timeout(
+        &self,
+        command: &ProcessCommand,
+        sink: &mut dyn ProcessEventSink,
+        timeout: Duration,
+    ) -> OcelotResult<ProcessResult> {
+        self.runtime
+            .block_on(self.run_process_async(command, sink, Some(timeout)))
+    }
     fn args(&self) -> Vec<OsString> {
         std::env::args_os().skip(1).collect()
     }
@@ -367,7 +408,8 @@ impl Pal for PalReal {
         command: &ProcessCommand,
         sink: &mut dyn ProcessEventSink,
     ) -> OcelotResult<ProcessResult> {
-        self.runtime.block_on(self.run_process_async(command, sink))
+        self.runtime
+            .block_on(self.run_process_async(command, sink, None))
     }
 
     fn now(&self) -> Timestamp {
@@ -438,6 +480,38 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{Duration, SystemTime};
+
+    #[cfg(unix)]
+    #[test]
+    fn deadlines_terminate_a_tool_wrapper_and_its_child() {
+        let pal = PalReal::new().unwrap();
+        let mut sink = RecordingSink::default();
+        let command = ProcessCommand {
+            executable: "sh".into(),
+            arguments: vec!["-c".into(), "sleep 30 & wait".into()],
+            working_directory: None,
+            environment: Vec::new(),
+        };
+        let start = std::time::Instant::now();
+        let error = pal
+            .run_process_with_timeout(&command, &mut sink, Duration::from_millis(50))
+            .unwrap_err();
+        assert!(error.kind().to_string().contains("timed out"));
+        assert!(start.elapsed() < Duration::from_secs(3));
+        let pid = sink
+            .events
+            .iter()
+            .find_map(|event| {
+                if let ProcessEvent::Started(event) = event {
+                    event.process_id
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        // wait() reaped the group leader; it must no longer exist.
+        assert_eq!(unsafe { libc::kill(pid as i32, 0) }, -1);
+    }
 
     #[derive(Default)]
     struct RecordingSink {

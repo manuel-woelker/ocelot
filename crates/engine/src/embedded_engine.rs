@@ -91,33 +91,7 @@ impl EmbeddedEngine {
         let eval_statement = format!("{expression_source};");
         self.source_diagnostics = SourceDiagnostics::default();
         let input_file = self.synthetic_source_file(eval_statement.as_str());
-        let input = ocelot_parser::parse_compilation_unit::parse_compilation_unit(
-            &input_file,
-            &mut self.source_diagnostics,
-        )?;
-        if input.items.len() != 1
-            || !matches!(
-                input.items[0].kind,
-                ocelot_ast::item_kind::ItemKind::Statement(ocelot_ast::statement::Statement {
-                    kind: StatementKind::Expression(_),
-                    ..
-                })
-            )
-        {
-            self.source_diagnostics.diagnostics.push(
-                ocelot_base::source_diagnostic::SourceDiagnostic::new(
-                    ocelot_base::diagnostic_level::DiagnosticLevel::Error,
-                    &input_file.path,
-                    "eval expects exactly one expression",
-                ),
-            );
-            return Err(attach_compilation_diagnostics(
-                OcelotError::compilation_error(
-                    ocelot_base::compilation_stage::CompilationStage::Parser,
-                ),
-                &self.source_diagnostics,
-            ));
-        }
+        crate::prepare_eval_input::prepare_eval_input(&input_file, &mut self.source_diagnostics)?;
         let (candidate_source, new_item_offset) = self.candidate_source(eval_statement.as_str());
         let synthetic_source_file = self.synthetic_source_file(candidate_source);
         let resolved_program = self.compile_with_source(synthetic_source_file)?;
