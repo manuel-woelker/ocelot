@@ -1,7 +1,14 @@
 # DR-019: Compile native executables with Cranelift and a C ABI runtime
 
-- Status: Proposed
+- Status: Rejected
 - Date: 2026-11-10
+
+The user selected a C backend with an initially external TCC toolchain instead.
+This proposal was never accepted or implemented. See
+[DR-020](<DR-020 Generate C with replaceable native toolchains.md>) and the
+[revised plan](../plans/2026-11-10-native-binaries-plan.md). The text below
+preserves the original Cranelift proposal; its earlier plan is available in
+commit `d6bb376`.
 
 ## What is the proposed decision?
 

@@ -1,206 +1,276 @@
-# What outcome are we planning?
+# What will this plan deliver?
 
-Compile Ocelot file programs into native x86-64 Linux ELF executables. Generated
-programs must run without Ocelot, Rust, source files, or a compiler installed.
-Reuse the current resolver, type checking, effect checking, and module loading.
-Keep the interpreter and embedded sessions working as they do today.
+Add a C backend and an external TCC toolchain for native x86-64 Linux executables.
+The same generated C must remain usable by later Clang/GCC adapters without
+changing language lowering. Verify every executable spec example through the
+native path as well as the existing interpreter path.
 
-This is an implementation plan, not an implemented feature. The recommended
-backend is Cranelift AOT, subject to a small feasibility and timing experiment.
-[DR-019](<../decisions/DR-019 Compile native executables with Cranelift and a C ABI runtime.md>)
-is Proposed until that experiment and implementation review establish the choice.
+This replaces the earlier Cranelift implementation proposal in this plan.
+[DR-020](<../decisions/DR-020 Generate C with replaceable native toolchains.md>)
+records the user-selected direction; the unimplemented Cranelift proposal,
+[DR-019](<../decisions/DR-019 Compile native executables with Cranelift and a C ABI runtime.md>),
+is rejected. All implementation checkboxes below remain pending.
 
-# What are the options and tradeoffs?
+# What is the initial scope?
 
-The following is an engineering assessment of integration cost and the projects'
-stated designs, not measured Ocelot performance. Compiler implementation time,
-building the Ocelot compiler itself, compiling user programs, and executing those
-programs are separate costs.
+- Baseline x86-64 Linux, System V AMD64 ABI, ELF64, GNU libc; no host-specific ISA.
+- One external TCC executable, pinned/tested in development and CI. Invoke it as
+  a child process through PAL, not through libtcc or `tcc -run`.
+- Generate a real executable and launch that artifact in tests. Execution requires
+  compatible system libraries, but no Ocelot, TCC, Rust, or source installation.
+- Support the complete currently implemented language, including modules, typed
+  calls/results, strings/templates, booleans, unit, bindings, blocks, conditionals,
+  negation, equality, effects, and early returns.
+- Keep interpretation, the public embedded API, and the REPL working. Native spec
+  scenario drivers are test artifacts, not a new public JIT or embedded API.
+- Other architectures, musl/static output, user FFI, shared libraries, full DWARF
+  debugging, and an optimizing compiler mode are later work.
 
-| Option | Implementation and distribution | User-program compilation | Generated runtime performance |
-| --- | --- | --- | --- |
-| Generate C, invoke Clang/GCC | Simplest route to a first compiler; inspectable output; needs a C compiler on the build machine | Starts another compiler, parses generated C, optimizes, and links | Strong optimization potential; depends on generated C and flags |
-| Cranelift AOT | Moderate lowering work; Rust library integration; still needs a linker driver and runtime archive | Designed for fast code generation; emits objects directly | Deliberately trades some optimization opportunities for compiler speed and simplicity |
-| LLVM | Larger API/toolchain integration and versioning burden; textual IR plus Clang can avoid linking LLVM into Ocelot | Optimization pipelines can cost more, especially at higher optimization levels | Best candidate here when aggressive optimization becomes the priority; no guaranteed win for every workload |
-| QBE | Compact textual IR and straightforward C ABI; an additional external backend executable | Lightweight design; commonly emits assembly before assembly/linking | Intentionally narrower optimization scope than industrial backends |
-| Handwritten x86-64 | Small demonstrations are easy; register allocation, relocations, ABI, and debugging become our responsibility | Potentially fast, but requires building and maintaining the backend | Depends entirely on optimizations we implement; poor use of project effort now |
+The existing release ships a musl-linked compiler. That does not select the
+generated program's ABI: package the GNU-target runtime separately and document
+the supported glibc baseline. Test TCC's actual linker/relocation behavior before
+choosing PIE; do not carry over an unverified PIE requirement from the old plan.
 
-**Recommendation:** use Cranelift as the first maintained native backend. It fits
-the Rust implementation and gives a useful balance without an LLVM dependency.
-If minimum implementation effort outweighs compiler latency, choose C generation
-instead. LLVM remains a future option if measurements establish a runtime need.
-Do not maintain two production backends or introduce a backend plugin framework
-as part of this milestone.
+# How will the backend and toolchain stay separate?
 
-Generating C is a legitimate long-term choice, not merely a throwaway approach.
-It must emit explicit temporaries and sequencing: C argument evaluation order
-cannot be used to implement Ocelot's left-to-right effects and early returns.
-Source-level debugging also needs deliberate mapping, whichever backend is chosen.
+Use three responsibilities, with the engine orchestrating them:
 
-# What does x86-64 Linux mean for the first target?
+| Responsibility | Input | Output |
+| --- | --- | --- |
+| C backend, proposed `ocelot-codegen-c` crate | Canonical `ResolvedProgram` and entry mode | Deterministic C translation unit and source metadata |
+| Native toolchain adapter | C source paths, runtime artifact, target, output path | Executable or a structured tool failure |
+| Native execution/spec runner | Executable, isolated workspace, input scenario | Exit status, stdout, stderr, and optional eval-result artifact |
 
-Propose `x86_64-unknown-linux-gnu`, System V AMD64 calling conventions, ELF64,
-little endian, and baseline x86-64 instructions without host-specific CPU tuning.
-Use PIC objects and the system `cc` driver to produce a PIE executable, linking
-the Ocelot runtime statically and the system C runtime dynamically. Verify this
-combination in the feasibility experiment rather than assuming relocation support.
-Choose and document the oldest supported glibc environment in CI before packaging.
+Consume [ResolvedProgram](../../crates/semantic/src/resolved_program.rs) from
+[compile_program](../../crates/engine/src/compile_program.rs). Preserve the canonical
+semantic model from [DR-003](<../decisions/DR-003 Resolve programs into one canonical semantic model.md>):
+do not duplicate name resolution, label/type/effect checking, or module lookup.
 
-The build machine needs a compatible linker driver and development libraries.
-The execution machine needs compatible glibc/system libraries, but no Ocelot runtime
-installation. "Native" does not imply "fully static" or "runs on every Linux".
-Other architectures, cross-compilation, musl output, shared libraries, FFI for user
-programs, JIT, and compiling persistent REPL state are outside the first milestone.
+Define a small toolchain request/result contract and an explicit TCC adapter.
+Keep executable paths, arguments, libraries, diagnostics, and target capabilities
+in that adapter; the emitter must not know TCC flags. Model compile/link commands
+as argument vectors, never shell strings. Permit a configured compiler path
+containing spaces without treating it as a shell command.
 
-The existing release ships a musl-linked compiler; its ABI is independent of the
-ABI of generated programs. Packaging must supply the GNU-target runtime archive
-and linker requirements explicitly. If a single static distributable executable
-is the actual first requirement, switch this proposal to musl before implementation
-and budget for its linker/sysroot setup. Do not silently inherit the compiler's host
-target or treat both libc targets as supported.
+Initially implement only TCC. A later Clang/GCC adapter changes driver arguments
+and capabilities, not the emitter or runtime ABI. A same-source smoke test with
+system Clang/GCC verifies portability without requiring a second production
+adapter. Do not create a plugin registry, optimization framework, or silently
+fall back to another compiler when TCC fails.
 
-# How does this fit the current implementation?
+Proposed CLI: `ocelot build <source-file> -o <executable>`, with `--emit=c`
+for inspecting generated source. Keep future toolchain selection explicit;
+changing an executable path must not pretend to translate incompatible flags.
 
-[compile_program](../../crates/engine/src/compile_program.rs) already returns a
-[ResolvedProgram](../../crates/semantic/src/resolved_program.rs) with canonical
-types, resolved function indices, modules, and diagnostics. Lower this checked
-representation directly into Cranelift functions and control-flow blocks. Use
-backend-local lexical environments for values and explicit block parameters for
-conditional results. No second resolver, custom optimizer, or general-purpose
-middle IR is required for the initial language.
+# How will portable C preserve Ocelot semantics?
 
-Keep this consistent with [DR-003](<../decisions/DR-003 Resolve programs into one canonical semantic model.md>).
-Resolve/check the whole program before generating code, including unused bodies
-and unselected branches. Declare function symbols before compiling bodies to
-support forward calls and recursion. A script gets a synthetic entry function;
-a module invokes its zero-argument `main()` and discards its result as today.
-Test declarations are checked but do not execute in ordinary binaries.
+Emit a conservative C99 subset supported by the selected TCC and checked with
+Clang/GCC. Avoid GNU statement expressions, nested functions, computed gotos,
+compiler-specific cleanup attributes, or dependence on C expression order.
 
-The current native-function registry holds Rust trait objects. These objects,
-Rust enum layouts, and compiler-process function pointers cannot be embedded as
-a usable ABI in an independent executable. Map supported built-ins by canonical
-identity to explicit runtime symbols, and diagnose unsupported registrations.
+- Declare all user-function prototypes before bodies; mangle canonical function
+  identities into deterministic C identifiers independent of source spellings.
+- Lower expressions into explicit statements and fresh temporaries. Evaluate
+  callees/arguments, comparison operands, and interpolations in Ocelot order.
+- Resolve lexical names to generated locals; shadowed names must not collide.
+  Script root values remain unavailable to user functions as in the interpreter.
+- Lower value-producing blocks/conditionals using result temporaries and branches.
+  A missing else is unit; the internal non-fallthrough type produces control flow,
+  not a C value. Unit expression results must still preserve their effects.
+- Lower explicit returns through cleanup paths. A return inside an operand,
+  initializer, condition, template, or argument skips every subsequent effect.
+- Give strings explicit ownership. Generate retain/release and transfer code for
+  bindings, temporary values, parameters, branch joins, and returns.
+- Store literal UTF-8 as byte arrays plus lengths, including embedded NUL; never
+  use NUL termination as string length or let C string equality compare pointers.
+- Preserve static checking of unused bodies and unselected branches. Static effect
+  annotations remain checked by the resolver, not implemented as runtime flags.
+- Script entry executes statements in order; module entry calls zero-argument
+  `main()` and discards its result. Ordinary execution does not run test bodies.
 
-# What runtime and ownership rules are needed?
+# What runtime will generated code use?
 
-Add a small Rust runtime crate built as a versioned `staticlib`, with a narrow C
-ABI. Build it once per compiler distribution/target; compiling an Ocelot program
-must not invoke Cargo or rebuild the runtime. Pin matching Cranelift crate versions
-together when implementing, based on the actual Rust toolchain requirements.
+Prototype the previously proposed small Rust runtime as a prebuilt `staticlib`
+with a C header and versioned ABI. Generated programs must not compile Rust or
+invoke Cargo per build. First prove that the selected TCC can link and execute the
+actual runtime archive, including its system-library requirements. A trivial
+C-only hello-world is not enough evidence.
 
-Proposed initial representation:
+Use normalized scalar booleans, a documented unit representation where a C value
+is necessary, and opaque reference-counted string handles. String parameters are
+borrowed during calls; string results are owned. Returning a parameter/local must
+retain or transfer ownership before scope cleanup. Avoid process-lifetime arenas
+and leaks as the final string strategy.
 
-- Booleans use a normalized scalar value; unit has no machine-level payload.
-- Strings use opaque runtime handles, with literal UTF-8 bytes in read-only data.
-  Construct handles through runtime calls; do not expose `SharedString` layout.
-- Function string parameters are borrowed for the call; string results are owned.
-  Returning a borrowed parameter/local requires a retained reference.
-- Runtime helpers borrow inputs unless explicitly documented as consuming them.
-  Bindings and owned temporaries are released at scope exit, including early
-  returns; branch results transfer ownership to the join. Immutable strings need
-  reference counting, not a garbage collector. Do not use a process-lifetime arena
-  as the final ownership scheme or silently leak temporary strings.
-- Specialize built-in calls from known operand types. `any` in built-in signatures
-  does not require boxing every Ocelot value. Preserve mixed-type `assert_eq`
-  behavior and the existing rejection of `println` on unit values.
+Specialize built-ins from known Ocelot types rather than boxing every value.
+Preserve mixed-type `assert_eq`, exact string equality, display/eval rendering,
+and current runtime errors such as printing unit. Map built-ins by canonical
+identity, not unqualified spelling. Diagnose unsupported custom native functions;
+do not serialize Rust trait objects or compiler-process function pointers.
 
-Support exact string equality, interpolation, bool/string printing, and assertions.
-Refactor/share pure display and assertion logic where practical; do not pull the
-parser/resolver/interpreter into generated binaries. Define an ABI version and
-reject mismatched runtime archives.
+Share pure value/diagnostic rendering with interpretation where practical.
+Embed source paths, spans, and excerpts required by assertion snapshots so binaries
+work without source files. Language failures emit stable diagnostics and nonzero
+status after preserving earlier output; normal completion exits zero. Rust panics
+must not unwind through generated C frames.
 
-Runtime failures must preserve effects already performed, print a useful message
-and source location, and exit nonzero. Embed the diagnostic source metadata needed
-to operate without source files. Use explicit failure paths; do not unwind Rust
-panics through generated frames or expose a raw machine trap as an assertion message.
-Success exits zero even when a module's `main()` returns a non-unit value.
+All platform operations remain behind [PAL](../../crates/pal/src/pal.rs).
+Add a focused stderr/report operation if the runtime needs one rather than
+bypassing PAL to emit language diagnostics.
+Measure the existing PalReal/Tokio startup and dependency footprint; make runtime
+initialization lazy or factor a focused PAL adapter if necessary. Test runtime
+lookup/version errors and installed layouts outside the repository.
 
-Compiler I/O and linker execution use the existing PAL, argument vectors, and
-process events. Runtime platform operations also stay behind the PAL. Initially
-reuse its adapters, but measure their footprint: `PalReal` currently initializes
-Tokio, and that startup/dependency cost may dominate a tiny native program. If
-material, make that initialization lazy or introduce a focused PAL capability
-without duplicating direct OS I/O throughout the runtime.
+If TCC cannot link the Rust archive, record that result and make an explicit
+design revision before full lowering: either a TCC compile/system-link adapter or
+a smaller C runtime behind the same ABI. Do not accumulate an automatic fallback
+chain. Preserve TCC as the compiler and make any extra linker prerequisite visible.
 
-# In what order should we implement this?
+# How will every spec example be verified natively?
 
-- [ ] **Validate the backend choice.** Create a small Cranelift object containing a
-  branch, typed call, and runtime string/print call; link and run it as PIE. Compile
-  an equivalent small C program for comparison. Check toolchain compatibility,
-  native library dependencies, relocations, and runtime packaging. Record measured
-  results and accept or revise DR-019; do not build two complete backends.
-- [ ] **Define the runtime ABI.** Document scalar and string representations,
-  borrowing/ownership, failure paths, symbol names, and runtime lookup/versioning.
-  Add the runtime crate and ABI tests, including returning borrowed strings and
-  embedded NUL/Unicode content. Verify libc and Rust staticlib link dependencies.
-- [ ] **Add the code generator.** Create `ocelot-codegen` consuming `ResolvedProgram`.
-  Declare symbols, lower function parameters/calls, literals, bindings, blocks,
-  returns, conditionals, negation, equality, templates, and built-ins. Maintain
-  deterministic names, source spans, lexical scopes, and ownership cleanup. Verify
-  Cranelift IR; reject unsupported inputs explicitly instead of interpreting them.
-- [ ] **Integrate builds.** Propose `ocelot build <source-file> -o <executable>` and
-  `--emit=obj` for inspection, with one target initially. Use the existing module
-  root and entrypoint rules. Produce objects in an isolated staging directory;
-  link to a temporary sibling output and publish only on success. Preserve an
-  existing output on failure. Extend PAL cleanup only as required, with real and
-  mock coverage. Report missing `cc`, runtime mismatch, and linker failure clearly.
-- [ ] **Establish parity.** Add native file-execution support to the spec harness
-  alongside interpretation. Run file examples both ways and compare output,
-  compile diagnostics, assertion details/locations, exit success/failure, and
-  effect ordering. Embedded eval examples remain interpreter-only. Add regressions
-  for forward/recursive calls, shadowing, branch joins, returns in either operand,
-  argument/initializer early returns, returned strings, and unit built-in errors.
-- [ ] **Measure and package.** Add release/CI jobs for the selected target and ship
-  its runtime archive and metadata beside the compiler. Test an installed layout
-  outside the checkout and execution without compiler/source files. Inspect ELF
-  architecture, PIE type, CPU baseline, and dynamic dependencies. Measure runtime
-  allocations/leaks and the PAL startup cost. Document linker prerequisites.
-- [ ] **Finish verification.** Run `nao check` with native parity required on the
-  supported CI runner; mock linker errors and exercise the real linker too.
-  Run memory checks on returned/branch/temporary strings and error paths. Update
-  spec, CLI help, release instructions, and overview only as features land. Commit
-  verified logical units; complete and move this plan after native support works.
+Extend the existing
+[loader](../../crates/spec_validation/src/load_spec_chapters.rs),
+[executor](../../crates/spec_validation/src/execute_spec_example.rs), and
+[validator](../../crates/spec_validation/src/validate_spec_directory.rs).
+Reuse the same examples, formatting checks, expectations, and normalization.
+No duplicated Markdown parser, native-only copied examples, broad snapshot
+rewrites, or hidden exclusions.
 
-# How will performance claims be tested?
+Run an explicit matrix of interpreter and C/TCC modes. Compare each mode with the
+written expectation independently; interpreter agreement alone cannot establish
+correctness. Report chapter, example, mode, failure stage, and coverage counts.
+Every loaded example must have a result in both modes. Missing TCC is a setup
+failure in required native validation, never a skip or interpreter fallback.
 
-Measure separately: compiler clean-build time/size; user-program frontend time;
-code-generation time; linking time with the prebuilt runtime; total build latency;
-generated binary size; process startup; and steady execution time/allocations.
-Report toolchain versions, optimization flags, CPU, workload, repeated runs, and
-cold versus warm caches. Compare the same programs and avoid constant-folded or
-stdout-dominated workloads when measuring computation. Prototype C timings guide
-the initial choice; maintaining a second backend is not a benchmark requirement.
+| Example kind | Native validation |
+| --- | --- |
+| Successful file program | Resolve, emit C, compile/link with TCC, execute the binary, require exit zero, compare stdout |
+| Frontend/entrypoint error | Attempt the native build through the same language pipeline, compare the expected diagnostic; no executable is expected |
+| Runtime error | Require a successful native build, run it, require a language failure and matching diagnostic |
+| Embedded execute/eval sequence | Validate each step and compile a native scenario driver, execute it, compare the final typed eval rendering or first language error |
 
-The current language has no numeric loops, so its examples cannot establish
-future numerical throughput. Use generated call/branch graphs and bounded string
-workloads now, and revisit runtime optimization with representative applications.
-Cranelift/LLVM/QBE project performance statements are not Ocelot benchmarks.
-Do not promise percentage speedups or a second optimizing backend before evidence.
+TCC errors, missing libraries, crashes/signals, timeouts, missing output artifacts,
+and driver/protocol errors are infrastructure/backend failures. They cannot
+satisfy `### Error`, even if the process exits nonzero. Keep language error
+classification separate from toolchain errors and process termination.
+Use a documented runtime failure status/report to identify language errors;
+an arbitrary nonzero status and plausible stderr text are insufficient.
 
-# What remains to confirm before implementation?
+For file errors, preserve stdout separately even when only the diagnostic is
+asserted by the current spec; add regressions for effects before failure.
+Keep existing full assertion/error snapshots, normalizing only the same temporary
+path prefixes, ANSI escapes, and line endings as the interpreter runner.
 
-- GNU dynamic output versus musl static output, especially given current releases.
-- Required deployment glibc baseline and acceptable external build prerequisites.
-- Whether initial source locations/assertion diagnostics suffice, or full DWARF
-  debugger support is required; full debug information is a separate milestone here.
-- Baseline timing results and whether developer iteration or peak runtime speed
-  should win if the experiment exposes a material tradeoff.
+# How will embedded examples compile without changing their meaning?
 
-# Which sources support the comparison?
+Do not omit `execute:`/`eval:` examples or naïvely concatenate their snippets.
+The existing harness uses sequential, source-backed sessions, retains successful
+root values, executes new statements once, and does not retain eval-local bindings.
 
-Reviewed on 2026-11-10; dependency versions and measured results must be captured
-again when implementation begins.
+Build a test-only finite scenario using the same frontend preparation rules:
+validate execute submissions against retained source; validate eval as exactly
+one expression; preserve synthetic source offsets and `<embedded>` diagnostics.
+Generate step functions and a driver sharing explicit root-binding storage.
+Namespace code emitted from different source snapshots to prevent C symbol
+collisions; execute only each submission's new statements. User functions keep
+their isolated lexical scopes.
 
-- [Cranelift project](https://cranelift.dev/): Rust embedding, AOT support, targets,
-  and explicit compilation-speed versus optimization tradeoffs.
-- [Cranelift object API](https://docs.rs/cranelift-object/latest/cranelift_object/):
-  object-file emission through `ObjectModule`.
-- [LLVM code generator](https://llvm.org/docs/CodeGenerator.html): native code
-  generation infrastructure and optimization stages.
-- [Clang driver](https://clang.llvm.org/docs/CommandGuide/clang.html): compilation,
-  optimization, assembly, and linking stages for generated C or LLVM IR.
-- [QBE project](https://c9x.me/compile/) and
-  [author's comparison with LLVM](https://c9x.me/compile/doc/llvm.html): compact
-  backend scope, C ABI support, and intentionally limited optimization goals.
-- [Rust linkage reference](https://doc.rust-lang.org/reference/linkage.html):
-  staticlib packaging, native dependencies, and mixed-language linking constraints.
+Each successful execute commits its root values; eval borrows the session values
+and releases its locals. Run steps in order inside one generated process, stopping
+at the first runtime failure. Return the last successful eval's bool/string/unit
+rendering through a dedicated structured result artifact, separate from ordinary
+stdout/stderr. This prevents printed text from masquerading as the eval result.
+
+A later compile-time error must not mask an earlier runtime failure. Prepare only
+the valid prefix up to the first static error, compile/run that prefix, and report
+the static error only if the prefix succeeds. Do not execute prefix steps in the
+interpreter. This ordering needs a dedicated harness regression.
+
+The scenario adapter is not a substitute for transactional embedded-engine tests.
+Retain existing interpreter session tests, and add native scenario cases proving
+one-time initialization, persistent roots, eval-local isolation, result quoting,
+module lookup, and first-error ordering. If recovery-after-failure scenarios are
+added, represent candidate roots and commit/rollback explicitly before claiming
+that coverage.
+
+# What test infrastructure is required?
+
+Native executables need real files. The current CapturingPal can hold virtual
+sources, so explicitly materialize each example's files and build artifacts under
+a unique real directory, preserving module-relative layout. Share setup helpers
+where practical; virtual files alone cannot be passed to TCC.
+
+Use PAL for materialization, subprocesses, output capture, and cleanup. Cover
+command construction/tool failures with PalMock, and require real TCC process tests
+with PalReal. Bound compile/run durations; extend PAL cancellation/timeout support
+if needed, ensuring hung processes are terminated and reaped rather than merely
+abandoning a waiting thread. Isolate concurrent runs and retain generated C,
+command metadata, and stderr for failures; clean successful artifacts.
+
+Add proposed `--backend=interpreter|c-tcc|all` selection to the spec runner.
+Add a required `validate-native` task to `nao check` on the supported Linux
+development/CI environment, alongside existing interpreter validation.
+Provision pinned TCC and its headers/runtime support files in the project's
+development environment and CI. Check tool availability/version before the matrix.
+Do not require or claim coverage on unsupported hosts; report that distinction
+explicitly instead of presenting native validation as passed.
+
+As a portability guard, compile/run representative emitted C with system
+Clang/GCC using strict warnings and an optimized build. Run sanitizer or memory
+checker cases for string ownership where supported; TCC success alone does not
+prove the emitted C is free from undefined behavior.
+
+# In what order will work land?
+
+- [ ] Prove x86-64 TCC compilation/linking with the real runtime ABI, string return,
+  assertion, and target dependencies. Select executable type and record versions.
+- [ ] Define/test the runtime ABI, ownership rules, failure reporting, source
+  metadata, packaging lookup, and archive compatibility.
+- [ ] Add the C emitter for the checked language, with deterministic output,
+  explicit sequencing, lexical locals, and cleanup. Add source-driven regressions.
+- [ ] Add the replaceable toolchain request/result boundary and TCC adapter;
+  integrate the build CLI, emitted-C inspection, staging, and atomic publication.
+  Preserve an existing executable if any stage fails.
+- [ ] Add native file-example execution and negative-error classification to the
+  shared spec harness. Require real binaries and exact existing expectations.
+- [ ] Add compiled embedded-scenario drivers and first-error sequencing. Account
+  for every loaded example in native and interpreter reports.
+- [ ] Provision TCC and wire mandatory native validation into nao/CI. Test missing
+  tools, linker failures, paths with spaces, concurrency, timeouts, and cleanup.
+- [ ] Run same-source Clang/GCC portability checks, memory checks, installed-layout
+  tests, and source-free executable smoke tests. Measure compile/link latency,
+  startup, runtime allocations, and binary size without promising speedup ratios.
+- [ ] Update CLI/spec/testing/release documentation as features land, run
+  `nao check`, commit coherent verified units, and move this plan to completed
+  only after the full interpreter/native spec matrix passes without exclusions.
+
+# What assumptions and decisions remain?
+
+GNU libc output is the initial assumption; choose/document its oldest supported
+baseline before distributing runtime archives. TCC version, runtime archive
+linkability, PIE capability, and PAL timeout support require concrete validation.
+A runtime implementation/linker change must be reflected in DR-020.
+
+Do not claim native support in the implemented-language overview or spec until
+it exists. The current language lacks numeric loops, so its spec cannot establish
+future numerical optimization quality. Replacing TCC later should be driven by
+measured workloads, with the same C ABI and spec matrix protecting semantics.
+
+# Which references guide implementation?
+
+- [TCC documentation](https://bellard.org/tcc/tcc-doc.html): external compilation,
+  object/executable emission, linker inputs, and supported C subset. This manual
+  documents 0.9.27; validate the actual pinned build rather than assuming all
+  current platform capabilities from its older examples.
+- [Rust linkage](https://doc.rust-lang.org/reference/linkage.html): staticlib/native
+  library dependencies and mixed-language linking.
+- [Spec authoring and execution contract](../spec/README.md).
+- [Existing embedded session](../../crates/engine/src/embedded_engine.rs).
+- [Testing guidance](../TESTING.md) and [plan workflow](../PLANS.md).
+
+# What has been verified while writing this plan?
+
+Reviewed the current frontend, native-function interface, spec loader/executor,
+error rendering, PAL process interface, and nao task graph. This is planning
+work only; TCC linking, generated binaries, and native spec execution remain
+unchecked implementation tasks.
