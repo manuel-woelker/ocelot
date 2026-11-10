@@ -8,5 +8,7 @@ devenv.local.nix
 devenv.local.yaml
 .direnv
 /.cache
+/.tool-tool/v2/*
+!/.tool-tool/v2/checksums.kdl
 /.codex
 /.cqs

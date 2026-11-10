@@ -59,6 +59,14 @@ nao check
 
 That script runs formatting, build, clippy, and the test suite.
 
+# How is the native C toolchain provisioned?
+
+Use `./t tcc -v` to download and run the pinned x86-64 Linux TCC through
+tool-tool. The bootstrap verifies tool-tool's checksum; the repository's
+`.tool-tool/tool-tool.v2.kdl` and checksum manifest pin TCC and its support files.
+Do not run executables directly from the tool cache. A system C linker driver
+and libc development files are also needed for the planned Rust runtime.
+
 # What should happen when a change is not tested?
 
 Call it out explicitly in the final summary or commit context.

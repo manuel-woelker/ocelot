@@ -1,0 +1,12 @@
+cache-directory ".cache/tool-tool"
+
+tools {
+    tcc "60d606e37e6afe1ac5801fd88c55036a56b7caae" {
+        download {
+            linux "https://github.com/vlang/tccbin/archive/${version}.tar.gz"
+        }
+        commands {
+            tcc "tccbin-${version}/tcc.exe -B${dir:tcc}/tccbin-${version}/lib/tcc" description="Compile C with pinned x86-64 Linux TCC"
+        }
+    }
+}
