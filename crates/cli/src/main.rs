@@ -78,7 +78,7 @@ fn parse_command(args: Vec<OsString>) -> Option<CliCommand> {
     }
 }
 
-/// Parses explicit build artifacts and toolchain configuration without shell syntax.
+/// Parses build output and toolchain configuration without shell syntax.
 fn parse_build_command(args: Vec<String>) -> Option<CliCommand> {
     let mut args = args.into_iter();
     let path = args.next()?;
@@ -98,9 +98,13 @@ fn parse_build_command(args: Vec<String>) -> Option<CliCommand> {
             _ => return None,
         }
     }
+    let output = output.or_else(|| emit_c.then(|| SharedString::from("-")))?;
+    if !emit_c && output == "-" {
+        return None;
+    }
     Some(CliCommand::Build {
         path: path.into(),
-        output: output?,
+        output,
         emit_c,
         compiler,
         linker,
@@ -161,7 +165,11 @@ fn try_execute_command(pal: PalHandle, command: &CliCommand) -> OcelotResult<Exi
             )?;
             let output = FilePath::from(output.as_str());
             if *emit_c {
-                pal.write_file(&output, unit.source.as_bytes())?;
+                if output.as_str() == "-" {
+                    pal.print(&unit.source)?;
+                } else {
+                    pal.write_file(&output, unit.source.as_bytes())?;
+                }
             } else {
                 let mut toolchain = ocelot_engine::tcc_toolchain::TccToolchain::repository();
                 if let Some(compiler) = compiler {
@@ -453,7 +461,7 @@ fn exit_code_for_test_summary(summary: &TestRunSummary) -> ExitCode {
 
 fn print_usage() {
     eprintln!(
-        "Usage:\n  ocelot build <source-file> -o <output> [--emit=c] [--tcc <path>] [--linker <path>]\n  ocelot fmt\n  ocelot repl [base-path]\n  ocelot <source-file>\n  ocelot test [filter-expression]"
+        "Usage:\n  ocelot build <source-file> -o <executable> [--tcc <path>] [--linker <path>]\n  ocelot build <source-file> --emit=c [-o <file|->]\n  ocelot fmt\n  ocelot repl [base-path]\n  ocelot <source-file>\n  ocelot test [filter-expression]"
     );
 }
 
@@ -508,17 +516,64 @@ mod tests {
     use super::{
         CliCommand, discover_matching_test_names, parse_command, parse_test_filter,
         render_test_summary_lines, run_command, run_repl_session, run_test_files,
-        test_filter_matches_path,
+        test_filter_matches_path, try_execute_command,
     };
     use ocelot_base::shared_string::SharedString;
     use ocelot_engine::engine::Engine;
     use ocelot_engine::failed_test_result::FailedTestResult;
     use ocelot_engine::passed_test_result::PassedTestResult;
     use ocelot_engine::test_run_summary::TestRunSummary;
-    use ocelot_pal::pal::PalHandle;
+    use ocelot_pal::pal::{Pal, PalHandle};
     use ocelot_pal::pal_mock::PalMock;
     use std::ffi::OsString;
     use std::process::ExitCode;
+
+    #[test]
+    fn emit_c_stdout_and_file_outputs_match_without_compiling_or_executing() {
+        let pal = PalMock::new();
+        let source = "examples/hello.ocelot-script";
+        pal.set_file(source, "println(\"must not execute\");");
+        let mut generated = None;
+        for output in [None, Some("-"), Some("hello.c")] {
+            let mut args = vec!["build", source, "--emit=c"];
+            if let Some(output) = output {
+                args.extend(["-o", output]);
+            }
+            let command = parse_command(args.into_iter().map(OsString::from).collect()).unwrap();
+            assert_eq!(
+                try_execute_command(PalHandle::new(pal.clone()), &command).unwrap(),
+                ExitCode::SUCCESS
+            );
+            let stdout = pal.take_printed_output();
+            let actual = if output == Some("hello.c") {
+                assert!(stdout.is_empty());
+                pal.read_file_to_string(&"hello.c".into())
+                    .unwrap()
+                    .to_string()
+            } else {
+                stdout
+            };
+            assert!(actual.contains("int main("));
+            assert!(actual.contains("oc_init_v1"));
+            if let Some(expected) = &generated {
+                assert_eq!(&actual, expected);
+            } else {
+                generated = Some(actual);
+            }
+        }
+        assert!(!pal.file_exists(&"-".into()).unwrap());
+
+        pal.set_file(source, "assert(\"wrong type\");");
+        let command = parse_command(
+            ["build", source, "--emit=c"]
+                .into_iter()
+                .map(OsString::from)
+                .collect(),
+        )
+        .unwrap();
+        assert!(try_execute_command(PalHandle::new(pal.clone()), &command).is_err());
+        assert!(pal.take_printed_output().is_empty());
+    }
 
     #[test]
     fn parses_native_build_options_without_splitting_executable_paths() {
@@ -548,6 +603,7 @@ mod tests {
             vec!["build", "main.ocelot", "-o"],
             vec!["build", "main.ocelot", "-o", "out", "--unknown"],
             vec!["build", "main.ocelot", "-o", "out", "--tcc"],
+            vec!["build", "main.ocelot", "-o", "-"],
         ] {
             assert!(parse_command(invalid.into_iter().map(OsString::from).collect()).is_none());
         }

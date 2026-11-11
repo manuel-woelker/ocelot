@@ -25,13 +25,18 @@ do not run test items.
 # How can I inspect C or configure tools?
 
 ```sh
+ocelot build main.ocelot --emit=c
 ocelot build main.ocelot -o main.c --emit=c
+ocelot build main.ocelot --emit=c -o - | less
 cc -std=c99 -O2 main.c -o main
 ocelot build main.ocelot -o main --tcc /path/to/tcc --linker /usr/bin/cc
 ```
 
 Emitted C includes runtime definitions, ABI declarations, and cleanup helpers.
 It can be compiled independently, with no Ocelot headers or libraries.
+With `--emit=c`, omitting `-o` or specifying `-o -` writes only generated C to
+stdout; `-o <file>` writes it to a file. Emission does not invoke TCC or execute
+the source program. Language errors go to stderr without partial C output.
 The old `--runtime` archive option has been removed.
 
 Paths are single arguments, including spaces. `--tcc` selects a direct TCC
