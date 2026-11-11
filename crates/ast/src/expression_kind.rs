@@ -4,7 +4,9 @@ use crate::call_expression::CallExpression;
 use crate::equality_expression::EqualityExpression;
 use crate::identifier::Identifier;
 use crate::if_expression::IfExpression;
+use crate::logical_expression::LogicalExpression;
 use crate::not_expression::NotExpression;
+use crate::parenthesized_expression::ParenthesizedExpression;
 use crate::qualified_identifier::QualifiedIdentifier;
 use crate::string_literal_expression::StringLiteralExpression;
 use crate::template_string_expression::TemplateStringExpression;
@@ -19,6 +21,8 @@ pub enum ExpressionKind {
     Identifier(Identifier),
     If(IfExpression),
     Not(NotExpression),
+    Logical(LogicalExpression),
+    Parenthesized(ParenthesizedExpression),
     QualifiedIdentifier(QualifiedIdentifier),
     StringLiteral(StringLiteralExpression),
     TemplateString(TemplateStringExpression),

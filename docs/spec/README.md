@@ -10,11 +10,13 @@ in the language rules.
 | [Comments](./01.01%20Lexical%20structure%20-%20Comments.md) | Placement, nesting, and unterminated comments |
 | [Strings](./01.02%20Lexical%20structure%20-%20Strings.md) | Literal delimiters and unterminated strings |
 | [Function calls](./02.01%20Expressions%20-%20Function%20calls.md) | Argument counts, types, and call results |
-| [Prefix negation](./02.02%20Expressions%20-%20Prefix%20negation.md) | Boolean negation and precedence |
+| [Prefix negation](./02.02%20Expressions%20-%20Prefix%20negation.md) | Boolean negation |
 | [Template strings](./02.03%20Expressions%20-%20Template%20strings.md) | Interpolation and evaluation order |
 | [Blocks](./02.04%20Expressions%20-%20Blocks.md) | Tail values, semicolons, and nested returns |
 | [Conditionals](./02.05%20Expressions%20-%20Conditionals.md) | Boolean conditions, branch values, and expression statements |
-| [Equality](<02.06 Expressions - Equality.md>) | Matching value types, comparison operators, precedence, and evaluation order |
+| [Equality](<02.06 Expressions - Equality.md>) | Matching value types, comparison operators, and evaluation order |
+| [Parentheses](<02.07 Expressions - Parentheses.md>) | Explicit grouping and the no-precedence operator rule |
+| [Boolean operators](<02.08 Expressions - Boolean operators.md>) | Boolean chains, short-circuiting, returns, and static checking |
 | [Local bindings](<05.01 Statements - Local bindings.md>) | Immutable values, annotations, lexical scope, and shadowing |
 | [Booleans](./10.01%20Types%20-%20Booleans.md) | Boolean literals |
 | [Any](./10.02%20Types%20-%20Any.md) | Native signature escape hatch |

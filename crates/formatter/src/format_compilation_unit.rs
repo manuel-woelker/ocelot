@@ -243,6 +243,18 @@ fn write_statement(output: &mut String, statement: &Statement, indent_level: usi
 
 fn write_expression(output: &mut String, expression: &Expression, indent_level: usize) {
     match &expression.kind {
+        ExpressionKind::Parenthesized(group) => {
+            output.push('(');
+            write_expression(output, &group.expression, indent_level);
+            output.push(')');
+        }
+        ExpressionKind::Logical(logical) => {
+            write_expression(output, &logical.left, indent_level);
+            output.push(' ');
+            output.push_str(logical.operator.as_str());
+            output.push(' ');
+            write_expression(output, &logical.right, indent_level);
+        }
         ExpressionKind::Equality(equality) => {
             write_expression(output, &equality.left, indent_level);
             output.push(' ');
@@ -407,8 +419,17 @@ mod tests {
 
     #[test]
     fn formats_equality_and_preserves_explicit_block_grouping() {
-        let source = "// comparison\nlet same=not false==enabled(); // after\nassert({true!=false}==true);\nif same!=false{println(\"${same==true}\");};";
-        let expected = "// comparison\nlet same = not false == enabled(); // after\nassert({\n    true != false\n} == true);\nif same != false {\n    println(\"${same == true}\");\n};";
+        let source = "// comparison\nlet same=(not false)==enabled(); // after\nassert({true!=false}==true);\nif same!=false{println(\"${same==true}\");};";
+        let expected = "// comparison\nlet same = (not false) == enabled(); // after\nassert({\n    true != false\n} == true);\nif same != false {\n    println(\"${same == true}\");\n};";
+        let formatted = format_compilation_unit(&parse(source));
+        assert_eq!(formatted, expected);
+        assert_eq!(format_compilation_unit(&parse(&formatted)), formatted);
+    }
+
+    #[test]
+    fn preserves_nested_groups_and_boolean_operator_boundaries() {
+        let source = "let ready=((true));\nassert((not ready)or((ready==true)and false));\n(core::println)(\"${(ready or false)}\");";
+        let expected = "let ready = ((true));\nassert((not ready) or ((ready == true) and false));\n(core::println)(\"${(ready or false)}\");";
         let formatted = format_compilation_unit(&parse(source));
         assert_eq!(formatted, expected);
         assert_eq!(format_compilation_unit(&parse(&formatted)), formatted);

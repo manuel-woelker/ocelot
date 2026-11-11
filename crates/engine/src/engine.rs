@@ -151,6 +151,87 @@ mod tests {
     use ocelot_semantic::source_file_kind::SourceFileKind;
 
     #[test]
+    fn skipped_boolean_operands_are_still_checked_before_effects() {
+        for (source, expected) in [
+            (
+                "false and \"wrong\";",
+                "operator `and` expects bool operands",
+            ),
+            (
+                "false and {\n \"wrong\"\n};",
+                "operator `and` expects bool operands",
+            ),
+            (
+                "true or (\n \"wrong\"\n);",
+                "operator `or` expects bool operands",
+            ),
+            ("true or {};", "operator `or` expects bool operands"),
+            (
+                "\"wrong\" and true;",
+                "operator `and` expects bool operands",
+            ),
+            ("{} or false;", "operator `or` expects bool operands"),
+            ("false and missing;", "unresolved identifier `missing`"),
+            ("true or missing();", "unknown function `missing`"),
+            (
+                "fun f() cannot write_stdout { false and { println(\"bad\"); true }; }",
+                "cannot perform effect",
+            ),
+            (
+                "fun f() cannot write_stdout { (core::println)(\"bad\"); }",
+                "cannot perform effect",
+            ),
+            (
+                "fun f() cannot write_stdout { (\n core::println\n)(\"bad\"); }",
+                "cannot perform effect",
+            ),
+            ("let f = true; (f)();", "is a value, not a function"),
+            ("let f = (core::println);", "unresolved identifier"),
+            (
+                "fun f(flag: bool) -> string { flag and { return \"early\"; }; }",
+                "block result type mismatch",
+            ),
+            (
+                "fun f() -> string { true and { return \"early\"; } }",
+                "block result type mismatch",
+            ),
+            (
+                "fun f() -> string { false or { return \"early\"; } }",
+                "block result type mismatch",
+            ),
+            (
+                "fun f() -> bool { false and { return \"wrong\"; } }",
+                "return type mismatch",
+            ),
+            (
+                "fun f() { ({ return; }) or \"bad\"; }",
+                "operator `or` expects bool operands",
+            ),
+        ] {
+            let pal = PalMock::new();
+            pal.set_file(
+                "examples/main.ocelot-script",
+                format!("println(\"must not run\"); {source}"),
+            );
+            let error = Engine::new(PalHandle::new(pal.clone()))
+                .run_file("examples/main.ocelot-script")
+                .unwrap_err();
+            assert!(
+                matches!(
+                    error.kind(),
+                    ErrorKind::CompilationError(CompilationStage::Resolver)
+                ),
+                "{source}"
+            );
+            assert!(
+                error.to_test_string().contains(expected),
+                "{source}\n{error:?}"
+            );
+            assert_eq!(pal.take_printed_output(), "", "{source}");
+        }
+    }
+
+    #[test]
     fn equality_evaluates_operands_once_in_order_and_propagates_returns() {
         let pal = PalMock::new();
         pal.set_file(

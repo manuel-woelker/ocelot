@@ -203,6 +203,8 @@ pub fn lex(source_file: &SourceFile, source_diagnostics: &mut SourceDiagnostics)
                         "fun" => TokenType::Fun,
                         "native" => TokenType::Native,
                         "not" => TokenType::Not,
+                        "and" => TokenType::And,
+                        "or" => TokenType::Or,
                         "positional" => TokenType::Positional,
                         "return" => TokenType::Return,
                         "test" => TokenType::Test,

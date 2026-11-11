@@ -343,6 +343,11 @@ impl<'a> Resolver<'a> {
 
     fn resolve_expression(&mut self, expression: &mut Expression) {
         match &mut expression.kind {
+            ExpressionKind::Parenthesized(group) => self.resolve_expression(&mut group.expression),
+            ExpressionKind::Logical(logical) => {
+                self.resolve_expression(&mut logical.left);
+                self.resolve_expression(&mut logical.right);
+            }
             ExpressionKind::Equality(equality) => {
                 self.resolve_expression(&mut equality.left);
                 self.resolve_expression(&mut equality.right);
@@ -384,7 +389,7 @@ impl<'a> Resolver<'a> {
 
     fn resolve_call_expression(&mut self, call_expression: &mut CallExpression) {
         if !matches!(
-            call_expression.callee.kind,
+            call_expression.callee.ungrouped().kind,
             ExpressionKind::Identifier(_) | ExpressionKind::QualifiedIdentifier(_)
         ) {
             self.resolve_expression(&mut call_expression.callee);
@@ -393,7 +398,7 @@ impl<'a> Resolver<'a> {
             self.resolve_expression(&mut argument.value);
         }
 
-        let resolved = match &call_expression.callee.kind {
+        let resolved = match &call_expression.callee.ungrouped().kind {
             ExpressionKind::Identifier(identifier) => {
                 if self.value_type(identifier.name.as_str()).is_some() {
                     self.add_diagnostic(
@@ -679,6 +684,33 @@ impl<'a> Resolver<'a> {
         let string_type_index = self.symbol_table.string_type_index();
 
         match &expression.kind {
+            ExpressionKind::Parenthesized(group) => expression.ty = group.expression.ty,
+            ExpressionKind::Logical(logical) => {
+                let never = self.symbol_table.never_type_index();
+                let mut valid = true;
+                for operand in [&logical.left, &logical.right] {
+                    if operand.ty.is_unresolved() {
+                        valid = false;
+                    } else if operand.ty != boolean_type_index && operand.ty != never {
+                        self.add_diagnostic(
+                            format!(
+                                "operator `{}` expects bool operands",
+                                logical.operator.as_str()
+                            ),
+                            operand.span.clone(),
+                            "bool operand required",
+                        );
+                        valid = false;
+                    }
+                }
+                expression.ty = if !valid {
+                    TypeIndex::unresolved()
+                } else if logical.left.ty == never {
+                    never
+                } else {
+                    boolean_type_index
+                };
+            }
             ExpressionKind::Equality(equality) => {
                 let left = equality.left.ty;
                 let right = equality.right.ty;

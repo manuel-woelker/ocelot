@@ -1,7 +1,9 @@
 # DR-018: Compare matching value types with explicit equality operators
 
-- Status: Accepted
-- Date: 2026-11-06
+- Status: Superseded
+- Date: 2026-11-11
+- Superseded by: [DR-022](<DR-022 Require explicit grouping between different operators.md>)
+  for precedence and grouping; equality's types, non-chaining, and evaluation order remain.
 
 ## What is the decision?
 

@@ -46,8 +46,8 @@ mod tests {
     use ocelot_base::span::Span;
 
     #[test]
-    fn equality_has_lower_precedence_than_negation_and_calls_and_keeps_spans() {
-        let source = "not enabled()==not false;";
+    fn explicit_parentheses_preserve_mixed_operator_structure_and_spans() {
+        let source = "(not enabled())==(not false);";
         let unit = parse_compilation_unit(
             &SourceFile::new("main.ocelot-script", source),
             &mut SourceDiagnostics::default(),
@@ -63,12 +63,15 @@ mod tests {
         let ExpressionKind::Equality(equality) = &value.expression.kind else {
             panic!("equality")
         };
-        assert_eq!(equality.left.span, Span::new(0, 13));
-        assert_eq!(equality.right.span, Span::new(15, 24));
+        assert_eq!(equality.left.span, Span::new(0, 15));
+        assert_eq!(equality.right.span, Span::new(17, 28));
         assert!(
-            matches!(&equality.left.kind, ExpressionKind::Not(value) if matches!(value.operand.kind, ExpressionKind::Call(_)))
+            matches!(&equality.left.kind, ExpressionKind::Parenthesized(group) if matches!(&group.expression.kind, ExpressionKind::Not(value) if matches!(value.operand.kind, ExpressionKind::Call(_))))
         );
-        assert!(matches!(equality.right.kind, ExpressionKind::Not(_)));
+        assert!(matches!(
+            equality.right.kind,
+            ExpressionKind::Parenthesized(_)
+        ));
     }
 
     #[test]
@@ -93,11 +96,107 @@ mod tests {
                 && !source.contains("===")
                 && !source.contains("!==")
             {
+                let message =
+                    if source.matches("==").count() == 2 || source.matches("!=").count() == 2 {
+                        "cannot be chained"
+                    } else {
+                        "different operators require parentheses"
+                    };
+                assert!(error.to_test_string().contains(message), "{source}");
+            }
+        }
+    }
+
+    #[test]
+    fn mixed_operators_require_parentheses_in_every_operand_position() {
+        for left in ["and", "or", "==", "!="] {
+            for right in ["and", "or", "==", "!="] {
+                if left == right {
+                    continue;
+                }
+                let source = format!("true {left} false {right} true;");
+                let error = parse_compilation_unit(
+                    &SourceFile::new("mix.ocelot-script", source.as_str()),
+                    &mut SourceDiagnostics::default(),
+                )
+                .unwrap_err();
                 assert!(
-                    error.to_test_string().contains("cannot be chained"),
+                    error
+                        .to_test_string()
+                        .contains("different operators require parentheses"),
                     "{source}"
                 );
             }
+            for source in [
+                format!("not true {left} false;"),
+                format!("true {left} not false;"),
+                format!("not not true {left} false;"),
+            ] {
+                let error = parse_compilation_unit(
+                    &SourceFile::new("mix.ocelot-script", source.as_str()),
+                    &mut SourceDiagnostics::default(),
+                )
+                .unwrap_err();
+                assert!(
+                    error
+                        .to_test_string()
+                        .contains("different operators require parentheses"),
+                    "{source}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn groups_and_same_boolean_chains_parse_without_implicit_precedence() {
+        for source in [
+            "((true));",
+            "true and false and true;",
+            "false or true or false;",
+            "not not false;",
+            "(not true) and false;",
+            "true or (not false);",
+            "not (true == false);",
+            "(true == false) and true;",
+            "true == (false or true);",
+            "true and (false or true);",
+            "(true and false) or true;",
+            "(true == false) == true;",
+            "true == (false == true);",
+            "(core::println)(\"hello\");",
+            "let empty: () = ({});",
+        ] {
+            assert!(
+                parse_compilation_unit(
+                    &SourceFile::new("group.ocelot-script", source),
+                    &mut SourceDiagnostics::default()
+                )
+                .is_ok(),
+                "{source}"
+            );
+        }
+        for source in [
+            "();",
+            "(true; false);",
+            "(true, false);",
+            "(true;",
+            "((true);",
+            "true and;",
+            "true or;",
+            "and true;",
+            "fun and() {}",
+            "let or = true;",
+            "(true /* dropped */);",
+            "(/* dropped */ true);",
+        ] {
+            assert!(
+                parse_compilation_unit(
+                    &SourceFile::new("group.ocelot-script", source),
+                    &mut SourceDiagnostics::default()
+                )
+                .is_err(),
+                "{source}"
+            );
         }
     }
 

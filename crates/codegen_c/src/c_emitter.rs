@@ -227,6 +227,22 @@ impl<'a> CEmitter<'a> {
         source: &SourceFile,
     ) -> OcelotResult<SharedString> {
         Ok(match &expression.kind {
+            ExpressionKind::Parenthesized(group) => self.expression(&group.expression, source)?,
+            ExpressionKind::Logical(logical) => {
+                let left = self.expression(&logical.left, source)?;
+                let result = self.fresh();
+                let negate = if logical.operator.short_circuits_on() {
+                    "!"
+                } else {
+                    ""
+                };
+                self.line(format!(
+                    "OcValue {result} = oc_boolean({left}.payload); if ({negate}{left}.payload) {{"
+                ));
+                let right = self.expression(&logical.right, source)?;
+                self.line(format!("{result} = oc_boolean({right}.payload); }}"));
+                self.value(result)
+            }
             ExpressionKind::BooleanLiteral(value) => {
                 self.value(format!("oc_boolean({})", i32::from(value.value)))
             }

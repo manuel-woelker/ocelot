@@ -20,7 +20,10 @@ use ocelot_ast::if_expression::IfExpression;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_ast::let_statement::LetStatement;
+use ocelot_ast::logical_expression::LogicalExpression;
+use ocelot_ast::logical_operator::LogicalOperator;
 use ocelot_ast::not_expression::NotExpression;
+use ocelot_ast::parenthesized_expression::ParenthesizedExpression;
 use ocelot_ast::qualified_identifier::QualifiedIdentifier;
 use ocelot_ast::return_statement::ReturnStatement;
 use ocelot_ast::statement::Statement;
@@ -470,31 +473,74 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_expression(&mut self) -> OcelotResult<Expression> {
-        let left = self.parse_prefix_expression()?;
-        let operator = match self.current().token_type {
-            TokenType::EqualEqual => EqualityOperator::Equal,
-            TokenType::NotEqual => EqualityOperator::NotEqual,
-            _ => return Ok(left),
+        let mut left = self.parse_prefix_expression()?;
+        let Some(operator) = self.binary_operator() else {
+            return Ok(left);
         };
-        self.reject_comments_before_current_token()?;
-        self.position += 1;
-        let right = self.parse_prefix_expression()?;
-        if self.at(TokenType::EqualEqual) || self.at(TokenType::NotEqual) {
-            return self.emit_fatal_diagnostic(
-                "equality comparisons cannot be chained",
-                self.current().span.clone(),
-                "group a comparison with a block",
-            );
+        let mut seen = false;
+        while let Some(next) = self.binary_operator() {
+            if next != operator || matches!(left.kind, ExpressionKind::Not(_)) {
+                return self.emit_fatal_diagnostic(
+                    "different operators require parentheses",
+                    self.current().span.clone(),
+                    "group mixed operators with parentheses",
+                );
+            }
+            if seen && matches!(operator, TokenType::EqualEqual | TokenType::NotEqual) {
+                return self.emit_fatal_diagnostic(
+                    "equality comparisons cannot be chained",
+                    self.current().span.clone(),
+                    "group a comparison with parentheses",
+                );
+            }
+            self.reject_comments_before_current_token()?;
+            self.position += 1;
+            let right_start = self.current().span.clone();
+            let right = self.parse_prefix_expression()?;
+            if matches!(right.kind, ExpressionKind::Not(_)) {
+                return self.emit_fatal_diagnostic(
+                    "different operators require parentheses",
+                    right_start,
+                    "group mixed operators with parentheses",
+                );
+            }
+            let span = Span::new(left.span.start(), right.span.end());
+            let kind = match operator {
+                TokenType::And | TokenType::Or => ExpressionKind::Logical(LogicalExpression {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                    operator: if operator == TokenType::And {
+                        LogicalOperator::And
+                    } else {
+                        LogicalOperator::Or
+                    },
+                }),
+                TokenType::EqualEqual | TokenType::NotEqual => {
+                    ExpressionKind::Equality(EqualityExpression {
+                        left: Box::new(left),
+                        right: Box::new(right),
+                        operator: if operator == TokenType::EqualEqual {
+                            EqualityOperator::Equal
+                        } else {
+                            EqualityOperator::NotEqual
+                        },
+                    })
+                }
+                _ => unreachable!("binary_operator returns only supported operators"),
+            };
+            left = Expression::new(kind, span);
+            seen = true;
         }
-        let span = Span::new(left.span.start(), right.span.end());
-        Ok(Expression::new(
-            ExpressionKind::Equality(EqualityExpression {
-                left: Box::new(left),
-                operator,
-                right: Box::new(right),
-            }),
-            span,
-        ))
+        Ok(left)
+    }
+
+    fn binary_operator(&self) -> Option<TokenType> {
+        match self.current().token_type {
+            TokenType::And | TokenType::Or | TokenType::EqualEqual | TokenType::NotEqual => {
+                Some(self.current().token_type.clone())
+            }
+            _ => None,
+        }
     }
 
     fn parse_prefix_expression(&mut self) -> OcelotResult<Expression> {
@@ -535,6 +581,21 @@ impl<'a> Parser<'a> {
         let token = self.current().clone();
 
         match token.token_type {
+            TokenType::LeftParen => {
+                let start = self.expect(TokenType::LeftParen, "expected `(`")?;
+                let expression = self.parse_expression()?;
+                self.reject_comments_before_current_token()?;
+                let end = self.expect(
+                    TokenType::RightParen,
+                    "expected `)` after grouped expression",
+                )?;
+                Ok(Expression::new(
+                    ExpressionKind::Parenthesized(ParenthesizedExpression {
+                        expression: Box::new(expression),
+                    }),
+                    Span::new(start.span.start(), end.span.end()),
+                ))
+            }
             TokenType::If => self.parse_if_expression(),
             TokenType::LeftBrace => {
                 let start = self.expect(TokenType::LeftBrace, "expected `{`")?;

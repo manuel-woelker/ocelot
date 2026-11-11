@@ -10,6 +10,25 @@ fun greeting(enabled: bool) -> string {
     }
 }
 
+fun skipped() -> bool {
+    assert(false);
+    true
+}
+
+fun guarded(enabled: bool) -> bool {
+    enabled and {
+        let copy = identity(name: "allocated");
+        assert(copy == "allocated");
+        return true;
+    }
+}
+
+fun early() -> string {
+    ({
+        return "early";
+    }) or skipped()
+}
+
 let message = greeting(enabled: true);
 {
     let message = "${message} native";
@@ -17,3 +36,8 @@ let message = greeting(enabled: true);
 };
 println(message);
 assert(message == "hello");
+assert((false and skipped()) == false);
+assert(true or skipped());
+assert(not (guarded(enabled: false)));
+assert(guarded(enabled: true));
+assert_eq(expected: "early", actual: early());

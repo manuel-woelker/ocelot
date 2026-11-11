@@ -180,6 +180,48 @@ mod tests {
     use ocelot_semantic::runtime_value::RuntimeValue;
 
     #[test]
+    fn explicit_groups_and_short_circuit_boolean_values_work_in_sessions() {
+        let pal = PalMock::new();
+        let mut engine = EmbeddedEngine::new(PalHandle::new(pal.clone()), "examples");
+        engine.execute("let name = \"Ada\"; fun ready() -> bool { true } fun skipped() -> bool { assert(false); true }").unwrap();
+        for (source, expected) in [
+            ("false and false", false),
+            ("false and true", false),
+            ("true and false", false),
+            ("true and true", true),
+            ("false or false", false),
+            ("false or true", true),
+            ("true or false", true),
+            ("true or true", true),
+            ("true and true and false", false),
+            ("false or false or true", true),
+            ("(false and true) or true", true),
+            ("false and (true or true)", false),
+            ("(not false) and ready()", true),
+            ("not (name == \"Ada\")", false),
+            ("(name == \"Ada\") and (true or false)", true),
+            ("((ready))()", true),
+            ("false and skipped()", false),
+            ("true or skipped()", true),
+        ] {
+            assert_eq!(
+                engine.eval(source).unwrap(),
+                RuntimeValue::boolean(expected),
+                "{source}"
+            );
+        }
+        assert_eq!(
+            engine.eval("((name))").unwrap(),
+            RuntimeValue::string("Ada")
+        );
+        assert_eq!(engine.eval("({})").unwrap(), RuntimeValue::unit());
+        engine
+            .eval("(core::println)(value: \"grouped call\")")
+            .unwrap();
+        assert_eq!(pal.take_printed_output(), "grouped call\n");
+    }
+
+    #[test]
     fn equality_compares_matching_values_and_composes_with_expressions() {
         let pal = PalMock::new();
         let mut engine = EmbeddedEngine::new(PalHandle::new(pal), "examples");
@@ -198,8 +240,8 @@ mod tests {
             ("\"é\" == \"é\"", true),
             ("{} == {}", true),
             ("{} != {}", false),
-            ("not false == enabled()", true),
-            ("enabled() != not true", true),
+            ("(not false) == enabled()", true),
+            ("enabled() != (not true)", true),
             ("{ true == false } == false", true),
             ("true == { false != true }", true),
             ("if name == \"Ada\" { true } else { false }", true),

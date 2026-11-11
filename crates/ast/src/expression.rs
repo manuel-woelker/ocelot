@@ -11,6 +11,14 @@ pub struct Expression {
 }
 
 impl Expression {
+    /// Removes explicit grouping wrappers for syntactic direct-call lookup.
+    pub fn ungrouped(&self) -> &Self {
+        let mut expression = self;
+        while let ExpressionKind::Parenthesized(group) = &expression.kind {
+            expression = &group.expression;
+        }
+        expression
+    }
     /// Creates an expression from its kind and source span.
     pub fn new(kind: ExpressionKind, span: Span) -> Self {
         Self {

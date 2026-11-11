@@ -1,6 +1,8 @@
 /// Token kinds recognized by the Ocelot lexer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenType {
+    And,
+    Or,
     Can,
     Arrow,
     Cannot,

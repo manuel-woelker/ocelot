@@ -161,6 +161,22 @@ impl<'a> Interpreter<'a> {
 
     fn evaluate_expression_flow(&self, expression: &Expression) -> OcelotResult<EvaluationFlow> {
         let value = match &expression.kind {
+            ExpressionKind::Parenthesized(group) => {
+                return self.evaluate_expression_flow(&group.expression);
+            }
+            ExpressionKind::Logical(logical) => {
+                let left = match self.evaluate_expression_flow(&logical.left)? {
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    ControlFlow::Continue(value) => {
+                        value.expect_boolean("logical operand must be bool")?
+                    }
+                };
+                if left == logical.operator.short_circuits_on() {
+                    RuntimeValue::boolean(left)
+                } else {
+                    return self.evaluate_expression_flow(&logical.right);
+                }
+            }
             ExpressionKind::Equality(equality) => {
                 let left = match self.evaluate_expression_flow(&equality.left)? {
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),

@@ -28,7 +28,7 @@ comments during formatting.
 Add reserved keywords `and` and `or`, requiring boolean operands and producing
 boolean results. Evaluate left once. `and` skips right when left is false; `or`
 skips right when left is true. Returns and errors propagate only along evaluated
-paths. Statical checking still resolves both operands and conservatively tracks
+paths. Static checking still resolves both operands and conservatively tracks
 both operands' effects, even when right is skipped for a literal left value.
 
 A non-fallthrough left makes the entire expression non-fallthrough. A returning
@@ -37,24 +37,24 @@ truth analysis in this change. Grouping preserves the internal non-fallthrough t
 
 # In what order will the work be implemented?
 
-- [ ] Add separate grouped-expression and logical-expression AST types, logical
+- [x] Add separate grouped-expression and logical-expression AST types, logical
   operator enum, and lexer keywords.
-- [ ] Parse explicit groups and homogeneous boolean chains without a precedence
+- [x] Parse explicit groups and homogeneous boolean chains without a precedence
   table; reject mixed operators and ungrouped equality chains with useful errors.
   Preserve spans and distinguish grouping from call/annotation parentheses.
-- [ ] Resolve group/call transparency, boolean operand types, conservative effects,
+- [x] Resolve group/call transparency, boolean operand types, conservative effects,
   and non-fallthrough behavior. Implement interpreter short-circuiting and guarded
   C lowering with existing cleanup/return semantics.
-- [ ] Preserve explicit groups and operator spelling in the formatter, checking
+- [x] Preserve explicit groups and operator spelling in the formatter, checking
   parse/format idempotence and existing comment rules.
-- [ ] Add source-driven tests for syntax, mixing in both operand positions,
+- [x] Add source-driven tests for syntax, mixing in both operand positions,
   grouped calls, malformed groups, truth tables/chains, short-circuit effects and
   errors, returns on either side, static errors/effects in skipped operands,
   binding scope, embedded sessions, and native/interpreter parity.
-- [ ] Replace current precedence-dependent examples/tests and update the executable
+- [x] Replace current precedence-dependent examples/tests and update the executable
   spec and overview. Supersede DR-018 with DR-022 while retaining equality's type,
   evaluation-order, and non-chaining rules.
-- [ ] Run `nao check` (including every spec example in both modes), strict C and
+- [x] Run `nao check` (including every spec example in both modes), strict C and
   sanitizer checks, documentation link checks, and `git diff --check`. Record
   results and move this plan to completed before the implementation commit.
 
@@ -73,5 +73,23 @@ operator ordering while adding parentheses.
 The same source-driven spec expectations must pass in interpreter and native
 modes, including effect/return ordering and exact rejection diagnostics. Rust
 tests cover AST spans and formatter round-trips, and targeted native regression
-tests exercise skipped allocations and return cleanup under sanitizers. All
-implementation work remains pending when this plan is committed.
+tests exercise skipped allocations and return cleanup under sanitizers. This plan was committed before implementation; all planned work is now verified
+as recorded below.
+
+# What was implemented and verified?
+
+All planned syntax, grouping preservation, boolean typing, short-circuit control
+flow, direct grouped calls, conservative effects, and guarded C emission are
+implemented. Precedence-dependent tests/spec examples now use explicit grouping.
+Resolver diagnostics now clamp multiline grouped operand/callee highlights to
+their first-line excerpt, avoiding renderer panics on invalid grouped code.
+
+`nao check` passes, including 388 Rust tests and all 106 examples in 24 chapters
+in both interpreter and C/TCC modes. Strict optimized C99 compilation, ASan,
+UBSan, and leak checks pass the expanded native smoke test with grouped early
+returns and skipped allocations. A CLI interpreter/native smoke test produced
+identical output and rejected ungrouped not/or. Documentation links and
+`git diff --check` pass. No planned work remains.
+
+[DR-022](<../../decisions/DR-022 Require explicit grouping between different operators.md>)
+records the rule and supersedes DR-018's previous precedence choice.
