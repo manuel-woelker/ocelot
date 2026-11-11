@@ -243,6 +243,21 @@ fn write_statement(output: &mut String, statement: &Statement, indent_level: usi
 
 fn write_expression(output: &mut String, expression: &Expression, indent_level: usize) {
     match &expression.kind {
+        ExpressionKind::IntegerLiteral(value) => output.push_str(&value.magnitude.to_string()),
+        ExpressionKind::Negate(value) => {
+            output.push('-');
+            if matches!(value.operand.kind, ExpressionKind::Negate(_)) {
+                output.push(' ');
+            }
+            write_expression(output, &value.operand, indent_level);
+        }
+        ExpressionKind::Integer(value) => {
+            write_expression(output, &value.left, indent_level);
+            output.push(' ');
+            output.push_str(value.operator.as_str());
+            output.push(' ');
+            write_expression(output, &value.right, indent_level);
+        }
         ExpressionKind::Parenthesized(group) => {
             output.push('(');
             write_expression(output, &group.expression, indent_level);
@@ -421,6 +436,15 @@ mod tests {
     fn formats_equality_and_preserves_explicit_block_grouping() {
         let source = "// comparison\nlet same=(not false)==enabled(); // after\nassert({true!=false}==true);\nif same!=false{println(\"${same==true}\");};";
         let expected = "// comparison\nlet same = (not false) == enabled(); // after\nassert({\n    true != false\n} == true);\nif same != false {\n    println(\"${same == true}\");\n};";
+        let formatted = format_compilation_unit(&parse(source));
+        assert_eq!(formatted, expected);
+        assert_eq!(format_compilation_unit(&parse(&formatted)), formatted);
+    }
+
+    #[test]
+    fn formats_integer_operators_without_erasing_grouping() {
+        let source = "fun f(value:int)->int{(-value)*(2+3)}\nlet min=-9223372036854775808;\nprintln(\"${(1+2)<=3}\");\n- -3;\n8/2/2;";
+        let expected = "fun f(value: int) -> int {\n    (-value) * (2 + 3)\n}\nlet min = -9223372036854775808;\nprintln(\"${(1 + 2) <= 3}\");\n- -3;\n8 / 2 / 2;";
         let formatted = format_compilation_unit(&parse(source));
         assert_eq!(formatted, expected);
         assert_eq!(format_compilation_unit(&parse(&formatted)), formatted);

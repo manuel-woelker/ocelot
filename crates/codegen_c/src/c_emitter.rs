@@ -30,10 +30,12 @@ pub struct CEmitter<'a> {
 pub fn runtime_source() -> &'static str {
     concat!(
         include_str!("native_value.h"),
+        include_str!("native_integer_operator.h"),
         include_str!("native_string.h"),
         include_str!("native_bytes.h"),
         include_str!("native_io.c"),
         include_str!("native_api.c"),
+        include_str!("native_integer.c"),
         include_str!("runtime.h")
     )
 }
@@ -221,12 +223,71 @@ impl<'a> CEmitter<'a> {
         Ok(result)
     }
 
+    fn integer_diagnostic(
+        &mut self,
+        source: &SourceFile,
+        expression: &Expression,
+        message: &str,
+    ) -> SharedString {
+        let diagnostic = ocelot_base::expression_diagnostic::expression_diagnostic(
+            source,
+            message,
+            expression.span.clone(),
+            "integer operation failed here",
+        );
+        let rendered =
+            ocelot_base::render_source_diagnostics::render_source_diagnostics(&[diagnostic]);
+        self.string(&ocelot_base::unansi(&rendered))
+    }
+
     fn expression(
         &mut self,
         expression: &Expression,
         source: &SourceFile,
     ) -> OcelotResult<SharedString> {
         Ok(match &expression.kind {
+            ExpressionKind::IntegerLiteral(value) => {
+                self.value(format!("oc_integer_bits(UINT64_C({}))", value.magnitude))
+            }
+            ExpressionKind::Negate(value) => {
+                if matches!(&value.operand.kind, ExpressionKind::IntegerLiteral(literal) if literal.magnitude == (1u64 << 63))
+                {
+                    self.value("oc_integer_bits(UINT64_C(9223372036854775808))")
+                } else {
+                    let operand = self.expression(&value.operand, source)?;
+                    let diagnostic =
+                        self.integer_diagnostic(source, expression, "integer overflow");
+                    self.value(format!("oc_int_negate({operand}, {diagnostic})"))
+                }
+            }
+            ExpressionKind::Integer(value) => {
+                use ocelot_ast::integer_operator::IntegerOperator;
+                let left = self.expression(&value.left, source)?;
+                let right = self.expression(&value.right, source)?;
+                if value.operator.is_comparison() {
+                    self.value(format!(
+                        "oc_boolean(oc_integer_value({left}) {} oc_integer_value({right}))",
+                        value.operator.as_str()
+                    ))
+                } else {
+                    let overflow = self.integer_diagnostic(source, expression, "integer overflow");
+                    let zero = if value.operator == IntegerOperator::Divide {
+                        self.integer_diagnostic(source, expression, "division by zero")
+                    } else {
+                        "oc_unit()".into()
+                    };
+                    let operator = match value.operator {
+                        IntegerOperator::Add => "OC_ADD",
+                        IntegerOperator::Subtract => "OC_SUBTRACT",
+                        IntegerOperator::Multiply => "OC_MULTIPLY",
+                        IntegerOperator::Divide => "OC_DIVIDE",
+                        _ => unreachable!("arithmetic operator"),
+                    };
+                    self.value(format!(
+                        "oc_int_binary({left}, {right}, {operator}, {overflow}, {zero})"
+                    ))
+                }
+            }
             ExpressionKind::Parenthesized(group) => self.expression(&group.expression, source)?,
             ExpressionKind::Logical(logical) => {
                 let left = self.expression(&logical.left, source)?;

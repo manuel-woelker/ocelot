@@ -59,6 +59,49 @@ pub fn lex(source_file: &SourceFile, source_diagnostics: &mut SourceDiagnostics)
                 }
             },
             LexMode::Normal => match bytes[index] {
+                b'0'..=b'9' => {
+                    let start = index;
+                    while index < bytes.len() && bytes[index].is_ascii_digit() {
+                        index += 1;
+                    }
+                    tokens.push(Token::with_leading_trivia(
+                        TokenType::Integer,
+                        Trivia::new(leading_trivia, Vec::new()),
+                        start,
+                        index,
+                    ));
+                }
+                b'<' | b'>' => {
+                    let equal = index + 1 < bytes.len() && bytes[index + 1] == b'=';
+                    let token = match (bytes[index], equal) {
+                        (b'<', false) => TokenType::Less,
+                        (b'<', true) => TokenType::LessEqual,
+                        (_, false) => TokenType::Greater,
+                        (_, true) => TokenType::GreaterEqual,
+                    };
+                    let end = index + if equal { 2 } else { 1 };
+                    tokens.push(Token::with_leading_trivia(
+                        token,
+                        Trivia::new(leading_trivia, Vec::new()),
+                        index,
+                        end,
+                    ));
+                    index = end;
+                }
+                b'+' | b'*' | b'/' => {
+                    let token = match bytes[index] {
+                        b'+' => TokenType::Plus,
+                        b'*' => TokenType::Star,
+                        _ => TokenType::Slash,
+                    };
+                    tokens.push(Token::with_leading_trivia(
+                        token,
+                        Trivia::new(leading_trivia, Vec::new()),
+                        index,
+                        index + 1,
+                    ));
+                    index += 1;
+                }
                 b'(' => {
                     tokens.push(Token::with_leading_trivia(
                         TokenType::LeftParen,
@@ -76,6 +119,15 @@ pub fn lex(source_file: &SourceFile, source_diagnostics: &mut SourceDiagnostics)
                         index + 2,
                     ));
                     index += 2;
+                }
+                b'-' => {
+                    tokens.push(Token::with_leading_trivia(
+                        TokenType::Minus,
+                        Trivia::new(leading_trivia, Vec::new()),
+                        index,
+                        index + 1,
+                    ));
+                    index += 1;
                 }
                 b'=' | b'!' if index + 1 < bytes.len() && bytes[index + 1] == b'=' => {
                     tokens.push(Token::with_leading_trivia(

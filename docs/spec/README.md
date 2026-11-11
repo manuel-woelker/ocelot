@@ -17,8 +17,10 @@ in the language rules.
 | [Equality](<02.06 Expressions - Equality.md>) | Matching value types, comparison operators, and evaluation order |
 | [Parentheses](<02.07 Expressions - Parentheses.md>) | Explicit grouping and the no-precedence operator rule |
 | [Boolean operators](<02.08 Expressions - Boolean operators.md>) | Boolean chains, short-circuiting, returns, and static checking |
+| [Integer operations](<02.09 Expressions - Integer operations.md>) | Checked arithmetic, ordering, grouping, and panic effects |
 | [Local bindings](<05.01 Statements - Local bindings.md>) | Immutable values, annotations, lexical scope, and shadowing |
 | [Booleans](./10.01%20Types%20-%20Booleans.md) | Boolean literals |
+| [Integers](<10.03 Types - Integers.md>) | Signed 64-bit decimal values and exact display |
 | [Any](./10.02%20Types%20-%20Any.md) | Native signature escape hatch |
 | [Tests](./15.01%20Declarations%20-%20Test%20items.md) | Declarations and behavior during normal execution |
 | [Function definitions](./15.02%20Declarations%20-%20Function%20definitions.md) | Syntax, parameters, and declaration scope |

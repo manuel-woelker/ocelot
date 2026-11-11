@@ -4,6 +4,7 @@ use ocelot_ast::call_expression::CallExpression;
 use ocelot_ast::expression::Expression;
 use ocelot_ast::expression_kind::ExpressionKind;
 use ocelot_ast::function_item::FunctionItem;
+use ocelot_ast::integer_operator::IntegerOperator;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_ast::not_expression::NotExpression;
 use ocelot_ast::qualified_identifier::QualifiedIdentifier;
@@ -11,14 +12,11 @@ use ocelot_ast::statement::Statement;
 use ocelot_ast::statement_kind::StatementKind;
 use ocelot_ast::template_string_expression::TemplateStringExpression;
 use ocelot_ast::template_string_part::TemplateStringPart;
-use ocelot_base::diagnostic_level::DiagnosticLevel;
 use ocelot_base::error::OcelotError;
-use ocelot_base::line_bounds::LineBounds;
+use ocelot_base::expression_diagnostic::expression_diagnostic;
 use ocelot_base::result::OcelotResult;
 use ocelot_base::shared_string::SharedString;
-use ocelot_base::source_annotation::SourceAnnotation;
 use ocelot_base::source_diagnostic::SourceDiagnostic;
-use ocelot_base::source_excerpt::SourceExcerpt;
 use ocelot_base::source_file::SourceFile;
 use ocelot_base::span::Span;
 use ocelot_pal::pal::Pal;
@@ -161,6 +159,74 @@ impl<'a> Interpreter<'a> {
 
     fn evaluate_expression_flow(&self, expression: &Expression) -> OcelotResult<EvaluationFlow> {
         let value = match &expression.kind {
+            ExpressionKind::IntegerLiteral(value) => RuntimeValue::integer(
+                i64::try_from(value.magnitude).expect("parser validated positive integer"),
+            ),
+            ExpressionKind::Negate(value) => {
+                if matches!(&value.operand.kind, ExpressionKind::IntegerLiteral(literal) if literal.magnitude == (1u64 << 63))
+                {
+                    RuntimeValue::integer(i64::MIN)
+                } else {
+                    let operand = match self.evaluate_expression_flow(&value.operand)? {
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                        ControlFlow::Continue(value) => {
+                            value.expect_integer("negation operand must be int")?
+                        }
+                    };
+                    let Some(result) = operand.checked_neg() else {
+                        return self.runtime_source_error(
+                            "integer overflow",
+                            expression.span.clone(),
+                            "integer operation failed here",
+                        );
+                    };
+                    RuntimeValue::integer(result)
+                }
+            }
+            ExpressionKind::Integer(value) => {
+                let left = match self.evaluate_expression_flow(&value.left)? {
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    ControlFlow::Continue(value) => {
+                        value.expect_integer("integer operand required")?
+                    }
+                };
+                let right = match self.evaluate_expression_flow(&value.right)? {
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    ControlFlow::Continue(value) => {
+                        value.expect_integer("integer operand required")?
+                    }
+                };
+                match value.operator {
+                    IntegerOperator::Less => RuntimeValue::boolean(left < right),
+                    IntegerOperator::LessEqual => RuntimeValue::boolean(left <= right),
+                    IntegerOperator::Greater => RuntimeValue::boolean(left > right),
+                    IntegerOperator::GreaterEqual => RuntimeValue::boolean(left >= right),
+                    operator => {
+                        if operator == IntegerOperator::Divide && right == 0 {
+                            return self.runtime_source_error(
+                                "division by zero",
+                                expression.span.clone(),
+                                "integer operation failed here",
+                            );
+                        }
+                        let result = match operator {
+                            IntegerOperator::Add => left.checked_add(right),
+                            IntegerOperator::Subtract => left.checked_sub(right),
+                            IntegerOperator::Multiply => left.checked_mul(right),
+                            IntegerOperator::Divide => left.checked_div(right),
+                            _ => unreachable!("arithmetic operator"),
+                        };
+                        let Some(result) = result else {
+                            return self.runtime_source_error(
+                                "integer overflow",
+                                expression.span.clone(),
+                                "integer operation failed here",
+                            );
+                        };
+                        RuntimeValue::integer(result)
+                    }
+                }
+            }
             ExpressionKind::Parenthesized(group) => {
                 return self.evaluate_expression_flow(&group.expression);
             }
@@ -348,20 +414,7 @@ impl<'a> Interpreter<'a> {
         span: Span,
         annotation: impl Into<SharedString>,
     ) -> SourceDiagnostic {
-        let message = message.into();
-        let annotation = annotation.into();
-        let line_bounds = LineBounds::new(self.source_file.source(), span.start());
-        let source_line = &self.source_file.source()[line_bounds.line_start..line_bounds.line_end];
-        let relative_start = span.start().saturating_sub(line_bounds.line_start);
-        let relative_end = span.end().saturating_sub(line_bounds.line_start);
-
-        SourceDiagnostic::new(DiagnosticLevel::Error, &self.source_file.path, message).with_excerpt(
-            SourceExcerpt::new(&self.source_file.path, line_bounds.line_number, source_line)
-                .with_annotation(SourceAnnotation::new(
-                    Span::new(relative_start, relative_end),
-                    annotation,
-                )),
-        )
+        expression_diagnostic(self.source_file, message, span, annotation)
     }
 }
 

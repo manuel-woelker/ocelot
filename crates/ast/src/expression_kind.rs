@@ -4,7 +4,10 @@ use crate::call_expression::CallExpression;
 use crate::equality_expression::EqualityExpression;
 use crate::identifier::Identifier;
 use crate::if_expression::IfExpression;
+use crate::integer_expression::IntegerExpression;
+use crate::integer_literal_expression::IntegerLiteralExpression;
 use crate::logical_expression::LogicalExpression;
+use crate::negate_expression::NegateExpression;
 use crate::not_expression::NotExpression;
 use crate::parenthesized_expression::ParenthesizedExpression;
 use crate::qualified_identifier::QualifiedIdentifier;
@@ -20,6 +23,9 @@ pub enum ExpressionKind {
     Equality(EqualityExpression),
     Identifier(Identifier),
     If(IfExpression),
+    Integer(IntegerExpression),
+    IntegerLiteral(IntegerLiteralExpression),
+    Negate(NegateExpression),
     Not(NotExpression),
     Logical(LogicalExpression),
     Parenthesized(ParenthesizedExpression),

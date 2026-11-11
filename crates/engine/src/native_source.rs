@@ -276,6 +276,9 @@ println(name);
 println(choose(flag: true));
 println(early());
 println({ println("left"); "a" } != { println("right"); "b" });
+fun integer_identity(value: int) -> int { value }
+println(integer_identity(value: -9223372036854775808) + 1);
+assert_eq(expected: 42, actual: 6 * 7);
 test "not run" { assert(false); }
 "#,
         )
@@ -288,7 +291,7 @@ test "not run" { assert(false); }
         assert_eq!(output.exit_code, Some(0));
         assert_eq!(
             String::from_utf8(output.stdout).unwrap(),
-            "outer inner\nouter\nyes\nearly\nleft\nright\ntrue\n"
+            "outer inner\nouter\nyes\nearly\nleft\nright\ntrue\n-9223372036854775807\n"
         );
         assert_eq!(report, "ocelot-ok-v1\n");
         pal.remove_directory_all(&root).unwrap();
@@ -308,6 +311,27 @@ test "not run" { assert(false); }
         assert_eq!(output.exit_code, Some(0));
         assert_eq!(String::from_utf8(output.stdout).unwrap(), "once\n");
         assert_eq!(report, "ocelot-eval-v1\n\"Hello Ada!\"");
+        pal.remove_directory_all(&root).unwrap();
+    }
+
+    #[test]
+    fn native_integer_errors_retain_source_locations_without_source_files() {
+        let (pal, root) = workspace();
+        let path = root.join("main.ocelot-script");
+        pal.write_file(
+            &path,
+            b"println(\"before\");\n1 / 0;\nprintln(\"unreachable\");\n",
+        )
+        .unwrap();
+        let unit = file_source(pal.clone(), &path).unwrap();
+        pal.remove_directory_all(&root).unwrap();
+        pal.create_directory_all(&root).unwrap();
+        let (output, report) = run(&*pal, &root, &unit);
+        assert_eq!(output.exit_code, Some(101));
+        assert_eq!(String::from_utf8(output.stdout).unwrap(), "before\n");
+        assert!(report.starts_with("ocelot-error-v1\nerror: division by zero"));
+        assert!(report.contains("2 │ 1 / 0;"));
+        assert!(report.contains("main.ocelot-script:2:1"));
         pal.remove_directory_all(&root).unwrap();
     }
 

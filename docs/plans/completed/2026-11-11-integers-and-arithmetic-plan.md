@@ -32,25 +32,25 @@ alternate bases, or digit separators.
 
 # In what order will implementation proceed?
 
-- [ ] Add integer literal, integer binary operator/expression, and unary negation
+- [x] Add integer literal, integer binary operator/expression, and unary negation
   AST nodes; lex digits and longest-match operator tokens without breaking `->`,
   comments, templates, or parameter syntax.
-- [ ] Extend the flat parser, signed-minimum handling, grouping validation, spans,
+- [x] Extend the flat parser, signed-minimum handling, grouping validation, spans,
   and formatter; reject malformed/out-of-range literals and mixed operators.
-- [ ] Add the canonical int type and value; support signatures, bindings, native
+- [x] Add the canonical int type and value; support signatures, bindings, native
   labels, equality, printed/interpolated/asserted/eval values, and checked static
   typing/effect propagation, including grouped and non-fallthrough operands.
-- [ ] Implement checked interpretation and a shared source diagnostic contract.
+- [x] Implement checked interpretation and a shared source diagnostic contract.
   Extend the spec runner's structured runtime-error rendering if needed.
-- [ ] Add an unboxed integer tag to the C runtime, exact decimal rendering, checked
+- [x] Add an unboxed integer tag to the C runtime, exact decimal rendering, checked
   arithmetic/negation helpers, safe payload conversion, and sequenced C lowering.
-- [ ] Add source-driven parser/formatter/engine/session tests and executable spec
+- [x] Add source-driven parser/formatter/engine/session tests and executable spec
   chapters. Cover all operators, signed limits, division signs, intermediate
   overflow, skipped failures, effect prohibitions, return/evaluation order, and
   mixed-type/operator errors in both backends.
-- [ ] Expand strict C99 ASan/UBSan/leak tests and direct C boundary tests; record
+- [x] Expand strict C99 ASan/UBSan/leak tests and direct C boundary tests; record
   DR-023 and update implemented-language/native/spec documentation.
-- [ ] Run `nao check`, both complete spec passes, source-free/native smoke tests,
+- [x] Run `nao check`, both complete spec passes, source-free/native smoke tests,
   sanitizer checks, links, and `git diff --check`. Record results and move the
   completed plan before committing the implemented feature.
 
@@ -70,4 +70,11 @@ The same executable examples must pass independently through interpretation and
 C/TCC. Compare exact values, diagnostics, failure ordering, and source spans.
 Exercise edge arithmetic with optimized Clang plus UBSan, not only TCC. Keep the
 minimal native-binary size regression and existing string-ownership checks.
-All work is pending when this plan is committed.
+Implementation is complete. `nao check` passes: 394 Rust tests and all 141
+examples across 26 spec chapters independently pass interpretation and C/TCC.
+The strict optimized C99 ASan/UBSan/leak smoke script passes, including valid
+boundary operand pairs against compiler overflow builtins and each integer
+failure path. The builtin oracle is enabled only in the Clang check; the shared
+C fixture remains compilable by TCC. Source-free execution and arithmetic
+diagnostics, the minimal-binary size guard, and `git diff --check` pass.
+No planned work remains; floats, coercions, mutation, and loops remain outside scope.

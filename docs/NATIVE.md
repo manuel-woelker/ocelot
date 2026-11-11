@@ -108,3 +108,18 @@ detection. LeakSanitizer requires permission to inspect the process.
 Other architectures, static/musl program output, custom registered native
 functions, public native embedding, concurrency, full debugger integration,
 and alternate production toolchain adapters remain future work.
+
+# How are integer operations kept consistent with interpretation?
+
+Signed 64-bit integers are unboxed in the existing value payload. Conversion
+between payload bits and signed values uses defined C99 arithmetic. Checked helpers
+guard before addition, subtraction, multiplication, division, and negation, including
+minimum int divided by -1. Overflow and zero division use source-located language
+errors rather than infrastructure failures. Exact decimal display uses separate
+caller-owned buffers for concatenation operands.
+
+The executable [integer operations](<spec/02.09 Expressions - Integer operations.md>)
+run through both backends. The sanitizer smoke script also tests integer boundaries,
+valid operand pairs against independent compiler overflow builtins, and each failure
+path under optimized Clang with ASan/UBSan. Those builtins are test-only; emitted C
+uses portable guards. See [DR-023](<decisions/DR-023 Use checked signed 64-bit integers.md>).

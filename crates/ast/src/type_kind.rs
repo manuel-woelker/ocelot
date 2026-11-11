@@ -3,6 +3,8 @@
 pub enum TypeKind {
     Any,
     Boolean,
+    /// A signed 64-bit integer.
+    Integer,
     String,
     /// The result of a function that returns no value.
     Unit,

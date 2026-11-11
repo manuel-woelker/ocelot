@@ -14,11 +14,35 @@ still giving the interpreter and native functions one shared representation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimeValue {
     Boolean(bool),
+    /// A signed 64-bit integer.
+    Integer(i64),
     String(SharedString),
     Unit,
 }
 
 impl RuntimeValue {
+    /// Creates an integer runtime value.
+    pub const fn integer(value: i64) -> Self {
+        Self::Integer(value)
+    }
+
+    /// Returns the inner integer when this is an integer value.
+    pub const fn as_integer(&self) -> Option<i64> {
+        if let Self::Integer(value) = self {
+            Some(*value)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the integer or a user-facing type error.
+    pub fn expect_integer(&self, message: impl AsRef<str>) -> OcelotResult<i64> {
+        match self.as_integer() {
+            Some(value) => Ok(value),
+            None => ocelot_base::bail!("{}", message.as_ref()),
+        }
+    }
+
     /// Creates a boolean runtime value.
     pub const fn boolean(value: bool) -> Self {
         Self::Boolean(value)
@@ -38,7 +62,7 @@ impl RuntimeValue {
     pub fn as_string(&self) -> Option<&SharedString> {
         match self {
             Self::String(value) => Some(value),
-            Self::Boolean(_) | Self::Unit => None,
+            Self::Boolean(_) | Self::Integer(_) | Self::Unit => None,
         }
     }
 
@@ -47,7 +71,7 @@ impl RuntimeValue {
         match self {
             Self::Boolean(value) => Some(*value),
             Self::Unit => None,
-            Self::String(_) => None,
+            Self::String(_) | Self::Integer(_) => None,
         }
     }
 
@@ -61,6 +85,7 @@ impl RuntimeValue {
         match self {
             Self::Boolean(value) => SharedString::from(if *value { "true" } else { "false" }),
             Self::String(value) => value.clone(),
+            Self::Integer(value) => value.to_string().into(),
             Self::Unit => SharedString::from("()"),
         }
     }
@@ -69,7 +94,9 @@ impl RuntimeValue {
     pub fn expect_string(&self, message: impl AsRef<str>) -> OcelotResult<&SharedString> {
         match self {
             Self::String(value) => Ok(value),
-            Self::Boolean(_) | Self::Unit => ocelot_base::bail!("{}", message.as_ref()),
+            Self::Boolean(_) | Self::Integer(_) | Self::Unit => {
+                ocelot_base::bail!("{}", message.as_ref())
+            }
         }
     }
 
@@ -77,7 +104,9 @@ impl RuntimeValue {
     pub fn expect_boolean(&self, message: impl AsRef<str>) -> OcelotResult<bool> {
         match self {
             Self::Boolean(value) => Ok(*value),
-            Self::String(_) | Self::Unit => ocelot_base::bail!("{}", message.as_ref()),
+            Self::String(_) | Self::Integer(_) | Self::Unit => {
+                ocelot_base::bail!("{}", message.as_ref())
+            }
         }
     }
 
@@ -91,6 +120,7 @@ impl RuntimeValue {
         match self {
             Self::Boolean(value) => SharedString::from(if *value { "true" } else { "false" }),
             Self::String(value) => SharedString::from(format!("\"{}\"", value)),
+            Self::Integer(value) => value.to_string().into(),
             Self::Unit => SharedString::from("()"),
         }
     }

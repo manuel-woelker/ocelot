@@ -3,6 +3,7 @@ pub mod cli;
 pub mod compilation_stage;
 pub mod diagnostic_level;
 pub mod error;
+pub mod expression_diagnostic;
 pub mod file_path;
 pub mod line_bounds;
 pub mod logging;

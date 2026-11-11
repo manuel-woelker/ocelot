@@ -517,7 +517,10 @@ impl<'a, D: DeclarationIndex> DeclarationIndexer<'a, D> {
                     .is_ok_and(|definition| {
                         matches!(
                             definition.kind,
-                            TypeKind::Boolean | TypeKind::String | TypeKind::Unit
+                            TypeKind::Boolean
+                                | TypeKind::String
+                                | TypeKind::Integer
+                                | TypeKind::Unit
                         )
                     }) =>
             {
@@ -526,7 +529,7 @@ impl<'a, D: DeclarationIndex> DeclarationIndexer<'a, D> {
             _ => {
                 self.add_diagnostic(
                     format!(
-                        "unsupported return type `{}`; expected `string`, `bool`, or `()`",
+                        "unsupported return type `{}`; expected `string`, `bool`, `int`, or `()`",
                         annotation.name
                     ),
                     annotation.span.clone(),

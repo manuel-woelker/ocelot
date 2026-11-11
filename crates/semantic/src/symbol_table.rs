@@ -53,6 +53,7 @@ impl SymbolTable {
         self.add_type(Ty::new("any", TypeKind::Any));
         self.add_type(Ty::new("string", TypeKind::String));
         self.add_type(Ty::new("bool", TypeKind::Boolean));
+        self.add_type(Ty::new("int", TypeKind::Integer));
         self.add_type(Ty::new("()", TypeKind::Unit));
         self.add_type(Ty::new("!", TypeKind::Never));
     }
@@ -120,6 +121,12 @@ impl SymbolTable {
     pub fn string_type_index(&self) -> TypeIndex {
         self.resolve_type("string")
             .expect("string type should always be seeded")
+    }
+
+    /// Returns the canonical integer type handle.
+    pub fn integer_type_index(&self) -> TypeIndex {
+        self.resolve_type("int")
+            .expect("int type should be declared")
     }
 
     /// Returns the canonical boolean type handle.

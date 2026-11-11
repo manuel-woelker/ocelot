@@ -151,6 +151,53 @@ mod tests {
     use ocelot_semantic::source_file_kind::SourceFileKind;
 
     #[test]
+    fn integer_type_errors_and_effects_are_checked_before_execution() {
+        for (source, message) in [
+            ("1 + true;", "expects int operands"),
+            ("\"a\" < 3;", "expects int operands"),
+            ("-false;", "expects int operands"),
+            ("1 == true;", "expects matching operand types"),
+            ("let n: int = false;", "binding type mismatch"),
+            ("fun f(value: int) {} f(value: true);", "must be int"),
+            ("fun f() -> int { true }", "block result type mismatch"),
+            ("fun f() -> int { return false; }", "return type mismatch"),
+            (
+                "fun f() cannot panic { 1 + 2; }",
+                "cannot perform effect `panic`",
+            ),
+            (
+                "fun f() cannot panic { -1; }",
+                "cannot perform effect `panic`",
+            ),
+            (
+                "fun f() cannot panic { false and ((1 / 0) == 0); }",
+                "cannot perform effect `panic`",
+            ),
+            (
+                "fun add() -> int { 1 + 2 } fun f() cannot panic { add(); }",
+                "cannot perform effect `panic`",
+            ),
+            (
+                "fun f() -> int { ({ return 1; }) + false }",
+                "expects int operands",
+            ),
+        ] {
+            let pal = PalMock::new();
+            pal.set_file(
+                "examples/main.ocelot-script",
+                format!("println(\"must not run\"); {source}"),
+            );
+            let engine = Engine::new(PalHandle::new(pal.clone()));
+            let error = engine.run_file("examples/main.ocelot-script").unwrap_err();
+            assert!(
+                error.to_test_string().contains(message),
+                "{source}: {error:?}"
+            );
+            assert!(pal.take_printed_output().is_empty());
+        }
+    }
+
+    #[test]
     fn skipped_boolean_operands_are_still_checked_before_effects() {
         for (source, expected) in [
             (

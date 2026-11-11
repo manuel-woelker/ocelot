@@ -9,6 +9,14 @@ pub fn render_validation_error(error: &OcelotError) -> String {
         return unansi(&render_assertion_error(assertion_error));
     }
 
+    if let ErrorKind::RuntimeError(diagnostic) = error.kind() {
+        return unansi(
+            &ocelot_base::render_source_diagnostics::render_source_diagnostics(
+                std::slice::from_ref(diagnostic.as_ref()),
+            ),
+        );
+    }
+
     if matches!(error.kind(), ErrorKind::CompilationError(_))
         && let Some(source) = error.source()
     {

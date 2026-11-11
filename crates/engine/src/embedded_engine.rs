@@ -180,6 +180,57 @@ mod tests {
     use ocelot_semantic::runtime_value::RuntimeValue;
 
     #[test]
+    fn checked_integer_values_persist_and_failed_calls_do_not_replace_them() {
+        let pal = PalMock::new();
+        let mut engine = EmbeddedEngine::new(PalHandle::new(pal.clone()), "examples");
+        engine
+            .execute("let saved: int = 40; fun add(value: int) -> int { value + 2 }")
+            .unwrap();
+        for (source, expected) in [
+            ("add(value: saved)", 42),
+            ("-9223372036854775808", i64::MIN),
+            ("9223372036854775807", i64::MAX),
+            ("20 - 5 - 3", 12),
+            ("24 / 3 / 2", 4),
+            ("(-7) / 3", -2),
+            ("7 / (-3)", -2),
+            ("(-7) / (-3)", 2),
+            ("- -3", 3),
+            ("0 * (-9223372036854775808)", 0),
+        ] {
+            let value = engine
+                .eval(source)
+                .unwrap_or_else(|error| panic!("{source}: {error:?}"));
+            assert_eq!(value, RuntimeValue::integer(expected), "{source}");
+            assert_eq!(
+                value.render_for_eval_result().as_str(),
+                expected.to_string()
+            );
+        }
+        for (source, message) in [
+            ("9223372036854775807 + 1", "integer overflow"),
+            ("(-9223372036854775808) - 1", "integer overflow"),
+            ("(-9223372036854775808) * (-1)", "integer overflow"),
+            ("9223372036854775807 * 2", "integer overflow"),
+            ("(-9223372036854775808) / (-1)", "integer overflow"),
+            ("-(-9223372036854775808)", "integer overflow"),
+            ("3 / 0", "division by zero"),
+            ("9223372036854775807 + 1 + (-1)", "integer overflow"),
+        ] {
+            let error = engine.eval(source).unwrap_err();
+            assert!(
+                matches!(error.kind(), ErrorKind::RuntimeError(_)),
+                "{source}: {error:?}"
+            );
+            assert_eq!(error.kind().to_string(), message);
+        }
+        let error = engine.execute("let failed: int = 1 / 0;").unwrap_err();
+        assert!(matches!(error.kind(), ErrorKind::RuntimeError(_)));
+        assert_eq!(engine.eval("saved").unwrap(), RuntimeValue::integer(40));
+        assert!(engine.eval("failed").is_err());
+    }
+
+    #[test]
     fn explicit_groups_and_short_circuit_boolean_values_work_in_sessions() {
         let pal = PalMock::new();
         let mut engine = EmbeddedEngine::new(PalHandle::new(pal.clone()), "examples");

@@ -5,6 +5,7 @@ use ocelot_base::shared_string::SharedString;
 pub fn native_type_label(type_kind: TypeKind) -> SharedString {
     match type_kind {
         TypeKind::Any => "any".into(),
+        TypeKind::Integer => "int".into(),
         TypeKind::Boolean => "bool".into(),
         TypeKind::String => "string".into(),
         TypeKind::Unit => "()".into(),

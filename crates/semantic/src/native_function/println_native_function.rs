@@ -19,9 +19,11 @@ impl NativeFunction for PrintlnNativeFunction {
     ) -> OcelotResult<RuntimeValue> {
         let value = &arguments[0];
         let text = match value {
-            RuntimeValue::Boolean(_) | RuntimeValue::String(_) => value.render_for_display(),
+            RuntimeValue::Boolean(_) | RuntimeValue::Integer(_) | RuntimeValue::String(_) => {
+                value.render_for_display()
+            }
             RuntimeValue::Unit => {
-                ocelot_base::bail!("type error: `println` expects a string or bool argument")
+                ocelot_base::bail!("type error: `println` expects a string, bool, or int argument")
             }
         };
 

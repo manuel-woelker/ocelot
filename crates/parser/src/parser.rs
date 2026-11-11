@@ -17,11 +17,15 @@ use ocelot_ast::function_item::FunctionItem;
 use ocelot_ast::function_parameter::FunctionParameter;
 use ocelot_ast::identifier::Identifier;
 use ocelot_ast::if_expression::IfExpression;
+use ocelot_ast::integer_expression::IntegerExpression;
+use ocelot_ast::integer_literal_expression::IntegerLiteralExpression;
+use ocelot_ast::integer_operator::IntegerOperator;
 use ocelot_ast::item::Item;
 use ocelot_ast::item_kind::ItemKind;
 use ocelot_ast::let_statement::LetStatement;
 use ocelot_ast::logical_expression::LogicalExpression;
 use ocelot_ast::logical_operator::LogicalOperator;
+use ocelot_ast::negate_expression::NegateExpression;
 use ocelot_ast::not_expression::NotExpression;
 use ocelot_ast::parenthesized_expression::ParenthesizedExpression;
 use ocelot_ast::qualified_identifier::QualifiedIdentifier;
@@ -479,16 +483,35 @@ impl<'a> Parser<'a> {
         };
         let mut seen = false;
         while let Some(next) = self.binary_operator() {
-            if next != operator || matches!(left.kind, ExpressionKind::Not(_)) {
+            if next != operator
+                || matches!(
+                    left.kind,
+                    ExpressionKind::Not(_) | ExpressionKind::Negate(_)
+                )
+            {
                 return self.emit_fatal_diagnostic(
                     "different operators require parentheses",
                     self.current().span.clone(),
                     "group mixed operators with parentheses",
                 );
             }
-            if seen && matches!(operator, TokenType::EqualEqual | TokenType::NotEqual) {
+            if seen
+                && matches!(
+                    operator,
+                    TokenType::EqualEqual
+                        | TokenType::NotEqual
+                        | TokenType::Less
+                        | TokenType::LessEqual
+                        | TokenType::Greater
+                        | TokenType::GreaterEqual
+                )
+            {
                 return self.emit_fatal_diagnostic(
-                    "equality comparisons cannot be chained",
+                    if matches!(operator, TokenType::EqualEqual | TokenType::NotEqual) {
+                        "equality comparisons cannot be chained"
+                    } else {
+                        "ordering comparisons cannot be chained"
+                    },
                     self.current().span.clone(),
                     "group a comparison with parentheses",
                 );
@@ -497,7 +520,10 @@ impl<'a> Parser<'a> {
             self.position += 1;
             let right_start = self.current().span.clone();
             let right = self.parse_prefix_expression()?;
-            if matches!(right.kind, ExpressionKind::Not(_)) {
+            if matches!(
+                right.kind,
+                ExpressionKind::Not(_) | ExpressionKind::Negate(_)
+            ) {
                 return self.emit_fatal_diagnostic(
                     "different operators require parentheses",
                     right_start,
@@ -526,7 +552,21 @@ impl<'a> Parser<'a> {
                         },
                     })
                 }
-                _ => unreachable!("binary_operator returns only supported operators"),
+                ref token => ExpressionKind::Integer(IntegerExpression {
+                    left: Box::new(left),
+                    right: Box::new(right),
+                    operator: match token {
+                        TokenType::Plus => IntegerOperator::Add,
+                        TokenType::Minus => IntegerOperator::Subtract,
+                        TokenType::Star => IntegerOperator::Multiply,
+                        TokenType::Slash => IntegerOperator::Divide,
+                        TokenType::Less => IntegerOperator::Less,
+                        TokenType::LessEqual => IntegerOperator::LessEqual,
+                        TokenType::Greater => IntegerOperator::Greater,
+                        TokenType::GreaterEqual => IntegerOperator::GreaterEqual,
+                        _ => unreachable!("supported binary operator"),
+                    },
+                }),
             };
             left = Expression::new(kind, span);
             seen = true;
@@ -536,9 +576,18 @@ impl<'a> Parser<'a> {
 
     fn binary_operator(&self) -> Option<TokenType> {
         match self.current().token_type {
-            TokenType::And | TokenType::Or | TokenType::EqualEqual | TokenType::NotEqual => {
-                Some(self.current().token_type.clone())
-            }
+            TokenType::And
+            | TokenType::Or
+            | TokenType::EqualEqual
+            | TokenType::NotEqual
+            | TokenType::Plus
+            | TokenType::Minus
+            | TokenType::Star
+            | TokenType::Slash
+            | TokenType::Less
+            | TokenType::LessEqual
+            | TokenType::Greater
+            | TokenType::GreaterEqual => Some(self.current().token_type.clone()),
             _ => None,
         }
     }
@@ -549,6 +598,13 @@ impl<'a> Parser<'a> {
         if self.at(TokenType::Not) {
             let not_token = self.expect(TokenType::Not, "expected `not` operator")?;
             let operand = self.parse_prefix_expression()?;
+            if matches!(operand.kind, ExpressionKind::Negate(_)) {
+                return self.emit_fatal_diagnostic(
+                    "different operators require parentheses",
+                    operand.span,
+                    "group mixed operators with parentheses",
+                );
+            }
             let span = Span::new(not_token.span.start(), operand.span.end());
 
             return Ok(Expression::new(
@@ -557,6 +613,30 @@ impl<'a> Parser<'a> {
             ));
         }
 
+        if self.at(TokenType::Minus) {
+            let start = self.current().span.start();
+            self.position += 1;
+            self.reject_comments_before_current_token()?;
+            let operand = if self.at(TokenType::Integer) {
+                self.parse_integer_literal(true)?
+            } else {
+                self.parse_prefix_expression()?
+            };
+            let span = Span::new(start, operand.span.end());
+            if matches!(operand.kind, ExpressionKind::Not(_)) {
+                return self.emit_fatal_diagnostic(
+                    "different operators require parentheses",
+                    operand.span,
+                    "group mixed operators with parentheses",
+                );
+            }
+            return Ok(Expression::new(
+                ExpressionKind::Negate(NegateExpression {
+                    operand: Box::new(operand),
+                }),
+                span,
+            ));
+        }
         self.parse_call_expression()
     }
 
@@ -574,6 +654,30 @@ impl<'a> Parser<'a> {
         }
 
         Ok(expression)
+    }
+
+    fn parse_integer_literal(&mut self, allow_min: bool) -> OcelotResult<Expression> {
+        let token = self.current().clone();
+        let limit = i64::MAX as u64 + u64::from(allow_min);
+        let Ok(magnitude) = self.source_text(&token.span).parse::<u64>() else {
+            return self.emit_fatal_diagnostic(
+                "integer literal out of range for `int`",
+                token.span,
+                "signed 64-bit integer required",
+            );
+        };
+        if magnitude > limit {
+            return self.emit_fatal_diagnostic(
+                "integer literal out of range for `int`",
+                token.span,
+                "signed 64-bit integer required",
+            );
+        }
+        self.position += 1;
+        Ok(Expression::new(
+            ExpressionKind::IntegerLiteral(IntegerLiteralExpression { magnitude }),
+            token.span,
+        ))
     }
 
     fn parse_primary_expression(&mut self) -> OcelotResult<Expression> {
@@ -596,6 +700,7 @@ impl<'a> Parser<'a> {
                     Span::new(start.span.start(), end.span.end()),
                 ))
             }
+            TokenType::Integer => self.parse_integer_literal(false),
             TokenType::If => self.parse_if_expression(),
             TokenType::LeftBrace => {
                 let start = self.expect(TokenType::LeftBrace, "expected `{`")?;

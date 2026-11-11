@@ -23,7 +23,8 @@ static OcString *oc_storage(OcValue value) {
     return (OcString *)(uintptr_t)value.payload;
 }
 
-static OcBytes oc_display(OcValue value) {
+/* Integer bytes borrow the caller's 21-byte buffer; other values ignore it. */
+static OcBytes oc_display(OcValue value, char *buffer) {
     OcBytes bytes;
     if (value.tag == 2) {
         OcString *string = oc_storage(value);
@@ -32,6 +33,11 @@ static OcBytes oc_display(OcValue value) {
     } else if (value.tag == 1) {
         bytes.data = (const unsigned char *)(value.payload ? "true" : "false");
         bytes.length = value.payload ? 4 : 5;
+    } else if (value.tag == 3) {
+        int length = snprintf(buffer, 21, "%" PRId64, oc_integer_value(value));
+        if (length < 0 || length > 20) oc_io_fatal("native runtime: integer formatting failed");
+        bytes.data = (const unsigned char *)buffer;
+        bytes.length = (size_t)length;
     } else {
         bytes.data = (const unsigned char *)"()";
         bytes.length = 2;
@@ -40,7 +46,8 @@ static OcBytes oc_display(OcValue value) {
 }
 
 static void oc_write_value(FILE *stream, OcValue value, int quoted) {
-    OcBytes bytes = oc_display(value);
+    char buffer[21];
+    OcBytes bytes = oc_display(value, buffer);
     if (quoted && value.tag == 2) oc_io_text(stream, "\"");
     oc_io_write(stream, bytes.data, bytes.length);
     if (quoted && value.tag == 2) oc_io_text(stream, "\"");
@@ -77,13 +84,14 @@ int oc_equal(OcValue left, OcValue right) {
     OcBytes a, b;
     if (left.tag != right.tag) return 0;
     if (left.tag != 2) return left.payload == right.payload;
-    a = oc_display(left);
-    b = oc_display(right);
+    a = oc_display(left, NULL);
+    b = oc_display(right, NULL);
     return a.length == b.length && (!a.length || !memcmp(a.data, b.data, a.length));
 }
 
 OcValue oc_concat(OcValue left, OcValue right) {
-    OcBytes a = oc_display(left), b = oc_display(right);
+    char left_buffer[21], right_buffer[21];
+    OcBytes a = oc_display(left, left_buffer), b = oc_display(right, right_buffer);
     OcString *string = oc_allocate_string(oc_add_size(a.length, b.length));
     if (a.length) memcpy(string->bytes, a.data, a.length);
     if (b.length) memcpy(string->bytes + a.length, b.data, b.length);
@@ -92,7 +100,7 @@ OcValue oc_concat(OcValue left, OcValue right) {
 
 OcValue oc_print(OcValue value) {
     if (!value.tag) {
-        const char *text = "type error: `println` expects a string or bool argument";
+        const char *text = "type error: `println` expects a string, bool, or int argument";
         OcBytes message = {(const unsigned char *)text, strlen(text)};
         oc_io_fail(message);
     }
@@ -103,7 +111,7 @@ OcValue oc_print(OcValue value) {
 }
 
 OcValue oc_assert(OcValue condition, OcValue diagnostic) {
-    if (!condition.payload) oc_io_fail(oc_display(diagnostic));
+    if (!condition.payload) oc_io_fail(oc_display(diagnostic, NULL));
     return oc_unit();
 }
 

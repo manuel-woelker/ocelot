@@ -228,7 +228,10 @@ impl<'a> Resolver<'a> {
                         .is_ok_and(|definition| {
                             matches!(
                                 definition.kind,
-                                TypeKind::Boolean | TypeKind::String | TypeKind::Unit
+                                TypeKind::Boolean
+                                    | TypeKind::String
+                                    | TypeKind::Integer
+                                    | TypeKind::Unit
                             )
                         })
                 });
@@ -251,7 +254,7 @@ impl<'a> Resolver<'a> {
             } else {
                 self.add_diagnostic(
                     format!(
-                        "unsupported binding type `{}`; expected `string`, `bool`, or `()`",
+                        "unsupported binding type `{}`; expected `string`, `bool`, `int`, or `()`",
                         annotation.name
                     ),
                     annotation.span.clone(),
@@ -343,6 +346,18 @@ impl<'a> Resolver<'a> {
 
     fn resolve_expression(&mut self, expression: &mut Expression) {
         match &mut expression.kind {
+            ExpressionKind::IntegerLiteral(_) => {}
+            ExpressionKind::Negate(value) => {
+                self.resolve_expression(&mut value.operand);
+                self.record_arithmetic_effect(expression.span.clone());
+            }
+            ExpressionKind::Integer(value) => {
+                self.resolve_expression(&mut value.left);
+                self.resolve_expression(&mut value.right);
+                if !value.operator.is_comparison() {
+                    self.record_arithmetic_effect(expression.span.clone());
+                }
+            }
             ExpressionKind::Parenthesized(group) => self.resolve_expression(&mut group.expression),
             ExpressionKind::Logical(logical) => {
                 self.resolve_expression(&mut logical.left);
@@ -522,6 +537,14 @@ impl<'a> Resolver<'a> {
             .resolve_function_exact(&core_function_name)
     }
 
+    fn record_arithmetic_effect(&mut self, span: Span) {
+        let effect = self.symbol_table.panic_effect_index();
+        if let Some(function) = self.resolved_function.as_mut() {
+            function.direct_effects.insert(effect);
+            function.direct_effect_sources.entry(effect).or_insert(span);
+        }
+    }
+
     fn record_effect_dependency(&mut self, called_function_index: FunctionIndex, span: Span) {
         let Some(current_function) = self.resolved_function.as_mut() else {
             return;
@@ -679,11 +702,56 @@ impl<'a> Resolver<'a> {
         false
     }
 
+    fn integer_operands_type(
+        &mut self,
+        operands: &[&Expression],
+        operator: &str,
+        comparison: bool,
+    ) -> TypeIndex {
+        let int = self.symbol_table.integer_type_index();
+        let never = self.symbol_table.never_type_index();
+        let mut valid = true;
+        for operand in operands {
+            if operand.ty.is_unresolved() {
+                valid = false;
+            } else if operand.ty != int && operand.ty != never {
+                self.add_diagnostic(
+                    format!("operator `{operator}` expects int operands"),
+                    operand.span.clone(),
+                    "int operand required",
+                );
+                valid = false;
+            }
+        }
+        if !valid {
+            TypeIndex::unresolved()
+        } else if operands.iter().any(|operand| operand.ty == never) {
+            never
+        } else if comparison {
+            self.symbol_table.boolean_type_index()
+        } else {
+            int
+        }
+    }
+
     fn annotate_expression_type(&mut self, expression: &mut Expression) {
         let boolean_type_index = self.symbol_table.boolean_type_index();
         let string_type_index = self.symbol_table.string_type_index();
 
         match &expression.kind {
+            ExpressionKind::IntegerLiteral(_) => {
+                expression.ty = self.symbol_table.integer_type_index()
+            }
+            ExpressionKind::Negate(value) => {
+                expression.ty = self.integer_operands_type(&[&value.operand], "-", false);
+            }
+            ExpressionKind::Integer(value) => {
+                expression.ty = self.integer_operands_type(
+                    &[&value.left, &value.right],
+                    value.operator.as_str(),
+                    value.operator.is_comparison(),
+                );
+            }
             ExpressionKind::Parenthesized(group) => expression.ty = group.expression.ty,
             ExpressionKind::Logical(logical) => {
                 let never = self.symbol_table.never_type_index();

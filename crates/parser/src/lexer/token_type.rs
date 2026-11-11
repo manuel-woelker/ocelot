@@ -1,6 +1,15 @@
 /// Token kinds recognized by the Ocelot lexer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TokenType {
+    Integer,
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
     And,
     Or,
     Can,

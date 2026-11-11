@@ -109,8 +109,12 @@ mod tests {
 
     #[test]
     fn mixed_operators_require_parentheses_in_every_operand_position() {
-        for left in ["and", "or", "==", "!="] {
-            for right in ["and", "or", "==", "!="] {
+        for left in [
+            "and", "or", "==", "!=", "+", "-", "*", "/", "<", "<=", ">", ">=",
+        ] {
+            for right in [
+                "and", "or", "==", "!=", "+", "-", "*", "/", "<", "<=", ">", ">=",
+            ] {
                 if left == right {
                     continue;
                 }
@@ -131,6 +135,8 @@ mod tests {
                 format!("not true {left} false;"),
                 format!("true {left} not false;"),
                 format!("not not true {left} false;"),
+                format!("-1 {left} 2;"),
+                format!("1 {left} -2;"),
             ] {
                 let error = parse_compilation_unit(
                     &SourceFile::new("mix.ocelot-script", source.as_str()),
@@ -144,6 +150,55 @@ mod tests {
                     "{source}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn integer_literals_and_operator_boundaries_are_validated() {
+        for source in [
+            "0; 00042; 9223372036854775807; -9223372036854775808;",
+            "1+2+3; 9-3-1; 2*3*4; 24/3/2;",
+            "1<2; 1<=2; 3>2; 3>=2; (1+2)*3;",
+            "- -1; -(1+2); 1-(-2);",
+            "fun f(value: int)->int{value/2} // comment\nprintln(\"${1+2}\");",
+        ] {
+            parse_compilation_unit(
+                &SourceFile::new("int.ocelot-script", source),
+                &mut SourceDiagnostics::default(),
+            )
+            .unwrap_or_else(|error| panic!("{source}: {error:?}"));
+        }
+        for source in [
+            "9223372036854775808;",
+            "-9223372036854775809;",
+            "999999999999999999999999999999999999999;",
+            "-(9223372036854775808);",
+            "0x10;",
+            "1_000;",
+            "1.0;",
+            "1e3;",
+            "1 2;",
+            "+1;",
+            "1%;",
+            "1<2<3;",
+            "1<=2<=3;",
+            "3>2>1;",
+            "3>=2>=1;",
+            "1 + /* expression comment */ 2;",
+            "-/* comment */1;",
+            "1 / / 2;",
+            "-;",
+            "not -1;",
+            "-not true;",
+        ] {
+            assert!(
+                parse_compilation_unit(
+                    &SourceFile::new("int.ocelot-script", source),
+                    &mut SourceDiagnostics::default()
+                )
+                .is_err(),
+                "{source}"
+            );
         }
     }
 
