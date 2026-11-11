@@ -27,9 +27,34 @@ pub(crate) fn source_excerpt_for_span(
     let line_bounds = LineBounds::new(source_file.source(), span.start());
     let source_line = &source_file.source()[line_bounds.line_start..line_bounds.line_end];
     let relative_start = span.start().saturating_sub(line_bounds.line_start);
-    let relative_end = span.end().saturating_sub(line_bounds.line_start);
+    let relative_end = span
+        .end()
+        .saturating_sub(line_bounds.line_start)
+        .min(source_line.len());
 
     SourceExcerpt::new(&source_file.path, line_bounds.line_number, source_line).with_annotation(
         SourceAnnotation::new(Span::new(relative_start, relative_end), annotation),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::source_diagnostic_for_span;
+    use ocelot_base::render_source_diagnostics::render_source_diagnostics;
+    use ocelot_base::source_file::SourceFile;
+    use ocelot_base::span::Span;
+
+    #[test]
+    fn multiline_group_diagnostics_stay_inside_the_line_excerpt() {
+        let file = SourceFile::new("group.ocelot-script", "(\n    \"wrong type\"\n)");
+        let diagnostic = source_diagnostic_for_span(
+            &file,
+            "expected bool",
+            Span::new(0, file.source().len()),
+            "bool operand required",
+        );
+        let rendered = render_source_diagnostics(&[diagnostic]);
+        assert!(rendered.contains("expected bool"));
+        assert!(rendered.contains("bool operand required"));
+    }
 }
