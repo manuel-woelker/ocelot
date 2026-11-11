@@ -11,7 +11,7 @@ use ocelot_base::result::{OcelotResult, OptionExt};
 use ocelot_base::shared_string::SharedString;
 use ocelot_base::source_diagnostics::SourceDiagnostics;
 use ocelot_base::source_file::SourceFile;
-use ocelot_codegen_c::c_emitter::{CEmitter, runtime_header};
+use ocelot_codegen_c::c_emitter::{CEmitter, runtime_source};
 use ocelot_pal::pal::PalHandle;
 use ocelot_semantic::source_file_kind::SourceFileKind;
 
@@ -58,7 +58,7 @@ pub fn file_source(pal: PalHandle, path: &FilePath) -> OcelotResult<NativeTransl
         .cloned()
         .collect::<Vec<_>>();
     let roots = roots_in(&statements);
-    let mut code = format!("{}\n#include <string.h>\n", runtime_header());
+    let mut code = runtime_source().to_owned();
     code.push_str(&CEmitter::new(&program, "file").emit_step(
         &statements,
         &module.source_file,
@@ -102,7 +102,7 @@ pub fn scenario_source(
     let entry = base.join("__embedded_main.ocelot-script");
     let mut retained = String::new();
     let mut roots = Vec::new();
-    let mut definitions = format!("{}\n#include <string.h>\n", runtime_header());
+    let mut definitions = runtime_source().to_owned();
     let mut driver = String::new();
     let mut deferred_error = None;
     let mut count = 0;
@@ -206,7 +206,7 @@ pub fn scenario_source(
 #[cfg(all(test, target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
 mod tests {
     use super::{file_source, scenario_source};
-    use crate::build_native::{build_native, runtime_archive};
+    use crate::build_native::build_native;
     use crate::captured_process::CapturedProcess;
     use crate::native_scenario_step::NativeScenarioStep;
     use crate::native_scenario_step::NativeScenarioStep::{Eval, Execute};
@@ -238,14 +238,7 @@ mod tests {
     ) -> (CapturedProcess, String) {
         let binary = root.join("program with spaces");
         let report = root.join("report");
-        build_native(
-            pal,
-            &unit.source,
-            &binary,
-            &runtime_archive().unwrap(),
-            &TccToolchain::repository(),
-        )
-        .unwrap();
+        build_native(pal, &unit.source, &binary, &TccToolchain::repository()).unwrap();
         let output = CapturedProcess::run(
             pal,
             &ProcessCommand {
@@ -357,19 +350,74 @@ test "not run" { assert(false); }
         let mut toolchain = TccToolchain::repository();
         toolchain.compiler = "/nonexistent/ocelot-tcc".into();
         toolchain.compiler_arguments.clear();
-        let error = build_native(
-            &*pal,
-            "int main(void) { return 0; }",
-            &binary,
-            &runtime_archive().unwrap(),
-            &toolchain,
-        )
-        .unwrap_err();
+        let error =
+            build_native(&*pal, "int main(void) { return 0; }", &binary, &toolchain).unwrap_err();
         assert_eq!(
             pal.read_file_to_string(&binary).unwrap(),
             "previous artifact"
         );
         assert!(error.kind().to_string().contains("native build artifacts"));
+        pal.remove_directory_all(&root).unwrap();
+    }
+
+    #[test]
+    fn c_runtime_preserves_owned_bytes_and_rejects_allocation_overflow() {
+        let (pal, root) = workspace();
+        let source = format!(
+            "{}\n{}",
+            ocelot_codegen_c::c_emitter::runtime_source(),
+            include_str!("native_runtime_tests.c")
+        );
+        let unit = NativeTranslationUnit {
+            source: source.into(),
+            deferred_error: None,
+            step_count: 1,
+        };
+        let (output, report) = run(&*pal, &root, &unit);
+        assert_eq!(output.exit_code, Some(0));
+        assert_eq!(report, "ocelot-eval-v1\n\"é\0x\"");
+        let overflow = CapturedProcess::run(
+            &*pal,
+            &ProcessCommand {
+                executable: root.join("program with spaces").into_shared_string(),
+                arguments: vec!["--overflow".into()],
+                working_directory: None,
+                environment: Vec::new(),
+            },
+            Duration::from_secs(5),
+        )
+        .unwrap();
+        assert_eq!(overflow.exit_code, Some(102));
+        assert!(
+            String::from_utf8(overflow.stderr)
+                .unwrap()
+                .contains("string size overflow")
+        );
+        pal.remove_directory_all(&root).unwrap();
+    }
+
+    #[test]
+    fn native_hello_world_does_not_pull_in_a_rust_runtime() {
+        let (pal, root) = workspace();
+        let path = root.join("hello.ocelot-script");
+        pal.write_file(&path, b"println(\"hello, world\");")
+            .unwrap();
+        let unit = file_source(pal.clone(), &path).unwrap();
+        let (output, _) = run(&*pal, &root, &unit);
+        assert_eq!(output.stdout, b"hello, world\n");
+        let executable = pal
+            .read_file_to_end(&root.join("program with spaces"))
+            .unwrap();
+        assert!(
+            executable.len() < 128 * 1024,
+            "minimal C-runtime binary grew to {} bytes",
+            executable.len()
+        );
+        assert!(
+            !executable
+                .windows(b"rust_eh_personality".len())
+                .any(|window| window == b"rust_eh_personality")
+        );
         pal.remove_directory_all(&root).unwrap();
     }
 }

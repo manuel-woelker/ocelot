@@ -35,12 +35,6 @@ pub fn validate_spec_directory_with_backend(
     if backend == ValidationBackend::CTcc {
         use ocelot_engine::native_toolchain::NativeToolchain;
         ocelot_engine::tcc_toolchain::TccToolchain::repository().check(&*pal.underlying())?;
-        let runtime = ocelot_engine::build_native::runtime_archive()?;
-        if !pal.underlying().file_exists(&runtime)? {
-            ocelot_base::bail!(
-                "native spec setup requires the prebuilt ABI v1 runtime: {runtime}; run cargo build --workspace"
-            );
-        }
         pal.underlying()
             .create_directory_all(&FilePath::new(execution_root))?;
     }

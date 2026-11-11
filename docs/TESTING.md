@@ -59,7 +59,8 @@ nao check
 
 That task runs formatting, build, clippy, tests, and both interpreter and C/TCC
 spec validation. Native validation is required on x86-64 GNU/Linux; missing TCC,
-linker, or runtime archive is a failure rather than a skip.
+or linker is a failure rather than a skip. The C runtime is included in emitted
+source, so no runtime archive needs to be built or installed.
 
 # How is the native C toolchain provisioned?
 
@@ -67,7 +68,7 @@ Use `./t tcc -v` to download and run the pinned x86-64 Linux TCC through
 tool-tool. The bootstrap verifies tool-tool's checksum; the repository's
 `.tool-tool/tool-tool.v2.kdl` and checksum manifest pin TCC and its support files.
 Do not run executables directly from the tool cache. A system C linker driver
-and libc development files are also needed to link the Rust runtime.
+and libc development files are also needed to link native programs.
 See [native compilation](NATIVE.md) for the full spec matrix, installed layout,
 process deadlines, and the strict-C/sanitizer smoke test.
 

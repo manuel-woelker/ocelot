@@ -50,3 +50,13 @@ caller's output location even when invoked outside the repository.
   and [Rust mixed-language linkage](https://doc.rust-lang.org/reference/linkage.html).
   No external source establishes this particular overlapping-FDE observation;
   the reproduction and linked tests are its evidence.
+
+## What changed when the runtime became C on 2026-11-11?
+
+[DR-021](<../decisions/DR-021 Use a C runtime in generated native programs.md>)
+replaced the Rust archive with C included in generated translation units. The
+same GNU ld overlapping-FDE failure was reproduced while linking the resulting
+pure C object, with no Rust archive or libraries. The evidence therefore narrows
+the issue to the pinned TCC object/unwind metadata rather than a requirement of
+the Rust runtime. The adapter retains `--no-eh-frame-hdr`; Rust library flags and
+runtime archive handling have been removed.

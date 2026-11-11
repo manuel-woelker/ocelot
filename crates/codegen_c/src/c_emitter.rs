@@ -26,9 +26,16 @@ pub struct CEmitter<'a> {
     next: usize,
 }
 
-/// Returns the complete ABI header, including generated-frame cleanup helpers.
-pub fn runtime_header() -> &'static str {
-    concat!(include_str!("native_value.h"), include_str!("runtime.h"))
+/// Returns the self-contained C runtime, ABI declarations, and frame cleanup helpers.
+pub fn runtime_source() -> &'static str {
+    concat!(
+        include_str!("native_value.h"),
+        include_str!("native_string.h"),
+        include_str!("native_bytes.h"),
+        include_str!("native_io.c"),
+        include_str!("native_api.c"),
+        include_str!("runtime.h")
+    )
 }
 
 impl<'a> CEmitter<'a> {

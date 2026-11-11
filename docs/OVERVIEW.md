@@ -22,8 +22,8 @@ and full native/interpreter spec verification.
 - `crates/semantic` holds symbols, types, runtime values, and native functions.
 - `crates/resolver` resolves declarations, checks arguments, and propagates effects.
 - `crates/interpreter` executes resolved syntax trees.
-- `crates/codegen_c` lowers resolved programs to portable C99.
-- `crates/native_runtime` supplies the standalone C ABI runtime and string ownership.
+- `crates/codegen_c` lowers resolved programs to portable C99 and supplies the
+  included C runtime for string ownership, display, assertions, and runtime I/O.
 - `crates/engine` loads module trees and coordinates execution, tests, and persistent embedded sessions.
 - `crates/formatter` formats parsed source.
 - `crates/cli` exposes file execution, test filtering, formatting, and a REPL.

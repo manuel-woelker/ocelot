@@ -28,7 +28,6 @@ enum CliCommand {
         emit_c: bool,
         compiler: Option<SharedString>,
         linker: Option<SharedString>,
-        runtime: Option<SharedString>,
     },
     Fmt,
     Repl {
@@ -90,14 +89,12 @@ fn parse_build_command(args: Vec<String>) -> Option<CliCommand> {
     let mut emit_c = false;
     let mut compiler = None;
     let mut linker = None;
-    let mut runtime = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "-o" if output.is_none() => output = Some(args.next()?.into()),
             "--emit=c" if !emit_c => emit_c = true,
             "--tcc" if compiler.is_none() => compiler = Some(args.next()?.into()),
             "--linker" if linker.is_none() => linker = Some(args.next()?.into()),
-            "--runtime" if runtime.is_none() => runtime = Some(args.next()?.into()),
             _ => return None,
         }
     }
@@ -107,7 +104,6 @@ fn parse_build_command(args: Vec<String>) -> Option<CliCommand> {
         emit_c,
         compiler,
         linker,
-        runtime,
     })
 }
 
@@ -157,7 +153,6 @@ fn try_execute_command(pal: PalHandle, command: &CliCommand) -> OcelotResult<Exi
             emit_c,
             compiler,
             linker,
-            runtime,
         } => {
             use ocelot_engine::native_toolchain::NativeToolchain;
             let unit = ocelot_engine::native_source::file_source(
@@ -182,15 +177,10 @@ fn try_execute_command(pal: PalHandle, command: &CliCommand) -> OcelotResult<Exi
                     toolchain.linker = linker.clone();
                 }
                 toolchain.check(&*pal)?;
-                let runtime = match runtime {
-                    Some(path) => FilePath::from(path.as_str()),
-                    None => ocelot_engine::build_native::runtime_archive()?,
-                };
                 ocelot_engine::build_native::build_native(
                     &*pal,
                     &unit.source,
                     &output,
-                    &runtime,
                     &toolchain,
                 )?;
             }
@@ -463,7 +453,7 @@ fn exit_code_for_test_summary(summary: &TestRunSummary) -> ExitCode {
 
 fn print_usage() {
     eprintln!(
-        "Usage:\n  ocelot build <source-file> -o <output> [--emit=c] [--tcc <path>] [--linker <path>] [--runtime <archive>]\n  ocelot fmt\n  ocelot repl [base-path]\n  ocelot <source-file>\n  ocelot test [filter-expression]"
+        "Usage:\n  ocelot build <source-file> -o <output> [--emit=c] [--tcc <path>] [--linker <path>]\n  ocelot fmt\n  ocelot repl [base-path]\n  ocelot <source-file>\n  ocelot test [filter-expression]"
     );
 }
 
@@ -541,8 +531,6 @@ mod tests {
             "/tools/my tcc",
             "--linker",
             "cc",
-            "--runtime",
-            "runtime.a",
         ];
         assert_eq!(
             parse_command(args.into_iter().map(OsString::from).collect()),
@@ -552,7 +540,6 @@ mod tests {
                 emit_c: false,
                 compiler: Some("/tools/my tcc".into()),
                 linker: Some("cc".into()),
-                runtime: Some("runtime.a".into()),
             })
         );
         for invalid in [

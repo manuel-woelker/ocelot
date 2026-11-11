@@ -8,6 +8,4 @@ pub struct NativeBuildRequest {
     pub object: FilePath,
     /// Staged executable output.
     pub executable: FilePath,
-    /// Matching ABI v1 static runtime archive.
-    pub runtime: FilePath,
 }

@@ -4,8 +4,8 @@
 
 - crates.io packages for `ocelot-base`, `ocelot-ast`, `ocelot-pal`, `ocelot-parser`, `ocelot-interpreter`, `ocelot-resolver`, `ocelot-engine`, `ocelot-spec-validation`, and `ocelot`
 - a GitHub release artifact containing the statically linked `ocelot` binary for `x86_64-unknown-linux-musl`
-- a GNU/Linux ABI v1 `libocelot_native_runtime.a` beside that compiler for native
-  program builds, plus [native build instructions](NATIVE.md)
+- the included C runtime source inside the compiler, plus
+  [native build instructions](NATIVE.md); no runtime archive is shipped
 
 # How are release versions managed?
 
@@ -20,7 +20,6 @@ The release script expects:
 - `crates/interpreter`
 - `crates/pal`
 - `crates/semantic`
-- `crates/native_runtime`
 - `crates/codegen_c`
 - `crates/parser`
 - `crates/resolver`
@@ -86,7 +85,6 @@ Dry runs execute validation and packaging checks without publishing crates, crea
 When a tag matching `v*` is pushed, `.github/workflows/release.yml`:
 
 - builds the `ocelot` binary for `x86_64-unknown-linux-musl`
-- builds the native runtime for `x86_64-unknown-linux-gnu` on Ubuntu 24.04 and
-  verifies the interpreter/native spec matrix
-- packages the compiler, GNU runtime archive, `README.md`, and `NATIVE.md`
+- verifies the interpreter/native spec matrix on Ubuntu 24.04
+- packages the compiler, `README.md`, and `NATIVE.md`
 - publishes a GitHub release with a tarball and SHA-256 checksum

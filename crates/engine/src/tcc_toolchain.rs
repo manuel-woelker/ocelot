@@ -70,9 +70,6 @@ impl NativeToolchain for TccToolchain {
     }
 
     fn build(&self, pal: &dyn Pal, request: &NativeBuildRequest) -> OcelotResult<()> {
-        if !pal.file_exists(&request.runtime)? {
-            ocelot_base::bail!("native ABI v1 runtime archive missing: {}", request.runtime);
-        }
         let compile = self.command(
             true,
             vec![
@@ -94,10 +91,6 @@ impl NativeToolchain for TccToolchain {
                 "-Wl,--gc-sections".into(),
                 "-Wl,--no-eh-frame-hdr".into(),
                 request.object.as_str().into(),
-                request.runtime.as_str().into(),
-                "-lpthread".into(),
-                "-ldl".into(),
-                "-lm".into(),
                 "-o".into(),
                 request.executable.as_str().into(),
             ],
@@ -126,18 +119,8 @@ mod tests {
             source: "/build/source file.c".into(),
             object: "/build/object file.o".into(),
             executable: "/build/output file".into(),
-            runtime: "/runtime/libocelot_native_runtime.a".into(),
         };
         let pal = PalMock::new();
-        assert!(
-            toolchain
-                .build(&pal, &request)
-                .unwrap_err()
-                .kind()
-                .to_string()
-                .contains("ABI v1 runtime archive missing")
-        );
-        pal.set_file(request.runtime.as_str(), b"archive".to_vec());
         let compile = toolchain.command(
             true,
             vec![
@@ -180,10 +163,6 @@ mod tests {
                 "-Wl,--gc-sections".into(),
                 "-Wl,--no-eh-frame-hdr".into(),
                 request.object.as_str().into(),
-                request.runtime.as_str().into(),
-                "-lpthread".into(),
-                "-ldl".into(),
-                "-lm".into(),
                 "-o".into(),
                 request.executable.as_str().into(),
             ],

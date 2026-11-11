@@ -29,7 +29,8 @@ unused identifier; IDs remain stable even when a decision is rejected or superse
 | [DR-017](<DR-017 Use immutable local bindings and lexical scopes.md>) | Use immutable local bindings and lexical scopes | Accepted |
 | [DR-018](<DR-018 Compare matching value types with explicit equality operators.md>) | Compare matching value types with explicit equality operators | Accepted |
 | [DR-019](<DR-019 Compile native executables with Cranelift and a C ABI runtime.md>) | Compile native executables with Cranelift and a C ABI runtime | Rejected |
-| [DR-020](<DR-020 Generate C with replaceable native toolchains.md>) | Generate C with replaceable native toolchains | Accepted |
+| [DR-020](<DR-020 Generate C with replaceable native toolchains.md>) | Generate C with replaceable native toolchains | Superseded by DR-021 |
+| [DR-021](<DR-021 Use a C runtime in generated native programs.md>) | Use a C runtime in generated native programs | Accepted |
 
 DR-001 through DR-013 retrospectively document implemented choices and existing
 project policy. Their dates record acceptance of these accounts on 2026-11-03,

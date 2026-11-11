@@ -1,5 +1,9 @@
 # What will this plan deliver?
 
+Historical implementation account: the Rust runtime described below was replaced
+by the self-contained C runtime in [DR-021](<../../decisions/DR-021 Use a C runtime in generated native programs.md>)
+on 2026-11-11. See the [native guide](../../NATIVE.md) for current build requirements.
+
 Add a C backend and an external TCC toolchain for native x86-64 Linux executables.
 The same generated C must remain usable by later Clang/GCC adapters without
 changing language lowering. Verify every executable spec example through the

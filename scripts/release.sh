@@ -14,7 +14,6 @@ RELEASE_CRATES=(
   "crates/base:ocelot-base"
   "crates/ast:ocelot-ast"
   "crates/pal:ocelot-pal"
-  "crates/native_runtime:ocelot-native-runtime"
   "crates/parser:ocelot-parser"
   "crates/semantic:ocelot-semantic"
   "crates/interpreter:ocelot-interpreter"

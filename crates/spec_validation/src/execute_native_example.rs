@@ -11,7 +11,7 @@ use crate::spec_example_embedded_step_kind::SpecExampleEmbeddedStepKind;
 use ocelot_base::error::ErrorKind;
 use ocelot_base::file_path::FilePath;
 use ocelot_base::result::{OcelotResult, ResultExt};
-use ocelot_engine::build_native::{build_native, runtime_archive};
+use ocelot_engine::build_native::build_native;
 use ocelot_engine::captured_process::CapturedProcess;
 use ocelot_engine::native_scenario_step::NativeScenarioStep;
 use ocelot_engine::native_source::{file_source, scenario_source};
@@ -90,7 +90,6 @@ pub fn execute_native_example(
             &*pal,
             &unit.source,
             &executable,
-            &runtime_archive()?,
             &TccToolchain::repository(),
         )?;
         let run = CapturedProcess::run(

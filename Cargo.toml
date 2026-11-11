@@ -7,7 +7,6 @@ members = [
     "crates/engine",
     "crates/formatter",
     "crates/interpreter",
-    "crates/native_runtime",
     "crates/pal",
     "crates/parser",
     "crates/resolver",

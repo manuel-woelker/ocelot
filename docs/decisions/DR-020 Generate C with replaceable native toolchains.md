@@ -1,7 +1,9 @@
 # DR-020: Generate C with replaceable native toolchains
 
-- Status: Accepted
-- Date: 2026-11-10
+- Status: Superseded
+- Date: 2026-11-11
+- Superseded by: [DR-021](<DR-021 Use a C runtime in generated native programs.md>)
+  for runtime and packaging. The C backend and replaceable-toolchain direction remain.
 - Scope: Backend/toolchain direction agreed by the user's planning request;
   implementation and detailed runtime ABI remain pending.
 
